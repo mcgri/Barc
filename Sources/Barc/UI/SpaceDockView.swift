@@ -8,11 +8,10 @@ struct SpaceDockItem {
     let color: NSColor
 }
 
-/// Geometry uses resting icon positions, so magnification does not chase its own movement.
+/// Fixed cells keep pointer tracking, click targets and scrolling independent of magnification.
 enum SpaceDockLayout {
     static let iconSide: CGFloat = 18
-    static let enlargedSide: CGFloat = 30
-    static let gap: CGFloat = 5
+    static let enlargedSide: CGFloat = 26
     static let inset: CGFloat = 6
     static let height: CGFloat = 44
 
@@ -24,22 +23,18 @@ enum SpaceDockLayout {
 
     static func plan(count: Int, availableWidth: CGFloat, pointerX: CGFloat?, reduceMotion: Bool) -> Plan {
         guard count > 0 else { return Plan(frames: [], iconSizes: [], width: max(0, availableWidth)) }
-        let restingWidth = CGFloat(count) * iconSide + CGFloat(count - 1) * gap + inset * 2
-        let baselineWidth = max(availableWidth, restingWidth)
-        let start = (baselineWidth - restingWidth) / 2 + inset
+        let rowWidth = CGFloat(count) * enlargedSide + inset * 2
+        let width = max(availableWidth, rowWidth)
+        let start = (width - rowWidth) / 2 + inset
+        let frames = (0..<count).map { index in
+            NSRect(x: start + CGFloat(index) * enlargedSide, y: 0, width: enlargedSide, height: height)
+        }
         let sizes = (0..<count).map { index -> CGFloat in
             guard !reduceMotion, let pointerX, pointerX.isFinite else { return iconSide }
-            let center = start + CGFloat(index) * (iconSide + gap) + iconSide / 2
+            let center = frames[index].midX
             let distance = abs(pointerX - center)
             let influence = distance < 50 ? (1 + cos(.pi * distance / 50)) / 2 : 0
             return iconSide + (enlargedSide - iconSide) * influence
-        }
-        let fullWidth = sizes.reduce(0, +) + CGFloat(count - 1) * gap + inset * 2
-        let width = max(availableWidth, fullWidth)
-        var x = (width - fullWidth) / 2 + inset
-        let frames = sizes.map { side -> NSRect in
-            defer { x += side + gap }
-            return NSRect(x: x - gap / 2, y: 0, width: side + gap, height: height)
         }
         return Plan(frames: frames, iconSizes: sizes, width: width)
     }
@@ -56,6 +51,9 @@ final class SpaceDockView: NSView {
     private var pointerX: CGFloat?
     private var lastViewportWidth: CGFloat = -1
     private nonisolated(unsafe) var pointerMonitor: Any?
+    private nonisolated(unsafe) var animationTimer: Timer?
+    private var lastAnimationTime: TimeInterval = 0
+    private var targetIconSizes: [CGFloat] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -85,13 +83,19 @@ final class SpaceDockView: NSView {
 
     deinit {
         if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        animationTimer?.invalidate()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
         pointerMonitor = nil
-        guard window != nil else { return }
+        guard window != nil else {
+            stopAnimation()
+            pointerX = nil
+            arrange(animated: false)
+            return
+        }
         // Buttons may track the mouse themselves. Observe the window's pointer
         // stream too, so magnification follows across them and during a drag.
         pointerMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
@@ -144,14 +148,48 @@ final class SpaceDockView: NSView {
     private func arrange(animated: Bool) {
         let plan = SpaceDockLayout.plan(count: buttons.count, availableWidth: scroll.contentSize.width,
                                        pointerX: pointerX, reduceMotion: Style.Motion.isReduced)
-        document.setFrameSize(NSSize(width: plan.width, height: SpaceDockLayout.height))
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = animated ? Style.Motion.duration(0.10) : 0
-            context.allowsImplicitAnimation = animated && !Style.Motion.isReduced
-            for (index, button) in buttons.enumerated() {
-                button.apply(frame: plan.frames[index], iconSize: plan.iconSizes[index], animated: context.duration > 0)
+        let size = NSSize(width: plan.width, height: SpaceDockLayout.height)
+        if document.frame.size != size { document.setFrameSize(size) }
+        targetIconSizes = plan.iconSizes
+        let shouldAnimate = (animated || animationTimer != nil) && !Style.Motion.isReduced
+        for (index, button) in buttons.enumerated() {
+            button.apply(frame: plan.frames[index], iconSize: shouldAnimate ? button.iconSize : targetIconSizes[index])
+        }
+        if shouldAnimate { startAnimation() } else { stopAnimation() }
+    }
+
+    private func startAnimation() {
+        guard animationTimer == nil, zip(buttons, targetIconSizes).contains(where: { abs($0.0.iconSize - $0.1) > 0.01 }) else { return }
+        lastAnimationTime = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let now = ProcessInfo.processInfo.systemUptime
+                self.advanceMagnification(by: now - self.lastAnimationTime)
+                self.lastAnimationTime = now
             }
         }
+        timer.tolerance = 1.0 / 600
+        animationTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// One non-spring animation follows the latest target without restarting on every mouse event.
+    /// Passing elapsed time also lets tests replay rapid pointer movement deterministically.
+    func advanceMagnification(by elapsed: TimeInterval) {
+        let blend: CGFloat = Style.Motion.isReduced ? 1 : 1 - exp(-max(0, elapsed) / 0.045)
+        var settled = true
+        for (button, target) in zip(buttons, targetIconSizes) {
+            var size = button.iconSize + (target - button.iconSize) * blend
+            if abs(size - target) < 0.01 { size = target } else { settled = false }
+            button.apply(frame: button.frame, iconSize: size)
+        }
+        if settled { stopAnimation() }
+    }
+
+    private func stopAnimation() {
+        animationTimer?.invalidate()
+        animationTimer = nil
     }
 
     private func revealSelection() {
@@ -246,16 +284,11 @@ final class SpaceDockButton: NSButton {
         needsDisplay = true
     }
 
-    func apply(frame: NSRect, iconSize: CGFloat, animated: Bool) {
+    func apply(frame: NSRect, iconSize: CGFloat) {
         self.iconSize = iconSize
         let imageFrame = NSRect(x: (frame.width - iconSize) / 2, y: 8, width: iconSize, height: iconSize)
-        if animated {
-            animator().frame = frame
-            glyph.animator().frame = imageFrame
-        } else {
-            self.frame = frame
-            glyph.frame = imageFrame
-        }
+        if self.frame != frame { self.frame = frame }
+        if glyph.frame != imageFrame { glyph.frame = imageFrame }
     }
 
     @objc private func selectSpace() { onSelect?() }

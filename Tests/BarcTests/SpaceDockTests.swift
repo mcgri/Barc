@@ -10,6 +10,62 @@ struct SpaceDockTests {
         (0..<count).map { SpaceDockItem(id: UUID(), name: "Space \($0)", icon: .automatic, color: .systemBlue) }
     }
 
+    private func settle(_ dock: SpaceDockView) {
+        for _ in 0..<30 { dock.advanceMagnification(by: 1.0 / 60) }
+    }
+
+    @Test("Moving the pointer never shifts click targets or changes the scrollable width")
+    func hoverKeepsRowStationary() {
+        for (count, width) in [(8, CGFloat(221)), (24, CGFloat(95))] {
+            let rest = SpaceDockLayout.plan(count: count, availableWidth: width, pointerX: nil, reduceMotion: false)
+            for x in stride(from: CGFloat(0), through: rest.width, by: 7) {
+                let hover = SpaceDockLayout.plan(count: count, availableWidth: width, pointerX: x, reduceMotion: false)
+                #expect(hover.frames == rest.frames)
+                #expect(hover.width == rest.width)
+            }
+        }
+    }
+
+    @Test("Rapid hover reversals preserve positions and ease sizes without jumps or overshoot")
+    func rapidPointerMovementStaysSolid() throws {
+        let before = Style.Motion.reduceMotionOverride
+        Style.Motion.reduceMotionOverride = false
+        defer { Style.Motion.reduceMotionOverride = before }
+        let dock = SpaceDockView()
+        let values = items(8)
+        dock.show(values, selectedID: values[3].id)
+        let host = UITestSupport.host(dock, width: 221, height: SpaceDockLayout.height)
+        let frames = dock.buttons.map(\.frame)
+        let document = try #require(dock.buttons.first?.superview)
+        let documentFrame = document.frame
+        for index in [0, 7, 2, 6, 3, 4, 0, 7, 3] {
+            let previousSizes = dock.buttons.map(\.iconSize)
+            dock.setPointer(frames[index].midX)
+            #expect(dock.buttons.map(\.iconSize) == previousSizes)
+            dock.advanceMagnification(by: 1.0 / 60)
+            for (button, previous) in zip(dock.buttons, previousSizes) {
+                #expect(abs(button.iconSize - previous) < 3)
+                #expect(button.iconSize >= SpaceDockLayout.iconSide)
+                #expect(button.iconSize <= SpaceDockLayout.enlargedSide)
+            }
+            host.layoutSubtreeIfNeeded()
+            #expect(dock.buttons.map(\.frame) == frames)
+            #expect(document.frame == documentFrame)
+        }
+        settle(dock)
+        #expect(dock.buttons[3].iconSize == SpaceDockLayout.enlargedSide)
+        #expect(dock.buttons[3].isSelectedSpace)
+        dock.setPointer(nil)
+        var previous = dock.buttons.map(\.iconSize)
+        for _ in 0..<30 {
+            dock.advanceMagnification(by: 1.0 / 60)
+            for (button, size) in zip(dock.buttons, previous) { #expect(button.iconSize <= size) }
+            previous = dock.buttons.map(\.iconSize)
+        }
+        #expect(dock.buttons.allSatisfy { $0.iconSize == SpaceDockLayout.iconSide })
+        #expect(dock.buttons.map(\.frame) == frames)
+    }
+
     @Test("AppKit pointer events reach the dock and magnify the icon under the mouse")
     func pointerEventsReachIcons() throws {
         _ = NSApplication.shared
@@ -35,10 +91,13 @@ struct SpaceDockTests {
                                                   timestamp: 0, windowNumber: window.windowNumber, context: nil,
                                                   eventNumber: 0, clickCount: 0, pressure: 0))
         document.mouseMoved(with: event)
+        settle(dock)
         #expect(dock.buttons[3].iconSize > SpaceDockLayout.iconSide)
         document.mouseExited(with: event)
+        settle(dock)
         #expect(dock.buttons.allSatisfy { $0.iconSize == SpaceDockLayout.iconSide })
         dock.trackPointer(event)
+        settle(dock)
         #expect(dock.buttons[3].iconSize > SpaceDockLayout.iconSide)
     }
 
@@ -70,8 +129,10 @@ struct SpaceDockTests {
         _ = UITestSupport.host(dock, width: 221, height: SpaceDockLayout.height)
         let rest = dock.buttons.map(\.iconSize)
         dock.setPointer(dock.buttons[3].frame.midX)
+        settle(dock)
         #expect(dock.buttons[3].iconSize > rest[3])
         dock.setPointer(nil)
+        settle(dock)
         #expect(dock.buttons.map(\.iconSize) == rest)
     }
 
