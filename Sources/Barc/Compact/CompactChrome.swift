@@ -1,3 +1,4 @@
+// Modified for Barc: sidebar browser controls and a page-only content card, 2026-10-23.
 import AppKit
 
 /// The sidebar's home in the window, from compact mode's point of view.
@@ -89,12 +90,7 @@ final class CompactChrome: CompactModeHost {
         }
         controller.setHost(self)
 
-        // The lights ride on the bar in compact mode without Auto Layout to
-        // hold them there, so the bar re-centres them every time it lays out.
-        (toolbarView as? ContentTopBar)?.onLayout = { [weak self] in
-            guard let self, let toolbarView = self.toolbarView else { return }
-            self.trafficLights?.recentre(in: toolbarView)
-        }
+
     }
 
     // MARK: - The switch

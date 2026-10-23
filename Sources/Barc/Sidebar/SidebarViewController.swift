@@ -11,6 +11,15 @@ final class SidebarViewController: NSViewController {
 
     private let session: BrowserSession
     private let diaHeader = SidebarHeaderView()
+    private let browserControls = NSStackView()
+
+    func installBrowserControls(_ controls: [NSView]) {
+        _ = view
+        browserControls.setViews(controls, in: .top)
+        for control in controls {
+            control.widthAnchor.constraint(equalTo: browserControls.widthAnchor).isActive = true
+        }
+    }
 
     /// Buttons on the trailing end of the header strip. Empty is the usual
     /// state: the page's top bar carries them. A floating sidebar covers that
@@ -298,7 +307,12 @@ final class SidebarViewController: NSViewController {
         // space switch moves it as a unit. Transforming four sibling views in
         // step is four chances for them to drift apart, and AppKit will happily
         // recompute one of their opacities halfway through the animation.
-        let contentStack = NSStackView(views: [diaHeader, pinnedTiles, scrollView, archiveList])
+        browserControls.orientation = .vertical
+        browserControls.alignment = .leading
+        browserControls.spacing = 6
+        browserControls.translatesAutoresizingMaskIntoConstraints = false
+
+        let contentStack = NSStackView(views: [pinnedTiles, scrollView, archiveList])
         contentStack.orientation = .vertical
         // The bands of the sidebar -- title, shortcuts, tabs -- are different
         // kinds of thing, so the space between them is the gutter rather than
@@ -320,7 +334,7 @@ final class SidebarViewController: NSViewController {
             }
         }
 
-        let stack = NSStackView(views: [contentStack, nowPlayingView, diaFooter])
+        let stack = NSStackView(views: [diaHeader, browserControls, contentStack, nowPlayingView, diaFooter])
         stack.orientation = .vertical
         stack.spacing = Style.Metrics.elementSeparation
         stack.alignment = .leading
@@ -344,7 +358,8 @@ final class SidebarViewController: NSViewController {
 
             contentStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             nowPlayingView.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            diaHeader.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
+            diaHeader.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            browserControls.widthAnchor.constraint(equalTo: stack.widthAnchor),
             diaFooter.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             archiveList.widthAnchor.constraint(equalTo: contentStack.widthAnchor),

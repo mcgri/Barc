@@ -102,8 +102,10 @@ final class WebContentViewController: NSViewController {
         set { contentContainer.cardLeadingInset = newValue }
     }
 
-    /// Compact mode animates this to collapse the bar (D-CM8).
-    var topBarTopConstraint: NSLayoutConstraint { contentContainer.topBarTopConstraint }
+    /// Controls are installed in the sidebar, outside the page card.
+    var sidebarControls: [NSView] {
+        [contentContainer.topBar, contentContainer.tabStrip, contentContainer.bookmarksBar]
+    }
 
 
     var onPinchToOverview: (() -> Void)? {

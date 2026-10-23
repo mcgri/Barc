@@ -132,24 +132,28 @@ struct ContentTopBarTests {
         #expect(UITestSupport.buttons(in: bar).allSatisfy { $0.accessibilityLabel() != "Share" })
     }
 
-    @Test("The actions hold the trailing edge and the breadcrumb takes the slack")
-    func actionsAreTrailingAligned() {
+    @Test("Sidebar controls wrap at narrow widths without losing actions")
+    func sidebarControlsFit() {
         let bar = ContentTopBar()
-        bar.setActions([
-            TopBarAction(symbolName: "square.and.arrow.up", label: "Share") {}
-        ])
-        let narrow = UITestSupport.laidOut(bar, width: 600)
-        let wide = UITestSupport.laidOut(bar, width: 1400)
-
-        // The breadcrumb starts in the same place at both widths: the extra
-        // width goes to the gap after it, not in front of it.
-        #expect(narrow.breadcrumb.minX == wide.breadcrumb.minX)
-        // And the action sits against the trailing edge at both.
-        #expect(abs(600 - narrow.share.maxX - Style.Metrics.topBarTrailingInset) < 1)
-        #expect(abs(1400 - wide.share.maxX - Style.Metrics.topBarTrailingInset) < 1)
-        // Which is only meaningful if the two are actually far apart.
-        #expect(wide.share.minX - wide.breadcrumb.maxX > 400)
+        let names = ["Shield", "Translate Page", "Reader Mode", "Reading List", "Site Settings",
+                     "Share", "Find in Page", "Add Bookmark", "Page Menu", "Extensions"]
+        bar.setActions(names.map { TopBarAction(symbolName: "circle", label: $0) {} })
+        let host = UITestSupport.host(bar, width: 237, height: 600)
+        for width: CGFloat in [237, 180, 97, 340] {
+            host.setFrameSize(NSSize(width: width, height: 600))
+            host.layoutSubtreeIfNeeded()
+            host.layoutSubtreeIfNeeded()
+            #expect(abs(bar.frame.width - width) < 1)
+            #expect(bar.frame.height < 400)
+            #expect(bar.bounds.contains(bar.addressField.frame))
+            for button in UITestSupport.buttons(in: bar) where !button.isHiddenOrHasHiddenAncestor {
+                let frame = button.convert(button.bounds, to: bar)
+                #expect(bar.bounds.insetBy(dx: -1, dy: -1).contains(frame), "\(button.accessibilityLabel() ?? "button") at width \(width)")
+            }
+        }
+        #expect(names.allSatisfy { bar.actionButton(labelled: $0) != nil })
     }
+
 }
 
 @Suite("Pinned tiles")
@@ -803,6 +807,29 @@ struct SidebarFooterTests {
 @Suite("Content container")
 @MainActor
 struct ContentContainerTests {
+    @Test("The page fills the card and every browser control is in the sidebar")
+    func controlsStayOutOfThePage() {
+        let container = ContentContainerView()
+        let page = NSView()
+        container.setPage(page)
+        let host = UITestSupport.host(container, width: 800, height: 600)
+        container.heightAnchor.constraint(equalToConstant: 600).isActive = true
+        let (session, _) = TestSession.make()
+        let sidebar = SidebarViewController(session: session)
+        sidebar.installBrowserControls([container.topBar, container.tabStrip, container.bookmarksBar])
+        for shown in [false, true] {
+            container.showsTabStrip = shown
+            container.showsBookmarksBar = shown
+            host.layoutSubtreeIfNeeded()
+            #expect(page.frame == page.superview?.bounds)
+            #expect(UITestSupport.buttons(in: container).isEmpty)
+            #expect(!container.topBar.isDescendant(of: container))
+            #expect(container.topBar.isDescendant(of: sidebar.view))
+            #expect(container.tabStrip.isDescendant(of: sidebar.view))
+            #expect(container.bookmarksBar.isDescendant(of: sidebar.view))
+        }
+    }
+
     @Test("All four corners are rounded, because the card meets only the window top")
     func roundsEveryCorner() {
         let container = ContentContainerView()
@@ -920,15 +947,6 @@ enum UITestSupport {
         ])
         host.layoutSubtreeIfNeeded()
         return host
-    }
-
-    static func laidOut(_ bar: ContentTopBar, width: CGFloat) -> (breadcrumb: NSRect, share: NSRect) {
-        let host = host(bar, width: width, height: Style.Metrics.topBarHeight)
-        let share = buttons(in: bar).first { $0.accessibilityLabel() == "Share" }
-        let shareFrame = share.map { $0.convert($0.bounds, to: host) } ?? .zero
-        let breadcrumb = descendants(of: bar).first { $0 is BreadcrumbView }
-        let breadcrumbFrame = breadcrumb.map { $0.convert($0.bounds, to: host) } ?? .zero
-        return (breadcrumbFrame, shareFrame)
     }
 
     static func laidOutFooter(

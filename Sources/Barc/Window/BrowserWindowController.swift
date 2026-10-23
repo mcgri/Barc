@@ -42,14 +42,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private var isApplyingSidebarWidth = false
     private var sidebarCollapseObservation: NSKeyValueObservation?
     private var isSidebarCollapsed = false
-    private var isTopBarHovered = false
     private var isWindowFullScreen = false
     /// Whether compact mode was on before full screen borrowed it to hide
     /// the chrome for the space in front. Nil while it has not been borrowed.
     private var compactWasEnabledBeforeFullScreen: Bool?
-    /// Compact mode has put the window's lights on the page's top bar, which
-    /// then has to make room for them.
-    private var lightsRideOnTopBar = false
     private var isZenMode = false
     private var zenModeSavedState: (mode: SidebarMode, compactEnabled: Bool)?
     /// The top bar's bookmark button, whose glyph follows the page.
@@ -122,6 +118,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         window.delegate = self
 
         buildSplitView()
+        sidebar.installBrowserControls(content.sidebarControls)
         wireTopBar()
         wireCommandBar()
         sidebar.onNewTab = { [weak self] in self?.newTab(nil) }
@@ -147,13 +144,12 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         compact = CompactChrome(
             slot: self,
             contentView: content.view,
-            toolbarView: content.topBar,
-            toolbarTopConstraint: content.topBarTopConstraint,
-            window: window,
+            toolbarView: nil,
+            toolbarTopConstraint: nil,
+            window: nil,
             configuration: Settings.shared.compactModeConfiguration
         )
-        compact.onTrafficLightHostChange = { [weak self] host in
-            self?.lightsRideOnTopBar = host == .toolbar
+        compact.onTrafficLightHostChange = { [weak self] _ in
             self?.updateTrafficLights()
             // Compact mode takes the sidebar out of the layout and puts it
             // back, which changes what is on the card's leading edge, so the
@@ -272,10 +268,6 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
         ContextMenuManager.shared.onOpenSplit = { url in
             GlanceLinkMonitor.shared.onOpenSplit?(url)
-        }
-        content.topBar.onHoverChanged = { [weak self] isHovered in
-            self?.isTopBarHovered = isHovered
-            self?.updateTrafficLights()
         }
         gestures.delegate = self
         gestures.install()
@@ -1495,14 +1487,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             compact.setConfiguration(config)
             compact.setEnabled(true, animated: true)
 
-            // Hide top bar
-            content.topBar.animator().alphaValue = 0
-            content.topBar.isHidden = true
             updateCardInsets()
             updateTrafficLights()
         } else {
-            content.topBar.isHidden = false
-            content.topBar.animator().alphaValue = 1
             if let prev = zenModeSavedState {
                 setSidebarMode(prev.mode)
                 zenModeSavedState = nil
@@ -1639,56 +1626,14 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     private func updateTrafficLights() {
         guard let window else { return }
-        let isTrailing = Settings.shared.sidebarPosition == .trailing
-        // Where the lights live. The sidebar's header strip hosts them while
-        // the sidebar is there to host them; otherwise they ride the page's
-        // top bar -- compact mode, a trailing sidebar, or a collapsed one,
-        // which has no strip at all and used to leave the window with no
-        // visible close button.
-        let ridesOnBar = lightsRideOnTopBar || isTrailing || isSidebarCollapsed
-        sidebar.headerHostsTrafficLights = !ridesOnBar && !isZenMode
-        // Optional: the split view is built before compact mode is, and its
-        // collapse observation fires `.initial` on the way past.
-        compact?.setLightsOnToolbar(ridesOnBar && !isZenMode)
+        // Window buttons stay with the sidebar, including when it floats or
+        // docks on the right. Nothing is moved onto the web page.
+        sidebar.headerHostsTrafficLights = !isZenMode
         updateFloatingSidebarActions()
-        if isZenMode {
-            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window.standardWindowButton(type)?.alphaValue = 0
-            }
-            return
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(type)?.alphaValue = isZenMode ? 0 : 1
         }
-        if ridesOnBar {
-            // The lights are on the bar itself: shown, with the bar's own
-            // buttons stepping aside for them. They stay shown rather than
-            // waiting for a hover -- on the bar they are the only close button
-            // the window has.
-            for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window.standardWindowButton(type)?.alphaValue = 1
-            }
-            content.topBar.leadingInset = Style.Metrics.trafficLightWidth
-            return
-        }
-        let shouldHide = WindowChrome.hidesWindowControls(
-            sidebarCollapsed: isSidebarCollapsed,
-            topBarHovered: isTopBarHovered,
-            keepsButtons: Settings.shared.compactModeShowsWindowButtons
-        )
-        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
-            .compactMap { window.standardWindowButton($0) }
-
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.allowsImplicitAnimation = true
-            for button in buttons {
-                button.animator().alphaValue = shouldHide ? 0 : 1
-            }
-        }
-        content.topBar.leadingInset = WindowChrome.topBarLeadingInset(
-            sidebarCollapsed: isSidebarCollapsed,
-            topBarHovered: isTopBarHovered,
-            reserved: Style.Metrics.trafficLightWidth,
-            normal: Style.Metrics.sidebarInset
-        )
+        sidebar.view.needsLayout = true
     }
 
     /// Compact mode has to hear about the window, not just the pointer: a

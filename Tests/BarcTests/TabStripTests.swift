@@ -35,18 +35,23 @@ struct TabStripTests {
         #expect(strip.cells.isEmpty)
     }
 
-    @Test("The container gives the strip its height only while it is shown")
+    @Test("The sidebar gives the strip its height only while it is shown")
     func containerHeight() {
         let container = ContentContainerView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
-        container.layoutSubtreeIfNeeded()
+        let (session, _) = TestSession.make()
+        let sidebar = SidebarViewController(session: session)
+        sidebar.installBrowserControls([container.topBar, container.tabStrip, container.bookmarksBar])
+        let host = UITestSupport.host(sidebar.view, width: 245, height: 800)
+        sidebar.view.heightAnchor.constraint(equalToConstant: 800).isActive = true
+        host.layoutSubtreeIfNeeded()
         #expect(container.tabStrip.isHidden)
         #expect(container.tabStrip.frame.height == 0)
         container.showsTabStrip = true
-        container.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
         #expect(!container.tabStrip.isHidden)
         #expect(container.tabStrip.frame.height == TabStripView.height)
         container.showsTabStrip = false
-        container.layoutSubtreeIfNeeded()
+        host.layoutSubtreeIfNeeded()
         #expect(container.tabStrip.frame.height == 0)
     }
 

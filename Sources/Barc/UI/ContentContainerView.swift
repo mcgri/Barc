@@ -1,7 +1,8 @@
+// Modified for Barc: sidebar browser controls and a page-only content card, 2026-10-23.
 import AppKit
 
-/// The page side of the window: the top bar, then the page, inside a single
-/// rounded card.
+/// The page side of the window contains only the page inside a rounded card.
+/// Browser controls are owned here for state updates, but hosted in the sidebar.
 ///
 /// The card's leading corners are rounded and the other three edges are flush
 /// with the window. That is what the screenshot shows and it is also the only
@@ -23,11 +24,11 @@ import AppKit
 @MainActor
 final class ContentContainerView: NSView {
     let topBar = ContentTopBar()
-    /// Under the top bar, inside the card; shown per space.
+    /// Shown per space and hosted with navigation in the sidebar.
     let bookmarksBar = BookmarksBarView()
     private var bookmarksBarHeight: NSLayoutConstraint!
 
-    /// The row of tabs above the page, for those who want one.
+    /// An optional tab strip, also hosted in the sidebar.
     let tabStrip = TabStripView()
     private var tabStripHeight: NSLayoutConstraint!
 
@@ -48,7 +49,6 @@ final class ContentContainerView: NSView {
     }
 
     private let card = NSView()
-    private(set) var topBarTopConstraint: NSLayoutConstraint!
     private var cardLeadingConstraint: NSLayoutConstraint!
 
     /// The gutter on the page's leading edge, which depends on whether the
@@ -158,31 +158,18 @@ final class ContentContainerView: NSView {
         // above anything added directly to the backing layer.
         layer?.addSublayer(cardShadow)
 
-        card.addSubview(topBar)
-        card.addSubview(tabStrip)
         tabStrip.isHidden = true
         let stripHeight = tabStrip.heightAnchor.constraint(equalToConstant: 0)
         stripHeight.priority = .required
         tabStripHeight = stripHeight
-        card.addSubview(bookmarksBar)
         bookmarksBar.isHidden = true
         let barHeight = bookmarksBar.heightAnchor.constraint(equalToConstant: 0)
         barHeight.priority = .required
         bookmarksBarHeight = barHeight
 
-        // The bar's offset from the top of the card. Compact mode animates it
-        // so the bar slides out and the card's own mask clips it; the page
-        // follows because it is pinned to the bar's bottom edge.
-        // Flush while the sidebar is showing: the divider between the two is
-        // what the user drags to resize, so the page has to begin exactly where
-        // that divider ends or the drag target is not the edge it looks like.
-        // With the sidebar hidden there is no divider, and the page needs the
-        // same gutter here as it has on its other three sides.
         let cardLeading = card.leadingAnchor.constraint(equalTo: leadingAnchor)
         cardLeadingConstraint = cardLeading
 
-        let topBarTop = topBar.topAnchor.constraint(equalTo: card.topAnchor)
-        topBarTopConstraint = topBarTop
 
         NSLayoutConstraint.activate([
             underlay.topAnchor.constraint(equalTo: topAnchor),
@@ -210,18 +197,7 @@ final class ContentContainerView: NSView {
                 constant: -Style.Metrics.elementSeparation
             ),
 
-            topBarTop,
-            topBar.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            topBar.trailingAnchor.constraint(equalTo: card.trailingAnchor),
-
-            tabStrip.topAnchor.constraint(equalTo: topBar.bottomAnchor),
-            tabStrip.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            tabStrip.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             stripHeight,
-
-            bookmarksBar.topAnchor.constraint(equalTo: tabStrip.bottomAnchor),
-            bookmarksBar.leadingAnchor.constraint(equalTo: card.leadingAnchor),
-            bookmarksBar.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             barHeight
         ])
 
@@ -232,9 +208,7 @@ final class ContentContainerView: NSView {
         fatalError("ContentContainerView is created in code only")
     }
 
-    /// Puts a view -- in practice the existing web content view -- below the
-    /// top bar. Passing `nil` empties the card, which is what a window with no
-    /// tabs shows.
+    /// The page fills the card, with no browser controls above it.
     func setPage(_ view: NSView?) {
         page?.removeFromSuperview()
         page = view
@@ -242,7 +216,7 @@ final class ContentContainerView: NSView {
         view.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(view)
         NSLayoutConstraint.activate([
-            view.topAnchor.constraint(equalTo: bookmarksBar.bottomAnchor),
+            view.topAnchor.constraint(equalTo: card.topAnchor),
             view.leadingAnchor.constraint(equalTo: card.leadingAnchor),
             view.trailingAnchor.constraint(equalTo: card.trailingAnchor),
             view.bottomAnchor.constraint(equalTo: card.bottomAnchor)
