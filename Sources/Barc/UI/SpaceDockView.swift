@@ -44,6 +44,7 @@ enum SpaceDockLayout {
 final class SpaceDockView: NSView {
     var onSelect: ((UUID) -> Void)?
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
+    var menuProvider: ((UUID, NSView) -> NSMenu)?
     private let scroll = SpaceDockScrollView()
     private let document = SpaceDockDocumentView()
     private(set) var buttons: [SpaceDockButton] = []
@@ -120,6 +121,10 @@ final class SpaceDockView: NSView {
             button.configure(item, selected: item.id == selectedID)
             button.onSelect = { [weak self] in self?.onSelect?(item.id) }
             button.onChangeIcon = { [weak self] choice in self?.onChangeIcon?(item.id, choice) }
+            button.spaceMenuProvider = { [weak self, weak button] in
+                guard let self, let button else { return nil }
+                return menuProvider?(item.id, button)
+            }
             if button.superview !== document { document.addSubview(button) }
             return button
         }
@@ -246,6 +251,7 @@ final class SpaceDockButton: NSButton {
     let id: UUID
     var onSelect: (() -> Void)?
     var onChangeIcon: ((IconMenu.Choice) -> Void)?
+    var spaceMenuProvider: (() -> NSMenu?)?
     private let glyph = NSImageView()
     private var item: SpaceDockItem?
     private(set) var iconSize = SpaceDockLayout.iconSide
@@ -279,7 +285,7 @@ final class SpaceDockButton: NSButton {
         isSelectedSpace = selected
         setAccessibilityLabel(item.name)
         setAccessibilityValue(selected ? "Selected" : "")
-        toolTip = "\(item.name)\nClick to switch. Right-click to change icon."
+        toolTip = "\(item.name)\nClick to switch. Right-click for Space options."
         glyph.image = item.icon == .automatic ? Self.initialImage(item) : item.icon.image(color: item.color, title: item.name, side: 60)
         needsDisplay = true
     }
@@ -294,7 +300,7 @@ final class SpaceDockButton: NSButton {
 
     @objc private func selectSpace() { onSelect?() }
 
-    override func menu(for event: NSEvent) -> NSMenu? { customizationMenu() }
+    override func menu(for event: NSEvent) -> NSMenu? { spaceMenuProvider?() ?? customizationMenu() }
 
     func customizationMenu() -> NSMenu {
         guard let item else { return NSMenu() }

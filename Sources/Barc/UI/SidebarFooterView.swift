@@ -6,6 +6,7 @@ final class SidebarFooterView: NSView {
     static let height: CGFloat = 40
     var onSelectSpace: ((UUID) -> Void)?
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
+    var spaceMenuProvider: ((UUID, NSView) -> NSMenu)?
     var addMenuProvider: (() -> NSMenu)?
     let homeButton = IconButton(symbolName: "archivebox", label: "Home", side: 24)
     let addButton = IconButton(symbolName: "plus", label: "Add", side: 24)
@@ -30,6 +31,7 @@ final class SidebarFooterView: NSView {
         }
         dock.onSelect = { [weak self] in self?.onSelectSpace?($0) }
         dock.onChangeIcon = { [weak self] in self?.onChangeIcon?($0, $1) }
+        dock.menuProvider = { [weak self] id, anchor in self?.spaceMenuProvider?(id, anchor) ?? NSMenu() }
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
             homeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),

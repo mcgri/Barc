@@ -110,10 +110,15 @@ final class SidebarHeaderView: NSView {
 /// fought rather than configured. Drawing the label and calling
 /// `NSMenu.popUp(positioning:)` is shorter than the fight.
 @MainActor
-final class MenuLabelButton: NSView {
+final class MenuLabelButton: NSView, NSTextFieldDelegate {
     /// The menu shown on click. `nil` makes the button inert but still legible,
     /// which is right for a build that has no spaces to choose between.
     var menuProvider: (() -> NSMenu?)?
+    var onRenameStateChange: ((Bool) -> Void)?
+    private(set) var isRenaming = false
+    private var originalName = ""
+    private var representedID: UUID?
+    private var rename: ((String) -> Void)?
 
     private let label = NSTextField(labelWithString: "")
     /// The space's mark, before its name. Hidden for a space wearing nothing,
@@ -144,6 +149,7 @@ final class MenuLabelButton: NSView {
         if let layer { highlight = RowHighlight(in: layer, depth: .flat) }
 
         label.font = Style.Fonts.title
+        label.delegate = self
         label.textColor = Style.Colors.primaryText
         label.lineBreakMode = .byTruncatingTail
         label.cell?.usesSingleLineMode = true
@@ -216,8 +222,10 @@ final class MenuLabelButton: NSView {
     /// - Parameter icon: the space's emoji, symbol or picture, or nil for a
     ///   space wearing nothing -- which leaves the header as a name alone,
     ///   exactly as it was before spaces could be marked.
-    func show(title: String, icon image: NSImage?, accessibilityLabel: String, tooltip: String?) {
-        label.stringValue = title
+    func show(title: String, icon image: NSImage?, accessibilityLabel: String, tooltip: String?, identity: UUID? = nil) {
+        if isRenaming, identity != representedID { finishRenaming(commit: false) }
+        representedID = identity
+        if !isRenaming { label.stringValue = title }
         icon.image = image
         icon.isHidden = image == nil
         labelLeadingToEdge?.isActive = image == nil
@@ -225,6 +233,50 @@ final class MenuLabelButton: NSView {
         setAccessibilityLabel(accessibilityLabel)
         setAccessibilityValue(title)
         toolTip = tooltip
+    }
+
+    /// The field occupies exactly the name's resting position. Return and a
+    /// click outside commit once; Escape restores the original name.
+    func beginRenaming(_ commit: @escaping (String) -> Void) {
+        guard !isRenaming else { return }
+        originalName = label.stringValue
+        rename = commit
+        isRenaming = true
+        label.isEditable = true
+        label.isSelectable = true
+        label.setAccessibilityElement(true)
+        label.setAccessibilityLabel("Space name")
+        label.formatter = LimitedLengthFormatter(limit: Space.maximumNameLength)
+        onRenameStateChange?(true)
+        window?.makeFirstResponder(label)
+        label.selectText(nil)
+    }
+
+    func finishRenaming(commit: Bool) {
+        guard isRenaming else { return }
+        let name = Space.clampName(label.stringValue)
+        let action = rename
+        rename = nil
+        isRenaming = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.setAccessibilityElement(false)
+        label.formatter = nil
+        if !commit || name.isEmpty { label.stringValue = originalName }
+        onRenameStateChange?(false)
+        if commit, !name.isEmpty { action?(name) }
+    }
+
+    func controlTextDidEndEditing(_ notification: Notification) { finishRenaming(commit: true) }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            finishRenaming(commit: false)
+        } else if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            finishRenaming(commit: true)
+        } else { return false }
+        window?.makeFirstResponder(nil)
+        return true
     }
 
     override func layout() {
@@ -249,12 +301,15 @@ final class MenuLabelButton: NSView {
     private lazy var press = SpringPress(view: self)
 
     override func mouseDown(with event: NSEvent) {
+        guard !isRenaming else { super.mouseDown(with: event); return }
         // Flicked before the menu opens rather than held through it: a menu
         // runs its own event loop, so a held press would stay squeezed for as
         // long as the menu is on screen.
         if acceptsSpringPress { press.flick() }
         presentMenu()
     }
+
+    override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
 
     override func accessibilityPerformPress() -> Bool {
         presentMenu()

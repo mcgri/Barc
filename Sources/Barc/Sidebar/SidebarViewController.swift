@@ -11,6 +11,7 @@ final class SidebarViewController: NSViewController {
 
     private let session: BrowserSession
     private let diaHeader = SidebarHeaderView()
+    private lazy var spaceIdentity = SidebarSpaceIdentityView(nameButton: diaHeader.spaceButton)
     private let browserControls = NSStackView()
 
     func installBrowserControls(_ controls: [NSView]) {
@@ -41,9 +42,7 @@ final class SidebarViewController: NSViewController {
     private weak var archiveButton: IconButton?
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
-    /// Never shown. It exists only to build the space menu, which
-    /// `SidebarHeaderView`'s label button borrows.
-    private let spaceMenuButton = NSPopUpButton(frame: .zero, pullsDown: true)
+    private var spaceColorPopover: NSPopover?
 
     /// Table view displaying tabs and groups.
     var tabListTableView: NSTableView { tableView }
@@ -246,7 +245,10 @@ final class SidebarViewController: NSViewController {
             titlebar.heightAnchor.constraint(equalToConstant: 34)
         ])
 
-        diaHeader.spaceButton.menuProvider = { [weak self] in self?.spaceMenuButton.menu }
+        diaHeader.spaceButton.menuProvider = { [weak self] in
+            guard let self else { return nil }
+            return makeSpaceOptionsMenu(for: shownSpace, anchor: spaceIdentity.moreButton)
+        }
 
         pinnedTiles.onAdd = { [weak self] in self?.session.pinActiveTab() }
         pinnedTiles.onSelect = { [weak self] id in
@@ -269,6 +271,10 @@ final class SidebarViewController: NSViewController {
         diaFooter.onChangeIcon = { [weak self] id, choice in
             guard let self, let space = self.session.spaces.first(where: { $0.id == id }) else { return }
             self.session.setIcon(SpaceIcon(choice), for: space)
+        }
+        diaFooter.spaceMenuProvider = { [weak self] id, anchor in
+            guard let self, let space = session.spaces.first(where: { $0.id == id }) else { return NSMenu() }
+            return makeSpaceOptionsMenu(for: space, anchor: anchor)
         }
         diaFooter.addMenuProvider = { [weak self] in self?.makeAddMenu() ?? NSMenu() }
         // The icon dock switches spaces and configures their icons; everything
@@ -320,15 +326,7 @@ final class SidebarViewController: NSViewController {
         browserControls.spacing = 6
         browserControls.translatesAutoresizingMaskIntoConstraints = false
 
-        let identity = NSView()
-        identity.translatesAutoresizingMaskIntoConstraints = false
-        identity.addSubview(diaHeader.spaceButton)
-        NSLayoutConstraint.activate([
-            identity.heightAnchor.constraint(equalToConstant: 32),
-            diaHeader.spaceButton.leadingAnchor.constraint(equalTo: identity.leadingAnchor, constant: 16),
-            diaHeader.spaceButton.trailingAnchor.constraint(lessThanOrEqualTo: identity.trailingAnchor, constant: -8),
-            diaHeader.spaceButton.centerYAnchor.constraint(equalTo: identity.centerYAnchor)
-        ])
+        let identity = spaceIdentity
         let contentStack = NSStackView(views: [pinnedTiles, identity, scrollView, archiveList])
         contentStack.orientation = .vertical
         // The bands of the sidebar -- title, shortcuts, tabs -- are different
@@ -910,7 +908,6 @@ final class SidebarViewController: NSViewController {
         // belong to the space that is actually active.
         if previewSpace == nil {
             ensureContentAtRest()
-            rebuildSpaceMenu()
             diaFooter.showSpaces(session.spaces.map {
                 SpaceDockItem(id: $0.id, name: $0.name, icon: $0.icon, color: $0.color)
             }, selectedID: session.activeSpaceID)
@@ -933,7 +930,8 @@ final class SidebarViewController: NSViewController {
             accessibilityLabel: "Space",
             tooltip: space.isPrivate
                 ? "\(space.name). Private: nothing is written to disk."
-                : "\(space.name). Its own cookies and logins."
+                : "\(space.name). Its own cookies and logins.",
+            identity: space.id
         )
         if previewSpace == nil {
             tint?.wash = space.wash(for: space.activeTab)
@@ -981,81 +979,79 @@ final class SidebarViewController: NSViewController {
             isPrivate: space.isPrivate
         )
     }
-
-    /// The space menu under the sidebar's title: every space with its colour,
-    /// and the ways to make another -- a profile menu, for the one concept
-    /// this browser has.
-    private func rebuildSpaceMenu() {
-        let space = session.activeSpace
-        let menu = NSMenu()
-
-        // A pull-down menu shows its first item as the title.
-        let title = NSMenuItem(title: space.name, action: nil, keyEquivalent: "")
-        title.image = space.isPrivate
-            ? NSImage(systemSymbolName: "eyeglasses", accessibilityDescription: nil)
-            : space.dotImage()
-        menu.addItem(title)
-
-        for (index, candidate) in session.spaces.enumerated() {
-            let item = NSMenuItem(title: candidate.name, action: #selector(chooseSpace(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = candidate
-            item.state = candidate === space ? .on : .off
-            // The colour, not a glyph. The dot here and the wash on the window
-            // are the same colour, which is what lets the menu be read as "the
-            // green one" rather than as a list of names.
-            item.image = candidate.isPrivate
-                ? NSImage(systemSymbolName: "eyeglasses", accessibilityDescription: nil)
-                : candidate.dotImage()
-            // Control rather than Command: Command-1 through Command-9 already
-            // select tabs by position.
-            if let key = SpaceTheme.shortcut(forIndex: index) {
-                item.keyEquivalent = key
-                item.keyEquivalentModifierMask = .control
+    func makeSpaceOptionsMenu(for space: Space, anchor: NSView) -> NSMenu {
+        let hasGitHub = space.groups.contains { group in
+            guard let source = session.liveFolders.record(for: group.id)?.source else { return false }
+            if case .github = source { return true }
+            return false
+        }
+        return SpaceOptionsMenu.make(canDelete: session.spaces.count > 1, hasGitHubFolder: hasGitHub) {
+            [weak self, weak space, weak anchor] action in
+            guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
+            // The Space being acted on comes from the menu, even when its dock
+            // icon was right-clicked while a different Space was in front.
+            if action != .manage && action != .delete { session.selectSpace(space) }
+            DispatchQueue.main.async { [weak self, weak space, weak anchor] in
+                guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
+                switch action {
+                case .rename:
+                    diaHeader.spaceButton.beginRenaming { [weak self, weak space] name in
+                        guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
+                        session.rename(space, to: name)
+                    }
+                case .icon:
+                    let origin = anchor ?? spaceIdentity.moreButton
+                    let menu = IconMenu.menu(current: space.icon.asMenuChoice, color: space.color, anchor: origin) {
+                        [weak self, weak space] choice in
+                        guard let self, let space else { return }
+                        session.setIcon(SpaceIcon(choice), for: space)
+                    }
+                    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: origin.bounds.maxY), in: origin)
+                case .theme: showSpaceColorEditor(for: space, anchor: anchor ?? spaceIdentity.moreButton)
+                case .newFolder: newGroupFromMenu()
+                case .github: newGitHubGroup(scope: .pullRequests)
+                case .manage: showSpaceSettings()
+                case .delete:
+                    guard session.spaces.count > 1 else { return }
+                    confirm(message: "Delete the Space \u{201c}\(space.name)\u{201d}?",
+                            detail: space.isPrivate ? "Its tabs will be closed." : "Its tabs will be closed and its cookies, logins and site data will be erased.",
+                            action: "Delete") { [weak self, weak space] in
+                        guard let self, let space else { return }
+                        session.removeSpace(space)
+                    }
+                }
             }
-            menu.addItem(item)
         }
-
-        menu.addItem(.separator())
-        for (title, selector, symbol) in [
-            ("New Space\u{2026}", #selector(newSpaceFromMenu), "plus"),
-            ("New Private Space\u{2026}", #selector(newPrivateSpaceFromMenu), "eyeglasses")
-        ] {
-            let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
-            item.target = self
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-            menu.addItem(item)
-        }
-
-        menu.addItem(.separator())
-        // Renaming, recolouring and deleting live in Settings, which shows the
-        // whole set of spaces at once -- what those operations are about.
-        let settingsItem = NSMenuItem(
-            title: "Space Settings\u{2026}",
-            action: #selector(showSpaceSettings),
-            keyEquivalent: ""
-        )
-        settingsItem.target = self
-        settingsItem.image = NSImage(systemSymbolName: "gearshape", accessibilityDescription: nil)
-        menu.addItem(settingsItem)
-
-        let clearDataItem = NSMenuItem(
-            title: "Clear Space Data\u{2026}",
-            action: #selector(clearCurrentSpaceDataFromMenu),
-            keyEquivalent: ""
-        )
-        clearDataItem.target = self
-        clearDataItem.image = NSImage(systemSymbolName: "trash", accessibilityDescription: nil)
-        menu.addItem(clearDataItem)
-
-        spaceMenuButton.menu = menu
-        spaceMenuButton.toolTip = space.isPrivate
-            ? "\(space.name) — nothing is written to disk"
-            : space.name
     }
 
-    @objc private func clearCurrentSpaceDataFromMenu() {
-        NSApp.sendAction(#selector(BrowserWindowController.clearCurrentSpaceData(_:)), to: nil, from: self)
+    private func showSpaceColorEditor(for space: Space, anchor: NSView) {
+        let picker = SpaceThemePicker()
+        picker.show(space.theme)
+        picker.showCustomColor(space.look.customColor)
+        picker.onSelect = { [weak self, weak space] theme in
+            guard let self, let space else { return }
+            session.setTheme(theme, for: space)
+        }
+        picker.onCustomColor = { [weak self, weak space] color in
+            guard let self, let space else { return }
+            session.setCustomColor(color, for: space)
+        }
+        let controller = NSViewController()
+        controller.view = NSView()
+        controller.view.addSubview(picker)
+        NSLayoutConstraint.activate([
+            picker.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor, constant: 12),
+            picker.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor, constant: -12),
+            picker.topAnchor.constraint(equalTo: controller.view.topAnchor, constant: 12),
+            picker.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor, constant: -12)
+        ])
+        controller.preferredContentSize = controller.view.fittingSize
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = controller
+        spaceColorPopover?.close()
+        spaceColorPopover = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
     }
 
     /// Recomputed on every rebuild; cheap, tens of tabs.
