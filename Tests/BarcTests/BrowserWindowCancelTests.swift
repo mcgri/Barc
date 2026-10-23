@@ -20,5 +20,13 @@ struct BrowserWindowCancelTests {
         controller.cancelOperation(nil)
         #expect(controller.window === window)
         #expect(controller.session === session)
+        window?.contentView?.layoutSubtreeIfNeeded()
+        if let root = window?.contentView,
+           let dock = UITestSupport.descendants(of: root).first(where: { $0 is SpaceDockView }),
+           let swipeRegion = controller.swipeRegion {
+            #expect(!swipeRegion.intersects(dock.convert(dock.bounds, to: nil)))
+        } else {
+            Issue.record("The window must expose its Space dock and sidebar swipe region")
+        }
     }
 }

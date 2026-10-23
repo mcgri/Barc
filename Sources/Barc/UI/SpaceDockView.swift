@@ -55,6 +55,7 @@ final class SpaceDockView: NSView {
     private var selectedID: UUID?
     private var pointerX: CGFloat?
     private var lastViewportWidth: CGFloat = -1
+    private nonisolated(unsafe) var pointerMonitor: Any?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -81,6 +82,29 @@ final class SpaceDockView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("Created in code only") }
+
+    deinit {
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let pointerMonitor { NSEvent.removeMonitor(pointerMonitor) }
+        pointerMonitor = nil
+        guard window != nil else { return }
+        // Buttons may track the mouse themselves. Observe the window's pointer
+        // stream too, so magnification follows across them and during a drag.
+        pointerMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
+            MainActor.assumeIsolated { self?.trackPointer(event) }
+            return event
+        }
+    }
+
+    func trackPointer(_ event: NSEvent) {
+        guard event.window === window, !isHiddenOrHasHiddenAncestor else { setPointer(nil); return }
+        let point = document.convert(event.locationInWindow, from: nil)
+        setPointer(document.visibleRect.contains(point) ? point.x : nil)
+    }
 
     func show(_ items: [SpaceDockItem], selectedID: UUID?) {
         let selectionChanged = self.selectedID != selectedID
@@ -112,6 +136,7 @@ final class SpaceDockView: NSView {
 
     /// Also used by the geometry tests; mouse movement reaches this same path.
     func setPointer(_ x: CGFloat?) {
+        guard pointerX != x else { return }
         pointerX = x
         arrange(animated: true)
     }

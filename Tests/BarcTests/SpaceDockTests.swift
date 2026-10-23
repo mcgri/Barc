@@ -38,6 +38,8 @@ struct SpaceDockTests {
         #expect(dock.buttons[3].iconSize > SpaceDockLayout.iconSide)
         document.mouseExited(with: event)
         #expect(dock.buttons.allSatisfy { $0.iconSize == SpaceDockLayout.iconSide })
+        dock.trackPointer(event)
+        #expect(dock.buttons[3].iconSize > SpaceDockLayout.iconSide)
     }
 
     @Test("The icon under the pointer grows most, nearby icons grow less, and distant icons stay small")

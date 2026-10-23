@@ -2852,7 +2852,13 @@ extension BrowserWindowController: SidebarSwipeDelegate {
 
     var swipeRegion: NSRect? {
         guard let view = sidebar.viewIfLoaded, view.window != nil else { return nil }
-        return view.convert(view.bounds, to: nil)
+        // Horizontal scrolling in the icon dock reveals more icons rather
+        // than changing the current Space through the sidebar swipe gesture.
+        var bounds = view.bounds
+        let dockHeight = min(bounds.height, SpaceDockLayout.height)
+        bounds.size.height -= dockHeight
+        if !view.isFlipped { bounds.origin.y += dockHeight }
+        return view.convert(bounds, to: nil)
     }
 
     func swipeDidDrag(by translation: CGFloat, crossfade: CGFloat) {
