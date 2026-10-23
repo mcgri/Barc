@@ -157,11 +157,16 @@ private final class SpaceDockDocumentView: NSView {
     var onPointer: ((NSPoint?) -> Void)?
     private var pointerTracking: NSTrackingArea?
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let pointerTracking { removeTrackingArea(pointerTracking) }
         let area = NSTrackingArea(rect: .zero,
-                                 options: [.inVisibleRect, .activeInKeyWindow, .mouseEnteredAndExited, .mouseMoved],
+                                 options: [.inVisibleRect, .activeAlways, .enabledDuringMouseDrag, .mouseEnteredAndExited, .mouseMoved],
                                  owner: self)
         addTrackingArea(area)
         pointerTracking = area
@@ -174,6 +179,7 @@ private final class SpaceDockDocumentView: NSView {
 
 @MainActor
 final class SpaceDockButton: NSButton {
+    override var isFlipped: Bool { false }
     let id: UUID
     var onSelect: (() -> Void)?
     var onChangeIcon: ((IconMenu.Choice) -> Void)?

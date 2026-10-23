@@ -10,6 +10,36 @@ struct SpaceDockTests {
         (0..<count).map { SpaceDockItem(id: UUID(), name: "Space \($0)", icon: .automatic, color: .systemBlue) }
     }
 
+    @Test("AppKit pointer events reach the dock and magnify the icon under the mouse")
+    func pointerEventsReachIcons() throws {
+        _ = NSApplication.shared
+        let before = Style.Motion.reduceMotionOverride
+        Style.Motion.reduceMotionOverride = false
+        defer { Style.Motion.reduceMotionOverride = before }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 221, height: 100),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let dock = SpaceDockView()
+        let host = UITestSupport.host(dock, width: 221, height: 100)
+        window.contentView = host
+        let values = items(8)
+        dock.show(values, selectedID: values[0].id)
+        host.layoutSubtreeIfNeeded()
+        #expect(window.acceptsMouseMovedEvents)
+        let document = try #require(dock.buttons[3].superview)
+        document.updateTrackingAreas()
+        #expect(document.trackingAreas.contains { $0.options.contains(.mouseMoved) && $0.options.contains(.activeAlways) })
+        let point = document.convert(NSPoint(x: dock.buttons[3].frame.midX, y: 22), to: nil)
+        let event = try #require(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [],
+                                                  timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                  eventNumber: 0, clickCount: 0, pressure: 0))
+        document.mouseMoved(with: event)
+        #expect(dock.buttons[3].iconSize > SpaceDockLayout.iconSide)
+        document.mouseExited(with: event)
+        #expect(dock.buttons.allSatisfy { $0.iconSize == SpaceDockLayout.iconSide })
+    }
+
     @Test("The icon under the pointer grows most, nearby icons grow less, and distant icons stay small")
     func fisheyeFalloff() {
         let rest = SpaceDockLayout.plan(count: 8, availableWidth: 221, pointerX: nil, reduceMotion: false)
