@@ -686,65 +686,22 @@ struct ArchivedRowTests {
 @Suite("The sidebar footer")
 @MainActor
 struct SidebarFooterTests {
-    @Test("One space needs no indicator")
-    func hidesSingleDot() {
-        let dots = PageDotsView()
-        dots.show(count: 1, selected: 0)
-        #expect(dots.isHidden)
-        dots.show(count: 3, selected: 1)
-        #expect(!dots.isHidden)
-    }
-
-    @Test("The dot strip is exactly as wide as the dots it draws")
-    func intrinsicWidthMatchesDots() {
-        let dots = PageDotsView()
-        dots.show(count: 3, selected: 0)
-        let expected = 2 * Style.Metrics.pageDotSpacing + Style.Metrics.pageDotDiameter
-        #expect(dots.intrinsicContentSize.width == expected)
-    }
-
-    @Test("The dots say where you are, for VoiceOver as well as visually")
-    func announcesPosition() {
-        let dots = PageDotsView()
-        dots.show(count: 3, selected: 1)
-        #expect(dots.accessibilityValue() as? String == "2 of 3")
-    }
-
-    @Test("The dots are clickable at button size and distinguishable at a glance")
-    func dotsAreLegibleAndHittable() {
-        let dots = PageDotsView()
-        dots.show(count: 3, selected: 1)
-        #expect(dots.intrinsicContentSize.height == Style.Metrics.iconButtonSide)
-        #expect(dots.intrinsicContentSize.width > Style.Metrics.pageDotDiameter)
-        #expect(Style.Colors.pageDotActive != Style.Colors.pageDotInactive)
-        #expect(Style.Metrics.pageDotSpacing > Style.Metrics.pageDotDiameter)
-    }
-
-    @Test("One space needs no indicator")
-    func singleSpaceHidesDots() {
-        let dots = PageDotsView()
-        dots.show(count: 1, selected: 0)
-        #expect(dots.isHidden)
-        dots.show(count: 2, selected: 0)
-        #expect(!dots.isHidden)
-    }
-
-    @Test("The footer is one row: a leading slot, the dots centred, a trailing slot")
-    func footerIsASingleRow() {
+    @Test("The Space dock has its own row below the browser utility buttons")
+    func footerKeepsIconsClearOfUtilities() {
         let footer = SidebarFooterView()
-        footer.setLeadingActions([TopBarAction(symbolName: "sidebar.leading", label: "Toggle") {}])
-        footer.setTrailingActions([TopBarAction(symbolName: "chevron.down", label: "Spaces") {}])
-        footer.showPages(count: 2, selected: 0)
-
-        let frames = UITestSupport.laidOutFooter(footer, width: Style.Metrics.sidebarWidth)
-        #expect(frames.height == Style.Metrics.footerHeight)
-        // One row: everything shares a centre line.
-        #expect(abs(frames.leading.midY - frames.dots.midY) < 1)
-        #expect(abs(frames.trailing.midY - frames.dots.midY) < 1)
-        // In order, and not on top of each other.
-        #expect(frames.leading.maxX < frames.dots.minX)
-        #expect(frames.dots.maxX < frames.trailing.minX)
-        #expect(abs(frames.dots.midX - Style.Metrics.sidebarWidth / 2) < 1)
+        footer.setLeadingActions([TopBarAction(symbolName: "arrow.down", label: "Downloads") {}])
+        footer.setTrailingActions([TopBarAction(symbolName: "archivebox", label: "Archive") {}])
+        let items = (0..<8).map { SpaceDockItem(id: UUID(), name: "Space \($0)", icon: .automatic, color: .systemBlue) }
+        footer.showSpaces(items, selectedID: items[0].id)
+        let host = UITestSupport.host(footer, width: Style.Metrics.sidebarWidth, height: SidebarFooterView.height)
+        let dock = UITestSupport.descendants(of: footer).first { $0 is SpaceDockView }!
+        let frame = dock.convert(dock.bounds, to: host)
+        #expect(footer.frame.height == SidebarFooterView.height)
+        #expect(footer.bounds.contains(dock.frame))
+        for name in ["Downloads", "Archive"] {
+            let button = footer.actionButton(labelled: name)!
+            #expect(button.convert(button.bounds, to: host).minY > frame.maxY)
+        }
     }
 
     @Test("An empty archive shows no count at all")
@@ -949,21 +906,7 @@ enum UITestSupport {
         return host
     }
 
-    static func laidOutFooter(
-        _ footer: SidebarFooterView,
-        width: CGFloat
-    ) -> (height: CGFloat, leading: NSRect, dots: NSRect, trailing: NSRect) {
-        let host = host(footer, width: width, height: Style.Metrics.footerHeight)
-        let dots = descendants(of: footer).first { $0 is PageDotsView }
-        let slots = footer.subviews.compactMap { $0 as? NSStackView }
-        let frames = slots.map { $0.convert($0.bounds, to: host) }.sorted { $0.minX < $1.minX }
-        return (
-            footer.frame.height,
-            frames.first ?? .zero,
-            dots.map { $0.convert($0.bounds, to: host) } ?? .zero,
-            frames.last ?? .zero
-        )
-    }
+
 }
 
 @Suite("Pinned tile wrapping")

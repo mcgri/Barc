@@ -259,11 +259,15 @@ final class SidebarViewController: NSViewController {
             self.session.removePinnedSite(site)
         }
 
-        diaFooter.onSelectPage = { [weak self] index in
-            guard let self, self.session.spaces.indices.contains(index) else { return }
-            self.session.selectSpace(self.session.spaces[index])
+        diaFooter.onSelectSpace = { [weak self] id in
+            guard let self, let space = self.session.spaces.first(where: { $0.id == id }) else { return }
+            self.session.selectSpace(space)
         }
-        // One way to reach each thing. The dots switch spaces; everything
+        diaFooter.onChangeIcon = { [weak self] id, choice in
+            guard let self, let space = self.session.spaces.first(where: { $0.id == id }) else { return }
+            self.session.setIcon(SpaceIcon(choice), for: space)
+        }
+        // The icon dock switches spaces and configures their icons; everything
         // else about a space -- making, renaming, recolouring, deleting --
         // is the header menu's and Settings' job. The standing buttons are the
         // browser-wide lists that outlive any tab or space: Downloads for what
@@ -891,10 +895,9 @@ final class SidebarViewController: NSViewController {
         if previewSpace == nil {
             ensureContentAtRest()
             rebuildSpaceMenu()
-            diaFooter.showPages(
-                count: session.spaces.count,
-                selected: session.spaces.firstIndex { $0.id == session.activeSpaceID } ?? 0
-            )
+            diaFooter.showSpaces(session.spaces.map {
+                SpaceDockItem(id: $0.id, name: $0.name, icon: $0.icon, color: $0.color)
+            }, selectedID: session.activeSpaceID)
         }
         // One label, one concept: the space is the identity.
         let space = shownSpace

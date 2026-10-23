@@ -243,8 +243,8 @@ final class IconButton: NSButton {
 /// the corner of a symbol reads as part of the symbol, and `archivebox` has
 /// enough going on in that corner already.
 ///
-/// Drawn rather than built from a label and a background view, for the same
-/// reason `PageDotsView` is: two bezier paths and a string cost less than a
+/// Drawn rather than built from a label and a background view: two bezier
+/// paths and a string cost less than a
 /// text field, its cell and the layer under it, and this one is laid out once
 /// and then only ever redrawn with a different number in it.
 @MainActor
