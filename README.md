@@ -32,6 +32,8 @@ Each Arc profile gets a separate website identity in Barc. Arc Spaces that share
 
 Barc reads a private copy of Arc's files, including pending database writes. Existing Barc data is kept. Repeating an import uses source identifiers to avoid duplicating imported records and preserves existing destination passwords, cookies and local-storage values. macOS may ask for access to **Arc Safe Storage** to read encrypted passwords and cookies. If access is declined, the other selected categories can still be imported.
 
+Importing the sidebar restores the selected Arc Spaces' relative order while keeping unrelated Barc Spaces in their current positions. Arc's extended-sRGB Space colours are mapped into Barc's supported colour range.
+
 Review the result before relying on imported website sessions. The report lists per-profile counts, verification, skipped records and unavailable data, and is saved under `Arc Imports` in Barc's application-data folder. A session backup is saved before each import.
 
 Some websites require signing in again. Partitioned cookies and partitioned local storage are skipped to preserve their isolation. Cookie lifetimes are kept, including session-only cookies, which may end when the browser quits. WebKit can reject storage that exceeds its quota. IndexedDB databases, tab-scoped session storage, passkeys, extensions, generic form suggestions and Arc's back/forward stacks, scroll positions and in-page form state remain in Arc. Search shortcuts use Barc's shared engine list; history, passwords, addresses and website data use the matching profile identity.

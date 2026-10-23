@@ -91,6 +91,31 @@ struct ArcSnapshotTests {
 @Suite("Arc import orchestration", .serialized)
 @MainActor
 struct ArcImportFlowTests {
+    @Test("Arc Space order survives profile-by-profile import without moving unrelated Spaces")
+    func sidebarSpaceOrder() async throws {
+        _ = NSApplication.shared
+        let root = try ArcImportBench.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = try ArcFlowBench.source(in: root.appending(path: "Arc"))
+        var sidebar = source.sidebar
+        sidebar.spaces.reverse()
+        let reordered = ArcSourceSnapshot(root: source.root, sourceFingerprint: source.sourceFingerprint, profiles: source.profiles,
+            sidebar: sidebar, unsupportedIndexedDBFolders: [:], extensions: [:])
+        let store = SessionStore(fileURL: root.appending(path: "session.json"))
+        let session = BrowserSession(database: nil, sessionStore: store)
+        let previousIDs = session.spaces.map(\.id)
+        let coordinator = ArcImportCoordinator(session: session, reportDirectory: root.appending(path: "reports"))
+        var options = ArcImportOptions(profileIDs: ["Default", "Profile 1"])
+        options.history = false; options.bookmarks = false; options.passwords = false
+        options.cookies = false; options.localStorage = false; options.supplementary = false
+        _ = try await coordinator.run(reordered, options: options)
+        let expected = ArcSpaceBuilder.build(reordered, options: options).compactMap { $0.snapshot.id }
+        #expect(Array(session.spaces.prefix(previousIDs.count)).map(\.id) == previousIDs)
+        #expect(session.spaces.filter { !previousIDs.contains($0.id) }.map(\.id) == expected)
+        let persisted = try #require(store.load())
+        #expect(persisted.spaces.compactMap(\.id) == session.spaces.map(\.id))
+    }
+
     @Test("Empty selection changes nothing, and two windows cannot import concurrently")
     func selectionAndConcurrency() async throws {
         _ = NSApplication.shared

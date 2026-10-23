@@ -93,8 +93,12 @@ enum ArcSidebarReader {
             let color = palette?["midTone"] as? [String: Any]
             let hex: String? = color.flatMap {
                 guard let r = $0["red"] as? Double, let g = $0["green"] as? Double, let b = $0["blue"] as? Double,
-                      [r, g, b].allSatisfy({ $0.isFinite && (0...1).contains($0) }) else { return nil }
-                return String(format: "#%02x%02x%02x", Int((r * 255).rounded()), Int((g * 255).rounded()), Int((b * 255).rounded()))
+                      [r, g, b].allSatisfy(\.isFinite) else { return nil }
+                // Arc stores extended-sRGB components, including tiny float
+                // overshoots and colours outside ordinary sRGB. Barc's hex
+                // model uses the closest in-range component for each channel.
+                let channels = [r, g, b].map { Int((min(1, max(0, $0)) * 255).rounded()) }
+                return String(format: "#%02x%02x%02x", channels[0], channels[1], channels[2])
             }
             let icon = info["iconType"] as? [String: Any]
             let emoji = icon?["emoji_v2"] as? String ?? (icon?["emoji"] as? Int).flatMap(UnicodeScalar.init).map(String.init)

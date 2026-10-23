@@ -2377,6 +2377,21 @@ final class BrowserSession {
         return (addedTabs, addedArchived, addedSpaces, addedFolders, addedFavorites)
     }
 
+    /// Restore the selected Arc Spaces' relative order while leaving unrelated
+    /// Spaces in their existing slots. The active Space keeps its identity.
+    func applyArcSpaceOrder(_ orderedIDs: [UUID]) throws {
+        let selected = Set(orderedIDs)
+        let positions = spaces.indices.filter { selected.contains(spaces[$0].id) }
+        let incoming = spaces.filter { selected.contains($0.id) }.sorted {
+            (orderedIDs.firstIndex(of: $0.id) ?? .max) < (orderedIDs.firstIndex(of: $1.id) ?? .max)
+        }
+        guard positions.map({ spaces[$0].id }) != incoming.map(\.id) else { return }
+        for (position, space) in zip(positions, incoming) { spaces[position] = space }
+        changes.send(.spaces)
+        changes.send(.structure)
+        try sessionStore.save(snapshot())
+    }
+
     func replaceWithSnapshot(_ snapshot: SessionSnapshot) {
         guard let newSpaces = Self.spaces(from: snapshot), !newSpaces.isEmpty else { return }
 

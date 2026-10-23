@@ -46,3 +46,5 @@ The native Settings flow detects the owner's six profiles and has imported tabs,
 The first native pass exposed two issues now covered by regression tests. Local builds need a login-Keychain fallback when their signing identity cannot use iCloud Keychain, and macOS requires reading login-Keychain passwords individually. Arc URLs also need careful escaping to preserve existing encoded query values. The corrected native retry is waiting for macOS approval to read Arc Safe Storage.
 
 Additional tests cover WAL snapshots, source immutability, cookie domain hashes and unsupported encryption, same-host credential isolation, shared profile Spaces, unpaired UTF-16 strings, LevelDB manifest replay and tombstones, interrupted writes, empty selection, concurrent imports and repeat-import preservation.
+
+Independent sidebar comparison also identified extended-sRGB colours outside the destination gamut and Space ordering lost during profile-by-profile transfer. Both now have regression coverage. The native retest imports the categories that do not need the Keychain first, with passwords and cookies verified in the protected follow-up.

@@ -52,6 +52,23 @@ enum ArcImportBench {
 @Suite("Arc's current local sidebar")
 @MainActor
 struct ArcSidebarReaderTests {
+    @Test("Extended-sRGB Space colours map into the destination gamut instead of falling back to blue")
+    func extendedColours() throws {
+        var root = try #require(JSONSerialization.jsonObject(with: ArcImportBench.sidebar()) as? [String: Any])
+        var sidebar = try #require(root["sidebar"] as? [String: Any])
+        var containers = try #require(sidebar["containers"] as? [[String: Any]])
+        var spaces = try #require(containers[1]["spaces"] as? [Any])
+        var space = try #require(spaces[1] as? [String: Any])
+        for (components, expected) in [([1.00000012, 0.5, 0.25], "#ff8040"), ([0.5, 0.8, -0.24], "#80cc00")] {
+            space["customInfo"] = ["windowTheme": ["primaryColorPalette": ["midTone":
+                ["red": components[0], "green": components[1], "blue": components[2]]]]]
+            spaces[1] = space; containers[1]["spaces"] = spaces
+            sidebar["containers"] = containers; root["sidebar"] = sidebar
+            let parsed = try ArcSidebarReader.read(sidebar: JSONSerialization.data(withJSONObject: root), archive: nil, profiles: ArcImportBench.profiles)
+            #expect(parsed.spaces.first?.color == expected)
+        }
+    }
+
     @Test("Alternating dictionaries, folders, repeated URLs and profile favourites survive")
     func currentFormat() throws {
         let source = try ArcImportBench.snapshot()
