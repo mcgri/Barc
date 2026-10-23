@@ -116,7 +116,10 @@ struct MultiTabTests {
 
         // Simulate multi-selection in table view
         let tableView = sidebar.tabListTableView
-        tableView.selectRowIndexes(IndexSet(integersIn: 0..<session.activeSpace.tabs.count), byExtendingSelection: false)
+        let tabRows = IndexSet((0..<tableView.numberOfRows).filter {
+            sidebar.tableView(tableView, shouldSelectRow: $0)
+        })
+        tableView.selectRowIndexes(tabRows, byExtendingSelection: false)
 
         let selected = sidebar.selectedTabs
         #expect(selected.count == 3)

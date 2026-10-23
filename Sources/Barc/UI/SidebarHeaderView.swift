@@ -1,128 +1,60 @@
+// Modified for Barc: Arc-style shared traffic-light and navigation row, 2026-10-24.
 import AppKit
 
-/// The sidebar's top strip: the space the traffic lights float over, plus the
-/// space's name sitting inline beside them.
-///
-/// The window has no titlebar (`fullSizeContentView`), so the traffic lights
-/// are drawn over whatever is at the top-left of the content view. Nothing here
-/// may be placed in `trafficLightWidth`, and nothing here is opaque to drags:
-/// the view is transparent and does not implement `mouseDown`, so a titlebar
-/// drag view sitting behind it still moves the window.
+/// Window controls and navigation share the top band. The Space label is hosted below Favorites.
 @MainActor
 final class SidebarHeaderView: NSView {
-    /// The space label. Pull-down rather than plain text because the identity
-    /// a page loads under must be visible *and* changeable in one place.
     let spaceButton = MenuLabelButton()
-
-    private let trailingStack = NSStackView()
+    private var navigation: NSView?
+    private var navigationLeading: NSLayoutConstraint?
+    private var navigationTop: NSLayoutConstraint?
+    private var headerHeight: NSLayoutConstraint!
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-
-        trailingStack.orientation = .horizontal
-        trailingStack.spacing = Style.Metrics.iconButtonSpacing
-        trailingStack.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(spaceButton)
-        addSubview(trailingStack)
-
-        let spaceLeading = spaceButton.leadingAnchor.constraint(
-            equalTo: leadingAnchor,
-            constant: Style.Metrics.trafficLightWidth
-        )
-        spaceButtonLeading = spaceLeading
-
-        NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Style.Metrics.titlebarHeight),
-            spaceLeading,
-            spaceButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            spaceButton.trailingAnchor.constraint(
-                lessThanOrEqualTo: trailingStack.leadingAnchor,
-                constant: -Style.Metrics.iconButtonSpacing
-            ),
-            trailingStack.trailingAnchor.constraint(
-                equalTo: trailingAnchor,
-                constant: -Style.Metrics.sidebarInset
-            ),
-            trailingStack.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
+        headerHeight = heightAnchor.constraint(equalToConstant: Style.Metrics.titlebarHeight)
+        headerHeight.isActive = true
     }
 
-    required init?(coder: NSCoder) {
-        fatalError("SidebarHeaderView is created in code only")
-    }
+    required init?(coder: NSCoder) { fatalError("Created in code only") }
 
-    // MARK: - The window's traffic lights
-
-    /// Whether the lights belong to this strip at the moment.
-    ///
-    /// False while compact mode has them on the page's top bar, or while the
-    /// sidebar is on the trailing edge and they are over the page instead.
     var hostsTrafficLights = true {
-        didSet {
-            guard hostsTrafficLights != oldValue else { return }
-            // The room at the leading edge is for the lights. When they are
-            // somewhere else -- compact mode puts them on the page's top bar --
-            // holding it open costs the space's name 78 of the few points it
-            // has: on a floating sidebar "New Space" came out as "Ne...".
-            spaceButtonLeading?.constant = hostsTrafficLights
-                ? Style.Metrics.trafficLightWidth
-                : Style.Metrics.sidebarInset
-            needsLayout = true
-        }
+        didSet { if hostsTrafficLights != oldValue { needsLayout = true } }
     }
 
-    private var spaceButtonLeading: NSLayoutConstraint?
+    func installNavigation(_ view: NSView) {
+        navigation?.removeFromSuperview()
+        navigation = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        navigationLeading = view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Style.Metrics.trafficLightWidth)
+        navigationTop = view.topAnchor.constraint(equalTo: topAnchor, constant: 12)
+        NSLayoutConstraint.activate([navigationLeading!, navigationTop!,
+            view.trailingAnchor.constraint(equalTo: trailingAnchor)])
+        needsLayout = true
+    }
 
-    /// Sits the three lights on this strip's centre line.
-    ///
-    /// They are not laid out here by AppKit -- they are the window's own
-    /// buttons, which live in `NSTitlebarView` and are placed by the titlebar,
-    /// six points off its bottom edge. This strip is 53 points tall and centres
-    /// the space's name at 26.5, so the lights came out twelve points above the
-    /// name they sit beside. Worse, the buttons get *reclaimed*: AppKit puts
-    /// them back into the titlebar whenever it rebuilds it, so placing them
-    /// once is not enough. The strip takes them back every time it lays out,
-    /// which is the same arrangement the compact top bar uses.
-    private func hostTrafficLights() {
+    override func layout() {
+        let compact = hostsTrafficLights && bounds.width < 214
+        navigationLeading?.constant = hostsTrafficLights && !compact ? Style.Metrics.trafficLightWidth : Style.Metrics.sidebarInset
+        navigationTop?.constant = compact ? Style.Metrics.titlebarHeight : 12
+        headerHeight.constant = compact ? Style.Metrics.titlebarHeight + (navigation?.frame.height ?? 24) : Style.Metrics.titlebarHeight
+        super.layout()
         guard hostsTrafficLights, let window else { return }
-        let buttons = [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton]
-            .compactMap { window.standardWindowButton($0) }
-        // Two of three moved and the third stranded is worse than none moved.
-        guard buttons.count == 3 else { return }
-        for button in buttons {
+        for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            guard let button = window.standardWindowButton(type) else { continue }
             if button.superview !== self {
                 button.removeFromSuperview()
                 button.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(button)
-                // Nothing flexible in y, or a resize drags them off the line.
                 button.autoresizingMask = [.maxXMargin]
             }
-            // Only the vertical placement. Their x is macOS's own, measured
-            // from the same window edge this strip starts at, and
-            // `trafficLightWidth` is the room the name leaves for it.
-            button.frame.origin.y = ((bounds.height - button.frame.height) / 2).rounded()
+            button.frame.origin = NSPoint(x: 13 + CGFloat(index) * 22,
+                                          y: bounds.height - 24 - button.frame.height / 2)
         }
     }
 
-    override func layout() {
-        super.layout()
-        hostTrafficLights()
-    }
-
-    /// Buttons on the trailing end of the strip. Empty is a valid state.
-    func setActions(_ actions: [TopBarAction]) {
-        for view in trailingStack.arrangedSubviews {
-            trailingStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-        for action in actions {
-            trailingStack.addArrangedSubview(
-                IconButton(symbolName: action.symbolName, label: action.label, onClick: action.handler)
-            )
-        }
-    }
 }
 
 /// A text button that pops up a menu under itself.

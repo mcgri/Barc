@@ -392,8 +392,8 @@ struct SidebarHeaderTrafficLightTests {
         #expect(lights.count == 3)
         for light in lights {
             #expect(light.superview === header, "the strip hosts the light")
-            #expect(abs(light.frame.midY - header.bounds.midY) <= 0.5,
-                    "on the strip's centre line, which is the name's")
+            #expect(abs(header.bounds.maxY - light.frame.midY - 24) <= 0.5,
+                    "on the navigation row's centre line")
         }
     }
 

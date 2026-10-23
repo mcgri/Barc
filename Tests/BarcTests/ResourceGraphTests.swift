@@ -254,6 +254,9 @@ struct ActivityButtonTests {
 
     private func labelsOfButtons(under view: NSView) -> Set<String> {
         var found: Set<String> = []
+        if let footer = view as? SidebarFooterView {
+            found.formUnion(footer.makeHomeMenu().items.map { $0.title.components(separatedBy: " (").first! })
+        }
         if view is IconButton, let label = view.accessibilityLabel() {
             found.insert(label)
         }

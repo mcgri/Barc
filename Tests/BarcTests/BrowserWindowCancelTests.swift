@@ -6,6 +6,51 @@ import Testing
 @Suite("Browser window cancellation", .serialized)
 @MainActor
 struct BrowserWindowCancelTests {
+    @Test("Window controls share navigation; Space identity follows Favorites; New Tab precedes ordinary tabs")
+    func compactArcSidebarStructure() throws {
+        _ = NSApplication.shared
+        let (session, _) = TestSession.make()
+        let ordinary = session.newTab(url: URL(string: "https://ordinary.example/")!)
+        let kept = session.newTab(url: URL(string: "https://kept.example/")!)
+        kept.setKeepsInSidebar(true)
+        session.selectTab(ordinary)
+        let controller = BrowserWindowController(session: session)
+        let window = try #require(controller.window)
+        window.isReleasedWhenClosed = false
+        defer { window.delegate = nil; window.close() }
+        let root = try #require(window.contentView)
+        root.layoutSubtreeIfNeeded()
+        root.layoutSubtreeIfNeeded()
+        let descendants = UITestSupport.descendants(of: root)
+        let bar = try #require(descendants.compactMap { $0 as? ContentTopBar }.first)
+        let header = try #require(descendants.compactMap { $0 as? SidebarHeaderView }.first)
+        let pins = try #require(descendants.compactMap { $0 as? PinnedTilesView }.first)
+        let light = try #require(window.standardWindowButton(.closeButton))
+        let lightFrame = light.convert(light.bounds, to: root)
+        let navFrame = bar.backButton.convert(bar.backButton.bounds, to: root)
+        #expect(abs(lightFrame.midY - navFrame.midY) < 1)
+        #expect(lightFrame.maxX < navFrame.minX)
+        #expect(bar.utilitiesButton.superview === bar.backButton.superview)
+        let pinFrame = pins.convert(pins.bounds, to: root)
+        let identity = header.spaceButton.convert(header.spaceButton.bounds, to: root)
+        let address = bar.addressField.convert(bar.addressField.bounds, to: root)
+        #expect(identity.maxY < pinFrame.minY)
+        #expect(pinFrame.maxY < address.minY)
+        let list = try #require(descendants.compactMap { $0 as? NSTableView }.first)
+        func index(containing text: String) -> Int? {
+            (0..<list.numberOfRows).first { row in
+                guard let cell = list.view(atColumn: 0, row: row, makeIfNecessary: true) else { return false }
+                return UITestSupport.descendants(of: cell).contains { ($0.accessibilityLabel() ?? "").contains(text) }
+            }
+        }
+        let newTab = try #require(index(containing: "New Tab"))
+        let keptRow = try #require(index(containing: "kept.example"))
+        let ordinaryRow = try #require(index(containing: "ordinary.example"))
+        #expect(keptRow < newTab)
+        #expect(newTab < ordinaryRow)
+        #expect(session.activeTab === ordinary)
+    }
+
     @Test("Sidebar click and Cmd-L open the same full-URL popup without creating tabs")
     func sidebarAddressOpensPopup() throws {
         _ = NSApplication.shared

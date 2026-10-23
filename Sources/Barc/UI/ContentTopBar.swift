@@ -17,14 +17,16 @@ struct TopBarAction {
 /// Browser navigation and page actions, hosted at the top of the sidebar.
 @MainActor
 final class ContentTopBar: NSView {
-    let sidebarToggle = IconButton(symbolName: "sidebar.leading", label: "Toggle Sidebar")
-    let backButton = IconButton(symbolName: "chevron.left", label: "Back")
-    let forwardButton = IconButton(symbolName: "chevron.right", label: "Forward")
-    let reloadButton = IconButton(symbolName: "arrow.clockwise", label: "Reload")
-    let utilitiesButton = IconButton(symbolName: "ellipsis", label: "Page Utilities")
+    let sidebarToggle = IconButton(symbolName: "sidebar.leading", label: "Toggle Sidebar", side: 24)
+    let backButton = IconButton(symbolName: "chevron.left", label: "Back", side: 24)
+    let forwardButton = IconButton(symbolName: "chevron.right", label: "Forward", side: 24)
+    let reloadButton = IconButton(symbolName: "arrow.clockwise", label: "Reload", side: 24)
+    let utilitiesButton = IconButton(symbolName: "ellipsis", label: "Page Utilities", side: 24)
     let addressField = AddressField()
 
     private let navigation = WrappingControlsView()
+    private var navigationWidth: NSLayoutConstraint!
+    private var contentStack: NSStackView!
     /// Retain each action's existing state and handler without putting its button in the sidebar.
     private var utilityActions: [(label: String, button: IconButton)] = []
 
@@ -35,17 +37,19 @@ final class ContentTopBar: NSView {
         utilitiesButton.isEnabled = false
         utilitiesButton.setClickHandler { [weak self] in self?.showUtilitiesMenu() }
         let stack = NSStackView(views: [navigation, addressField])
+        contentStack = stack
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
+        navigationWidth = navigation.widthAnchor.constraint(equalTo: stack.widthAnchor)
         NSLayoutConstraint.activate([
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Style.Metrics.sidebarInset),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-            navigation.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            navigationWidth,
             addressField.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         setAccessibilityRole(.toolbar)
@@ -54,6 +58,13 @@ final class ContentTopBar: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("ContentTopBar is created in code only")
+    }
+
+    func takeNavigationRow() -> NSView {
+        navigationWidth.isActive = false
+        contentStack.removeArrangedSubview(navigation)
+        navigation.removeFromSuperview()
+        return navigation
     }
 
     func setActions(_ newActions: [TopBarAction]) {
@@ -134,8 +145,8 @@ private final class WrappingControlsView: NSView {
     }
 
     private func arrangeButtons() {
-        let gap = Style.Metrics.iconButtonSpacing
-        let side = Style.Metrics.iconButtonSide
+        let gap: CGFloat = 3
+        let side: CGFloat = 24
         let width = bounds.width > 0 ? bounds.width : 200
         let columns = max(1, Int((width + gap) / (side + gap)))
         let rowCount = (buttons.count + columns - 1) / columns

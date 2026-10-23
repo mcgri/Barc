@@ -554,7 +554,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private func wireTopBar() {
         let bar = content.topBar
         bar.sidebarToggle.setClickHandler { [weak self] in
-            self?.toggleBarcSidebar(nil)
+            guard let self else { return }
+            if self.compact.controller.state.isEnabled { self.compact.controller.dismissSidebar() }
+            else { self.toggleBarcSidebar(nil) }
         }
         bar.backButton.setClickHandler { [weak self] in self?.goBack(nil) }
         bar.forwardButton.setClickHandler { [weak self] in self?.goForward(nil) }
@@ -1559,15 +1561,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// mouse alone there was no way back. So while it floats, the sidebar
     /// carries the button itself.
     private func updateFloatingSidebarActions() {
-        guard let compact, compact.controller.state.isEnabled else {
-            sidebar.setHeaderActions([])
-            return
-        }
-        sidebar.setHeaderActions([
-            TopBarAction(symbolName: "sidebar.leading", label: "Hide Sidebar") { [weak self] in
-                self?.compact.controller.dismissSidebar()
-            }
-        ])
+        content.topBar.sidebarToggle.setSymbol("sidebar.leading",
+            label: compact?.controller.state.isEnabled == true ? "Hide Sidebar" : "Toggle Sidebar")
     }
 
     private func updateCardInsets() {

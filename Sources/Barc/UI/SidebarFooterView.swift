@@ -1,75 +1,72 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: compact Arc-style Home, Space dock and add controls, 2026-10-24.
 import AppKit
 
-/// Browser utility buttons above the Space icon dock at the foot of the sidebar.
 @MainActor
 final class SidebarFooterView: NSView {
-    static let height = Style.Metrics.footerHeight + SpaceDockLayout.height
+    static let height: CGFloat = 40
     var onSelectSpace: ((UUID) -> Void)?
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
-
-    private let leadingSlot = NSStackView()
-    private let trailingSlot = NSStackView()
+    var addMenuProvider: (() -> NSMenu)?
+    let homeButton = IconButton(symbolName: "archivebox", label: "Home", side: 24)
+    let addButton = IconButton(symbolName: "plus", label: "Add", side: 24)
     private let dock = SpaceDockView()
+    private var leadingActions: [(String, IconButton)] = []
+    private var trailingActions: [(String, IconButton)] = []
+    var isShowingArchive = false { didSet { homeButton.isActive = isShowingArchive } }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-
-        for slot in [leadingSlot, trailingSlot] {
-            slot.orientation = .horizontal
-            slot.spacing = Style.Metrics.iconButtonSpacing
-            slot.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(slot)
-        }
-        dock.onSelect = { [weak self] id in self?.onSelectSpace?(id) }
-        dock.onChangeIcon = { [weak self] id, choice in self?.onChangeIcon?(id, choice) }
+        addSubview(homeButton)
         addSubview(dock)
-
+        addSubview(addButton)
+        homeButton.setClickHandler { [weak self] in
+            guard let self else { return }
+            makeHomeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: homeButton.bounds.maxY), in: homeButton)
+        }
+        addButton.setClickHandler { [weak self] in
+            guard let self, let menu = addMenuProvider?() else { return }
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: addButton.bounds.maxY), in: addButton)
+        }
+        dock.onSelect = { [weak self] in self?.onSelectSpace?($0) }
+        dock.onChangeIcon = { [weak self] in self?.onChangeIcon?($0, $1) }
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
-            leadingSlot.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Style.Metrics.sidebarInset),
-            leadingSlot.centerYAnchor.constraint(equalTo: topAnchor, constant: Style.Metrics.footerHeight / 2),
-            trailingSlot.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Style.Metrics.sidebarInset),
-            trailingSlot.centerYAnchor.constraint(equalTo: leadingSlot.centerYAnchor),
-            dock.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Style.Metrics.sidebarInset),
-            dock.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Style.Metrics.sidebarInset),
-            dock.bottomAnchor.constraint(equalTo: bottomAnchor)
+            homeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            homeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            dock.leadingAnchor.constraint(equalTo: homeButton.trailingAnchor),
+            dock.trailingAnchor.constraint(equalTo: addButton.leadingAnchor),
+            dock.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }
+    required init?(coder: NSCoder) { fatalError("Created in code only") }
 
-    required init?(coder: NSCoder) {
-        fatalError("SidebarFooterView is created in code only")
+    func setLeadingActions(_ actions: [TopBarAction]) { leadingActions = controls(actions) }
+    func setTrailingActions(_ actions: [TopBarAction]) { trailingActions = controls(actions) }
+    private func controls(_ actions: [TopBarAction]) -> [(String, IconButton)] {
+        actions.map { ($0.label, IconButton(symbolName: $0.symbolName, label: $0.label, onClick: $0.handler)) }
     }
-
-    func setLeadingActions(_ actions: [TopBarAction]) { fill(leadingSlot, with: actions) }
-    func setTrailingActions(_ actions: [TopBarAction]) { fill(trailingSlot, with: actions) }
-
-    /// The button for one of the actions, to hang a popover on. Nil until the
-    /// actions have been set, which is why a caller anchors through a closure
-    /// rather than holding the view.
     func actionButton(labelled label: String) -> NSView? {
-        for slot in [leadingSlot, trailingSlot] {
-            if let button = slot.arrangedSubviews.first(where: { $0.accessibilityLabel() == label }) {
-                return button
-            }
-        }
-        return nil
+        (leadingActions + trailingActions).first { $0.0 == label }?.1
     }
-
-    func showSpaces(_ items: [SpaceDockItem], selectedID: UUID?) {
-        dock.show(items, selectedID: selectedID)
-    }
-
-    private func fill(_ stack: NSStackView, with actions: [TopBarAction]) {
-        for view in stack.arrangedSubviews {
-            stack.removeArrangedSubview(view)
-            view.removeFromSuperview()
+    func actionAnchor(labelled label: String) -> NSView? { actionButton(labelled: label) == nil ? nil : homeButton }
+    func makeHomeMenu() -> NSMenu {
+        let menu = NSMenu(title: "Home")
+        menu.autoenablesItems = false
+        for (_, button) in leadingActions + trailingActions {
+            let count = button.badgeCount
+            let name = button.accessibilityLabel() ?? ""
+            let item = NSMenuItem(title: count > 0 ? "\(name) (\(count))" : name,
+                                  action: button.action, keyEquivalent: "")
+            item.target = button.target
+            item.image = button.symbolImage
+            item.isEnabled = button.isEnabled
+            item.state = button.isActive ? .on : .off
+            menu.addItem(item)
         }
-        for action in actions {
-            stack.addArrangedSubview(
-                IconButton(symbolName: action.symbolName, label: action.label, onClick: action.handler)
-            )
-        }
+        return menu
     }
+    func showSpaces(_ items: [SpaceDockItem], selectedID: UUID?) { dock.show(items, selectedID: selectedID) }
 }

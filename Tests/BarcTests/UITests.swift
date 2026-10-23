@@ -687,7 +687,7 @@ struct ArchivedRowTests {
 @Suite("The sidebar footer")
 @MainActor
 struct SidebarFooterTests {
-    @Test("The Space dock has its own row below the browser utility buttons")
+    @Test("Home, the Space dock and Add fit on one footer row")
     func footerKeepsIconsClearOfUtilities() {
         let footer = SidebarFooterView()
         footer.setLeadingActions([TopBarAction(symbolName: "arrow.down", label: "Downloads") {}])
@@ -699,10 +699,13 @@ struct SidebarFooterTests {
         let frame = dock.convert(dock.bounds, to: host)
         #expect(footer.frame.height == SidebarFooterView.height)
         #expect(footer.bounds.contains(dock.frame))
-        for name in ["Downloads", "Archive"] {
-            let button = footer.actionButton(labelled: name)!
-            #expect(button.convert(button.bounds, to: host).minY > frame.maxY)
-        }
+        let home = footer.homeButton.convert(footer.homeButton.bounds, to: host)
+        let add = footer.addButton.convert(footer.addButton.bounds, to: host)
+        #expect(abs(home.midY - frame.midY) < 1)
+        #expect(abs(add.midY - frame.midY) < 1)
+        #expect(home.maxX <= frame.minX)
+        #expect(frame.maxX <= add.minX)
+        #expect(footer.makeHomeMenu().items.map(\.title) == ["Downloads", "Archive"])
     }
 
     @Test("An empty archive shows no count at all")
@@ -1181,8 +1184,8 @@ struct SidebarArchiveTests {
     /// The footer's Archive button, found the way the sidebar itself finds it.
     private func archiveButton(in sidebar: SidebarViewController) -> IconButton? {
         UITestSupport.descendants(of: sidebar.view)
-            .compactMap { $0 as? IconButton }
-            .first { $0.accessibilityLabel() == "Archive" }
+            .compactMap { $0 as? SidebarFooterView }.first?
+            .actionButton(labelled: "Archive") as? IconButton
     }
 
     @Test("The sidebar shows one Space's archive, and the count agrees with it")

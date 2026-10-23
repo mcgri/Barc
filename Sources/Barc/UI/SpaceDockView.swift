@@ -10,10 +10,10 @@ struct SpaceDockItem {
 
 /// Fixed cells keep pointer tracking, click targets and scrolling independent of magnification.
 enum SpaceDockLayout {
-    static let iconSide: CGFloat = 18
-    static let enlargedSide: CGFloat = 26
-    static let inset: CGFloat = 6
-    static let height: CGFloat = 44
+    static let iconSide: CGFloat = 13
+    static let enlargedSide: CGFloat = 20
+    static let inset: CGFloat = 2
+    static let height: CGFloat = 40
 
     struct Plan {
         var frames: [NSRect]
@@ -286,7 +286,8 @@ final class SpaceDockButton: NSButton {
 
     func apply(frame: NSRect, iconSize: CGFloat) {
         self.iconSize = iconSize
-        let imageFrame = NSRect(x: (frame.width - iconSize) / 2, y: 8, width: iconSize, height: iconSize)
+        let imageFrame = NSRect(x: (frame.width - iconSize) / 2, y: 13.5, width: iconSize, height: iconSize)
+        glyph.alphaValue = isSelectedSpace || iconSize > SpaceDockLayout.iconSide + 0.2 ? 1 : 0.58
         if self.frame != frame { self.frame = frame }
         if glyph.frame != imageFrame { glyph.frame = imageFrame }
     }
@@ -302,14 +303,6 @@ final class SpaceDockButton: NSButton {
         }
         menu.items.first { $0.title == "Remove Icon" }?.title = "Use Default Icon"
         return menu
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        if isSelectedSpace {
-            NSColor.controlAccentColor.setFill()
-            NSBezierPath(roundedRect: NSRect(x: bounds.midX - 4, y: 2, width: 8, height: 3), xRadius: 1.5, yRadius: 1.5).fill()
-        }
     }
 
     private static func initialImage(_ item: SpaceDockItem) -> NSImage {

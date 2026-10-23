@@ -58,7 +58,7 @@ final class AddressField: NSView {
         addSubview(copyButton)
 
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: Style.Metrics.iconButtonSide),
+            heightAnchor.constraint(equalToConstant: 36),
             securityIcon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 9),
             securityIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
             securityIcon.widthAnchor.constraint(equalToConstant: 15),

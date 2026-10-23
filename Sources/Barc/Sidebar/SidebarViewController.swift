@@ -17,15 +17,9 @@ final class SidebarViewController: NSViewController {
         _ = view
         browserControls.setViews(controls, in: .top)
         for control in controls {
+            if let bar = control as? ContentTopBar { diaHeader.installNavigation(bar.takeNavigationRow()) }
             control.widthAnchor.constraint(equalTo: browserControls.widthAnchor).isActive = true
         }
-    }
-
-    /// Buttons on the trailing end of the header strip. Empty is the usual
-    /// state: the page's top bar carries them. A floating sidebar covers that
-    /// bar, so what it covers has to be reachable from the sidebar itself.
-    func setHeaderActions(_ actions: [TopBarAction]) {
-        diaHeader.setActions(actions)
     }
 
     /// Whether the header strip is the traffic lights' host at the moment.
@@ -267,6 +261,7 @@ final class SidebarViewController: NSViewController {
             guard let self, let space = self.session.spaces.first(where: { $0.id == id }) else { return }
             self.session.setIcon(SpaceIcon(choice), for: space)
         }
+        diaFooter.addMenuProvider = { [weak self] in self?.makeAddMenu() ?? NSMenu() }
         // The icon dock switches spaces and configures their icons; everything
         // else about a space -- making, renaming, recolouring, deleting --
         // is the header menu's and Settings' job. The standing buttons are the
@@ -295,7 +290,7 @@ final class SidebarViewController: NSViewController {
         // the view: the footer rebuilds its buttons whenever its actions are
         // set, and the manager must not be left holding one that is gone.
         DownloadManager.shared.listAnchor = { [weak self] in
-            self?.diaFooter.actionButton(labelled: "Downloads")
+            self?.diaFooter.actionAnchor(labelled: "Downloads")
         }
 
         // The archive takes the pins' and the tab list's place in this stack
@@ -316,7 +311,16 @@ final class SidebarViewController: NSViewController {
         browserControls.spacing = 6
         browserControls.translatesAutoresizingMaskIntoConstraints = false
 
-        let contentStack = NSStackView(views: [pinnedTiles, scrollView, archiveList])
+        let identity = NSView()
+        identity.translatesAutoresizingMaskIntoConstraints = false
+        identity.addSubview(diaHeader.spaceButton)
+        NSLayoutConstraint.activate([
+            identity.heightAnchor.constraint(equalToConstant: 32),
+            diaHeader.spaceButton.leadingAnchor.constraint(equalTo: identity.leadingAnchor, constant: 16),
+            diaHeader.spaceButton.trailingAnchor.constraint(lessThanOrEqualTo: identity.trailingAnchor, constant: -8),
+            diaHeader.spaceButton.centerYAnchor.constraint(equalTo: identity.centerYAnchor)
+        ])
+        let contentStack = NSStackView(views: [pinnedTiles, identity, scrollView, archiveList])
         contentStack.orientation = .vertical
         // The bands of the sidebar -- title, shortcuts, tabs -- are different
         // kinds of thing, so the space between them is the gutter rather than
@@ -343,6 +347,7 @@ final class SidebarViewController: NSViewController {
         stack.spacing = Style.Metrics.elementSeparation
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.setCustomSpacing(2, after: diaHeader)
         view.addSubview(stack)
 
         // The header owns the traffic-light strip, so the stack starts at the
@@ -372,6 +377,7 @@ final class SidebarViewController: NSViewController {
                 constant: Style.Metrics.sidebarInset
             ),
             pinnedTiles.trailingAnchor.constraint(lessThanOrEqualTo: contentStack.trailingAnchor),
+            identity.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             view.widthAnchor.constraint(
                 // The split item's own minimum, not a second one derived from
                 // the resting width. This constraint was the real floor: it held
@@ -1144,11 +1150,13 @@ final class SidebarViewController: NSViewController {
     private func rebuildRows() {
         let space = shownSpace
         var flattened: [SidebarRow] = []
+        let kept = space.listedTabs.filter { $0.groupID == nil && $0.keepsInSidebar }
+        let remaining = space.listedTabs.filter { $0.groupID != nil || !$0.keepsInSidebar }
         for row in FolderRowPlan.rows(
             groups: space.groups,
             // A pinned shortcut is represented by its tile; listing its tab as
             // well shows the same site twice.
-            tabs: space.listedTabs,
+            tabs: kept + remaining,
             activeTabID: space.activeTabID
         ) {
             switch row {
@@ -1166,7 +1174,11 @@ final class SidebarViewController: NSViewController {
                 flattened.append(.tab(tab, depth: depth, isEscaping: isEscaping))
             }
         }
-        flattened.append(.newTab)
+        let firstOrdinaryTab = flattened.firstIndex {
+            if case .tab(let tab, let depth, _) = $0 { return depth == 0 && !tab.keepsInSidebar }
+            return false
+        } ?? flattened.count
+        flattened.insert(.newTab, at: firstOrdinaryTab)
         rows = flattened
         plates = FolderPlatePlan.pieces(for: dropRows)
         slices = buildSlices()
@@ -1382,6 +1394,7 @@ final class SidebarViewController: NSViewController {
         scrollView.isHidden = visible
         archiveList.isHidden = !visible
         archiveButton?.isActive = visible
+        diaFooter.isShowingArchive = visible
         if visible { reloadArchive() }
     }
 
@@ -1572,6 +1585,22 @@ final class SidebarViewController: NSViewController {
     }
 
     // MARK: - Context menu
+
+    func makeAddMenu() -> NSMenu {
+        let menu = NSMenu(title: "Add")
+        let space = NSMenuItem(title: "New Space", action: #selector(newSpaceFromMenu), keyEquivalent: "")
+        space.target = self
+        menu.addItem(space)
+        let folder = NSMenuItem(title: "New Folder", action: #selector(newGroupFromMenu), keyEquivalent: "")
+        folder.target = self
+        menu.addItem(folder)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "New Boost", action: #selector(BrowserWindowController.openBoostEditorFromMenu(_:)), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "New Split", action: #selector(BrowserWindowController.splitSideBySide(_:)), keyEquivalent: ""))
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "New Tab", action: #selector(BrowserWindowController.newTab(_:)), keyEquivalent: "t"))
+        return menu
+    }
 
     /// The sidebar menu, reached with a two-finger click on the sidebar.
     ///
@@ -2324,6 +2353,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     /// last pill, so the card has clearance at both ends.
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return Style.Metrics.rowHeight }
+        if case .newTab = rows[row] { return Style.Metrics.rowHeight + 12 }
         if case .group = rows[row] {
             return Style.Metrics.groupHeaderHeight + Style.Metrics.folderPlateGap
                 + plateGapBelow(row: row)
@@ -2463,8 +2493,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         return container
     }
 
-    /// Styled as a row so it reads as the end of the list rather than as a
-    /// button parked next to it.
+    /// Separates retained tabs above from today's tabs below.
     private func newTabRowCell() -> NSView {
         let header = ActionRowView()
         header.show(symbolName: "plus", title: "New Tab")
@@ -2472,13 +2501,21 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
         let container = NSView()
         container.addSubview(header)
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(divider)
         NSLayoutConstraint.activate([
+            divider.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
+            divider.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            divider.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
+            divider.heightAnchor.constraint(equalToConstant: 0.5),
             header.leadingAnchor.constraint(
                 equalTo: container.leadingAnchor,
                 constant: Style.Metrics.sidebarInset
             ),
             header.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            header.centerYAnchor.constraint(equalTo: container.centerYAnchor)
+            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: 6)
         ])
         return container
     }

@@ -78,7 +78,7 @@ enum Style {
 
         /// Height of the strip the traffic lights float over. The sidebar owns
         /// it because the window has no titlebar of its own.
-        static let titlebarHeight: CGFloat = 53
+        static let titlebarHeight: CGFloat = 44
         /// Space the traffic lights need before anything else may be placed on
         /// the titlebar row.
         static let trafficLightWidth: CGFloat = 78
@@ -90,7 +90,7 @@ enum Style {
         /// 32-point tile leaves eight points above and below, which is too
         /// tight to read as a button and is why the strip looked like a row of
         /// swatches rather than a row of shortcuts.
-        static let tileHeight: CGFloat = 36
+        static let tileHeight: CGFloat = 46
         static let tileSpacing: CGFloat = 4
         /// Scaled with the tile: this proportion reads as a rounded square,
         /// which is what a shortcut to an app-like site should be. Much larger
