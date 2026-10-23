@@ -134,24 +134,25 @@ struct ArcNativeStorageSafetyTests {
     func emptyUsernameKeychain() throws {
         let identity = Space.Identity.makeIsolated()
         let sourceID = "synthetic-empty-username-" + UUID().uuidString
-        let path = KeychainPasswordStore.path(for: identity, sourceID: sourceID)
-        defer { _ = KeychainPasswordStore.delete(host: "empty-username-fixture.invalid", username: "", identity: identity,
+        let path = LegacyKeychainPasswordStore.path(for: identity, sourceID: sourceID)
+        defer { _ = LegacyKeychainPasswordStore.delete(host: "empty-username-fixture.invalid", username: "", identity: identity,
             storagePath: path, scheme: "https") }
-        #expect(KeychainPasswordStore.save(host: "empty-username-fixture.invalid", username: "", password: "fictional-only",
+        #expect(LegacyKeychainPasswordStore.save(host: "empty-username-fixture.invalid", username: "", password: "fictional-only",
             identity: identity, sourceID: sourceID, overwrite: false))
-        let saved = KeychainPasswordStore.all(identity: identity)
+        let saved = LegacyKeychainPasswordStore.all(identity: identity)
         #expect(saved.count == 1)
         #expect(saved.first?.username == "")
         #expect(saved.first?.password == "fictional-only")
-        #expect(KeychainPasswordStore.credentials(host: "empty-username-fixture.invalid", identity: identity).count == 1)
-        defer { _ = KeychainPasswordStore.delete(host: "empty-username-fixture.invalid", username: "named-user", identity: identity,
+        #expect(LegacyKeychainPasswordStore.credentials(host: "empty-username-fixture.invalid", identity: identity).count == 1)
+        defer { _ = LegacyKeychainPasswordStore.delete(host: "empty-username-fixture.invalid", username: "named-user", identity: identity,
             storagePath: path, scheme: "https") }
-        #expect(KeychainPasswordStore.save(host: "empty-username-fixture.invalid", username: "named-user", password: "fictional-named",
+        #expect(LegacyKeychainPasswordStore.save(host: "empty-username-fixture.invalid", username: "named-user", password: "fictional-named",
             identity: identity, sourceID: sourceID, overwrite: false))
-        let neighbours = KeychainPasswordStore.all(identity: identity)
+        let neighbours = LegacyKeychainPasswordStore.all(identity: identity)
         #expect(neighbours.count == 2)
         #expect(neighbours.first(where: { $0.username.isEmpty })?.password == "fictional-only")
         #expect(neighbours.first(where: { $0.username == "named-user" })?.password == "fictional-named")
+        #expect(LegacyKeychainPasswordStore.all(identity: identity, allowInteraction: false) == neighbours)
     }
 
     @Test("A local build saves, reads and preserves imported Keychain records",
@@ -159,26 +160,36 @@ struct ArcNativeStorageSafetyTests {
     func nativeKeychain() throws {
         let identity = Space.Identity.makeIsolated()
         let sourceID = "synthetic-only-" + UUID().uuidString
-        let path = KeychainPasswordStore.path(for: identity, sourceID: sourceID)
-        defer { _ = KeychainPasswordStore.delete(host: "barc-keychain-fixture.invalid", username: "fictional-user", identity: identity, storagePath: path, scheme: "https") }
-        #expect(KeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "fictional-user", password: "fictional-first",
+        let path = LegacyKeychainPasswordStore.path(for: identity, sourceID: sourceID)
+        defer { _ = LegacyKeychainPasswordStore.delete(host: "barc-keychain-fixture.invalid", username: "fictional-user", identity: identity, storagePath: path, scheme: "https") }
+        #expect(LegacyKeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "fictional-user", password: "fictional-first",
             identity: identity, sourceID: sourceID, overwrite: false))
-        let first = KeychainPasswordStore.all(identity: identity)
+        let first = LegacyKeychainPasswordStore.all(identity: identity)
         #expect(first.count == 1)
         #expect(first.first?.password == "fictional-first")
         #expect(first.first?.scheme == "https")
-        #expect(KeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "fictional-user", password: "fictional-second",
+        #expect(LegacyKeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "fictional-user", password: "fictional-second",
             identity: identity, sourceID: sourceID, overwrite: false))
-        #expect(KeychainPasswordStore.all(identity: identity).first?.password == "fictional-first")
-        #expect(KeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid", identity: .standard).isEmpty)
+        #expect(LegacyKeychainPasswordStore.all(identity: identity).first?.password == "fictional-first")
+        #expect(LegacyKeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid", identity: .standard).isEmpty)
+        let standardSource = sourceID + "-standard"
+        let standardPath = LegacyKeychainPasswordStore.path(for: .standard, sourceID: standardSource)
+        defer { _ = LegacyKeychainPasswordStore.delete(host: "barc-keychain-fixture.invalid", username: "standard-fixture",
+            storagePath: standardPath) }
+        #expect(LegacyKeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "standard-fixture",
+            password: "fictional-standard", sourceID: standardSource, overwrite: false))
+        let standard = KeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid")
+        #expect(standard.count == 1)
+        #expect(standard.first?.scheme == nil)
+        #expect(standard.first?.password == "fictional-standard")
         let customSource = sourceID + "-custom-port"
-        let customPath = KeychainPasswordStore.path(for: identity, sourceID: customSource)
-        defer { _ = KeychainPasswordStore.delete(host: "barc-keychain-fixture.invalid", username: "fictional-user", identity: identity,
+        let customPath = LegacyKeychainPasswordStore.path(for: identity, sourceID: customSource)
+        defer { _ = LegacyKeychainPasswordStore.delete(host: "barc-keychain-fixture.invalid", username: "fictional-user", identity: identity,
             storagePath: customPath, scheme: "https", port: 8443) }
-        #expect(KeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "fictional-user", password: "fictional-custom-port",
+        #expect(LegacyKeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "fictional-user", password: "fictional-custom-port",
             identity: identity, port: 8443, sourceID: customSource, overwrite: false))
-        #expect(KeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid", identity: identity).count == 1)
-        let custom = KeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid", identity: identity, port: 8443)
+        #expect(LegacyKeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid", identity: identity).count == 1)
+        let custom = LegacyKeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid", identity: identity, port: 8443)
         #expect(custom.count == 1)
         #expect(custom.first?.password == "fictional-custom-port")
         #expect(custom.first?.port == 8443)

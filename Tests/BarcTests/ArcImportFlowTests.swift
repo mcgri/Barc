@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 import Testing
 import WebKit
+import os
 @testable import Barc
 
 enum ArcFlowBench {
@@ -274,7 +275,8 @@ struct ArcImportFlowTests {
         let coordinator = ArcImportCoordinator(session: session, downloads: DownloadManager(store: DownloadStore(fileURL: root.appending(path: "downloads.json"))), reportDirectory: root.appending(path: "reports"))
         let memory = MemoryPasswords()
         coordinator.passwords = memory.access
-        coordinator.keyProvider = { key }
+        let keyReads = OSAllocatedUnfairLock(initialState: 0)
+        coordinator.keyProvider = { keyReads.withLock { $0 += 1 }; return key }
         var options = ArcImportOptions(profileIDs: Set(source.profiles.map(\.folder)))
         options.history = false; options.bookmarks = false; options.cookies = false; options.localStorage = false; options.supplementary = false
         let report = try await coordinator.run(source, options: options)
@@ -291,6 +293,10 @@ struct ArcImportFlowTests {
         #expect(repeated.profiles.reduce(0) { $0 + ($1.counts["Saved passwords"]?.existing ?? 0) } == 2)
         #expect(repeated.profiles.reduce(0) { $0 + ($1.counts["Saved passwords"]?.verified ?? 0) } == 1)
         #expect(memory.records[identity]?.first?.password == "newer-native-password")
+        #expect(keyReads.withLock { $0 } == 1)
+        coordinator.clearSensitiveState()
+        _ = try await coordinator.run(source, options: options)
+        #expect(keyReads.withLock { $0 } == 2)
     }
 
     @Test("The normal recent-download cap does not truncate an explicit Arc archive")

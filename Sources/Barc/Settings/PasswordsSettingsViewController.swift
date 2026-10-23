@@ -3,7 +3,7 @@ import AppKit
 
 /// The Passwords pane: where saved logins come from, the AutoFill switches, and
 /// a way to manage what is stored. Barc's own AutoFill is backed by the macOS
-/// login Keychain; other managers plug in as browser extensions.
+/// Keychain-protected local vault; other managers plug in as browser extensions.
 @MainActor
 final class PasswordsSettingsViewController: NSViewController {
     private let settings: Settings
@@ -110,7 +110,7 @@ final class PasswordsSettingsViewController: NSViewController {
     private func syncProvider() {
         let usesKeychain = settings.passwordProvider == .keychain
         providerNote.stringValue = usesKeychain
-            ? "Passwords are saved in your macOS login Keychain and synced with iCloud Keychain \u{2014} the same store Safari uses. Barc keeps no separate password database."
+            ? "Passwords are encrypted in Barc's local vault. One macOS Keychain approval unlocks the vault for this app session. Each profile keeps separate logins. Passwords are not synced through iCloud."
             : "Barc can\u{2019}t read another manager\u{2019}s vault directly \u{2014} you need its browser extension. Click one below to open its page in Barc, download the extension, then load it from the Extensions pane."
         for row in autofillRows { row.isHidden = !usesKeychain }
         for row in linkRows { row.isHidden = usesKeychain }
@@ -162,7 +162,7 @@ final class PasswordsSettingsViewController: NSViewController {
     }
 }
 
-/// A small window listing the logins Barc has saved to the Keychain, with a way
+/// A small window listing the logins Barc has saved, with a way
 /// to remove one. Passwords are never shown in the list -- only which sites and
 /// usernames are stored.
 @MainActor

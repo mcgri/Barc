@@ -51,9 +51,11 @@ The [implementation plan](docs/arc-import-plan.md) describes the supported forma
 - Command-line helper: `Tools/barc`, bundled as `Contents/Resources/barc-cli`
 - Keychain labels and services, sync folders, native-messaging identifiers and generated web-app identities use Barc's namespace.
 
-Barc uses its own data locations. Rebranding does not import or alter an existing Kylmora profile. Website passwords saved by Barc use a dedicated Keychain path so saving or deleting a Barc login does not change another browser's item.
+Barc uses its own data locations. Rebranding does not import or alter an existing Kylmora profile. Website passwords use Barc's own encrypted vault and do not change another browser's password items.
 
-Passwords are stored in the macOS Keychain. Local builds use the login Keychain if their signing identity cannot access iCloud Keychain.
+Website passwords are encrypted with AES-256-GCM in `Passwords/website-passwords.barc` inside Barc's application-data folder. One macOS login-Keychain item protects the random encryption key. A successful unlock is kept in memory for the app session, so an application update can require one vault approval rather than a separate approval for every password. Profile records stay separate. The vault does not use iCloud Keychain sync.
+
+Earlier per-login Keychain entries remain untouched and are read only when macOS already permits access without a prompt. Reimporting from Arc can restore those source credentials into the vault without approving each older entry. Arc's approved source key is held only in memory for the current import window and cleared when it closes or a different folder is chosen. Repeating an import in that window does not request the source key again.
 
 The icon source is [Resources/Icon/barc-icon.png](Resources/Icon/barc-icon.png). `make icon` packages it into [Resources/Barc.icns](Resources/Barc.icns).
 

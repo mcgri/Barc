@@ -31,11 +31,12 @@ final class ArcImportCoordinator {
     struct PasswordAccess {
         var read: (Space.Identity) -> [PasswordCredential]
         var save: (ArcProfileReader.Password, Space.Identity, String) -> Bool
+        var begin: () -> Void = {}
         static var keychain: PasswordAccess {
             PasswordAccess(read: { KeychainPasswordStore.all(identity: $0) }, save: { row, identity, sourceID in
                 KeychainPasswordStore.save(host: row.host, username: row.username, password: row.value, identity: identity,
                     scheme: row.scheme, port: row.port, sourceID: sourceID, overwrite: false)
-            })
+            }, begin: { KeychainPasswordStore.prepareForAccess() })
         }
     }
 
@@ -48,6 +49,8 @@ final class ArcImportCoordinator {
         ChromiumCookieCrypto.safeStoragePassword(service: "Arc Safe Storage", account: "Arc")
             .map(ChromiumCookieCrypto.deriveKey(password:))
     }
+    private var approvedSourceKey: (root: URL, key: Data)?
+    func clearSensitiveState() { approvedSourceKey = nil }
     var passwords: PasswordAccess = .keychain
     var storeProvider: (Space.Identity) -> WKWebsiteDataStore = { WebEnvironment.shared.dataStore(for: $0) }
     var autofillProvider: (Space.Identity) -> AutofillStore = { AutofillStore.forIdentity($0) }
@@ -80,18 +83,24 @@ final class ArcImportCoordinator {
             "Arc was read from a private snapshot and was not changed by the importer.",
             "Existing destination tabs, passwords, cookies and local-storage values are kept on a repeated import.",
             "Saved passwords and signed-in website sessions are separate. Some websites require signing in again.",
-            "Passwords are saved in the macOS Keychain. Local builds use the login Keychain when iCloud Keychain is unavailable to their signing identity.",
+            "Passwords are encrypted in Barc's local vault. One macOS Keychain item protects its key; each profile keeps separate credential records.",
             "Partitioned cookies are skipped rather than changing their isolation. Cookie lifetimes are not extended.",
             "Tab URLs, titles, names and order are restored. Arc's back/forward stacks, scroll positions and in-page form state cannot be converted to WebKit state.",
             "Payment cards were not imported. Website databases, tab-scoped session storage, passkeys and extension data remain in Arc."
         ]
         var key: Data?
         if options.passwords || options.cookies {
-            progress("Waiting for access to Arc's encryption key. Approve Arc Safe Storage in the macOS prompt if asked.")
-            let provider = keyProvider
-            key = await Task.detached { provider() }.value
+            if let approvedSourceKey, approvedSourceKey.root == source.root { key = approvedSourceKey.key }
+            else {
+                approvedSourceKey = nil
+                progress("Waiting for access to Arc's encryption key. Approve Arc Safe Storage in the macOS prompt if asked.")
+                let provider = keyProvider
+                key = await Task.detached { provider() }.value
+                if let key { approvedSourceKey = (source.root, key) }
+            }
             if key == nil { report.notes.append(ArcImportFailure.keyUnavailable.localizedDescription) }
         }
+        if options.passwords { passwords.begin() }
         for (index, profile) in selected.enumerated() {
             progress("Importing \(profile.name) · \(index + 1) of \(selected.count)")
             let profileURL = source.profileURL(profile)

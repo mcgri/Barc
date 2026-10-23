@@ -3,7 +3,7 @@ import Foundation
 import Security
 
 /// One saved website login.
-struct PasswordCredential: Equatable, Sendable, Identifiable {
+struct PasswordCredential: Codable, Equatable, Sendable, Identifiable {
     let host: String
     let username: String
     let password: String
@@ -22,7 +22,8 @@ struct PasswordCredential: Equatable, Sendable, Identifiable {
 /// Barc reads and writes its own items with no prompt; items another app saved
 /// carry that app's access control, so reading them can raise the system's
 /// "Allow" prompt -- which is the correct, user-visible boundary.
-enum KeychainPasswordStore {
+enum LegacyKeychainPasswordStore {
+    private static let interactionLock = NSRecursiveLock()
     /// New items are labelled so "Manage Passwords" can list the ones Barc saved
     /// without walking every internet password on the machine.
     static let label = "Barc"
@@ -100,9 +101,12 @@ enum KeychainPasswordStore {
     }
 
     /// Every login stored for a host -- what autofill offers on that site.
-    static func credentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0) -> [PasswordCredential] {
+    static func credentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0,
+                            allowInteraction: Bool = true) -> [PasswordCredential] {
         guard !identity.isPrivate else { return [] }
-        return items(matching: query(host: host, identity: identity, scheme: scheme, port: port)).compactMap { item in
+        var request = query(host: host, identity: identity, scheme: scheme, port: port)
+        if !allowInteraction { request[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail }
+        return items(matching: request).compactMap { item in
             guard let password = password(in: item) else { return nil }
             let account = item[kSecAttrAccount as String] as? String ?? ""
             return credential(host: host, account: account, password: password, item: item)
@@ -110,9 +114,11 @@ enum KeychainPasswordStore {
     }
 
     /// Every login Barc has saved, for the Manage Passwords list.
-    static func all(identity: Space.Identity = .standard) -> [PasswordCredential] {
+    static func all(identity: Space.Identity = .standard, allowInteraction: Bool = true) -> [PasswordCredential] {
         guard !identity.isPrivate else { return [] }
-        return items(matching: query(identity: identity)).compactMap { item in
+        var request = query(identity: identity)
+        if !allowInteraction { request[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail }
+        return items(matching: request).compactMap { item in
             guard let host = item[kSecAttrServer as String] as? String,
                   let password = password(in: item) else { return nil }
             let account = item[kSecAttrAccount as String] as? String ?? ""
@@ -131,7 +137,8 @@ enum KeychainPasswordStore {
         let proto = item[kSecAttrProtocol as String] as? String
         return PasswordCredential(host: host, username: account, password: password,
                                   storagePath: item[kSecAttrPath as String] as? String,
-                                  scheme: proto == (kSecAttrProtocolHTTP as String) ? "http" : "https",
+                                  scheme: proto == (kSecAttrProtocolHTTP as String) ? "http"
+                                    : proto == (kSecAttrProtocolHTTPS as String) ? "https" : nil,
                                   port: (item[kSecAttrPort as String] as? NSNumber)?.intValue ?? 0)
     }
 
@@ -150,6 +157,17 @@ enum KeychainPasswordStore {
     }
 
     private static func items(matching query: [String: Any]) -> [[String: Any]] {
+        interactionLock.lock(); defer { interactionLock.unlock() }
+        let suppress = query[kSecUseAuthenticationUI as String] as? String == (kSecUseAuthenticationUIFail as String)
+        var previous = DarwinBoolean(true)
+        if suppress {
+            // kSecUseAuthenticationUIFail alone is ignored by the legacy macOS
+            // Keychain. Its public interaction switch returns an error instead
+            // of displaying an ACL prompt. Restore the exact prior state below.
+            guard SecKeychainGetUserInteractionAllowed(&previous) == errSecSuccess,
+                  SecKeychainSetUserInteractionAllowed(false) == errSecSuccess else { return [] }
+        }
+        defer { if suppress { _ = SecKeychainSetUserInteractionAllowed(previous.boolValue) } }
         var listing = query
         listing[kSecReturnAttributes as String] = true
         listing[kSecMatchLimit as String] = kSecMatchLimitAll
@@ -186,7 +204,95 @@ enum KeychainPasswordStore {
     }
 }
 
-/// Where Barc fills passwords from. The macOS Keychain is built in; every other
+/// The public password-store interface uses one Keychain-protected vault.
+/// Earlier per-login items are preserved and read only without interaction, so
+/// an application update never launches a sequence of per-password prompts.
+enum KeychainPasswordStore {
+    private static let vault = WebsitePasswordVault(
+        file: AppPaths.supportDirectory.appending(path: "Passwords/website-passwords.barc"),
+        access: .keychain(service: "io.github.mcgri.Barc.website-password-vault"))
+
+    static let label = LegacyKeychainPasswordStore.label
+    static let itemPath = LegacyKeychainPasswordStore.itemPath
+    static func port(for url: URL) -> Int { LegacyKeychainPasswordStore.port(for: url) }
+    static func label(for identity: Space.Identity) -> String { LegacyKeychainPasswordStore.label(for: identity) }
+    static func path(for identity: Space.Identity, sourceID: String? = nil) -> String {
+        LegacyKeychainPasswordStore.path(for: identity, sourceID: sourceID)
+    }
+    static func prepareForAccess() { vault.retryAccess() }
+
+    static func all(identity: Space.Identity = .standard) -> [PasswordCredential] {
+        guard !identity.isPrivate else { return [] }
+        let scope = ProfileDataPaths.key(for: identity)
+        guard let entries = try? vault.entries() else { return [] }
+        var records = Dictionary(entries.filter { $0.scope == scope }.map { ($0.credential.id, $0.credential) },
+            uniquingKeysWith: { first, _ in first })
+        for credential in LegacyKeychainPasswordStore.all(identity: identity, allowInteraction: false)
+            where records[credential.id] == nil { records[credential.id] = credential }
+        return records.values.sorted { $0.host == $1.host ? $0.username < $1.username : $0.host < $1.host }
+    }
+
+    static func credentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0) -> [PasswordCredential] {
+        guard !identity.isPrivate, let entries = try? vault.entries() else { return [] }
+        let scope = ProfileDataPaths.key(for: identity)
+        let matching = entries.filter {
+            $0.scope == scope && $0.credential.host == host && $0.credential.port == port
+                && (identity == .standard || scheme == nil || $0.credential.scheme == scheme)
+        }.map(\.credential)
+        var records = Dictionary(matching.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for credential in LegacyKeychainPasswordStore.credentials(host: host, identity: identity, scheme: scheme, port: port,
+            allowInteraction: false) where records[credential.id] == nil { records[credential.id] = credential }
+        return records.values.sorted { $0.username < $1.username }
+    }
+
+    @discardableResult
+    static func save(host: String, username: String, password: String, identity: Space.Identity = .standard,
+                     scheme: String = "https", port: Int = 0, storagePath: String? = nil, sourceID: String? = nil, overwrite: Bool = true) -> Bool {
+        guard !identity.isPrivate else { return false }
+        let credential = PasswordCredential(host: host, username: username, password: password,
+            storagePath: storagePath ?? path(for: identity, sourceID: sourceID), scheme: identity == .standard ? nil : scheme, port: port)
+        let scope = ProfileDataPaths.key(for: identity)
+        // Preserve any accessible older item on a repeat import. Inaccessible
+        // legacy items remain untouched in Keychain and never trigger a prompt.
+        let retained = overwrite ? nil : LegacyKeychainPasswordStore.credentials(host: host, identity: identity,
+            scheme: scheme, port: port, allowInteraction: false).first { $0.id == credential.id }
+        do {
+            _ = try vault.mutate { entries in
+                if let index = entries.firstIndex(where: { $0.scope == scope && $0.credential.id == credential.id }) {
+                    guard overwrite else { return false }
+                    entries[index].credential = credential
+                } else { entries.append(.init(scope: scope, credential: retained ?? credential)) }
+                return true
+            }
+            return true
+        } catch { return false }
+    }
+
+    @discardableResult
+    static func delete(host: String, username: String, identity: Space.Identity = .standard,
+                       storagePath: String? = nil, scheme: String? = nil, port: Int = 0) -> Bool {
+        guard !identity.isPrivate else { return false }
+        let scope = ProfileDataPaths.key(for: identity)
+        let path = storagePath ?? path(for: identity)
+        do {
+            let removed = try vault.mutate { entries in
+                let count = entries.count
+                entries.removeAll { entry in
+                    let row = entry.credential
+                    return entry.scope == scope && row.host == host && row.username == username && row.storagePath == path
+                        && row.port == port && (identity == .standard || scheme == nil || row.scheme == scheme)
+                }
+                return entries.count != count
+            }
+            // Explicit deletion must not reveal an older item with the same ID.
+            let legacyRemoved = LegacyKeychainPasswordStore.delete(host: host, username: username, identity: identity,
+                storagePath: path, scheme: scheme, port: port)
+            return removed || legacyRemoved
+        } catch { return false }
+    }
+}
+
+/// Where Barc fills passwords from. Its Keychain-protected vault is built in; every other
 /// manager (1Password, Bitwarden, ...) plugs in as a browser extension, not as a
 /// native provider -- there is no public API to read their vaults -- so
 /// the alternative is simply "Others", which points the user at those.
@@ -196,7 +302,7 @@ enum PasswordProvider: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .keychain: return "macOS Keychain"
+        case .keychain: return "Barc password vault"
         case .others: return "Others"
         }
     }

@@ -122,6 +122,7 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
 
     func load(_ selected: URL) {
         guard !importing else { return }
+        coordinator?.clearSensitiveState(); coordinator = nil
         loadTask?.cancel(); captureTask?.cancel()
         source?.remove(); source = nil
         for view in profileStack.arrangedSubviews { profileStack.removeArrangedSubview(view); view.removeFromSuperview() }
@@ -189,7 +190,7 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
         options.sidebar = tabsBox.state == .on; options.history = historyBox.state == .on; options.bookmarks = options.history
         options.passwords = passwordBox.state == .on; options.cookies = cookieBox.state == .on
         options.localStorage = storageBox.state == .on; options.supplementary = additionalBox.state == .on
-        let coordinator = ArcImportCoordinator(session: session)
+        let coordinator = self.coordinator ?? ArcImportCoordinator(session: session)
         self.coordinator = coordinator
         coordinator.progress = { [weak self] in self?.progressLabel.stringValue = $0 }
         let built = ArcSpaceBuilder.build(source, options: options)
@@ -240,6 +241,7 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
     }
     func windowShouldClose(_ sender: NSWindow) -> Bool { !importing }
     func windowWillClose(_ notification: Notification) {
+        coordinator?.clearSensitiveState(); coordinator = nil
         loadTask?.cancel(); captureTask?.cancel(); source?.remove(); source = nil
         updateControls()
     }
