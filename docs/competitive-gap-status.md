@@ -1,10 +1,11 @@
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
 # Closing the gap with Crest: where we are
 
 Written 2026-09-20. `main` is at `054f2c3`; the `declarativeNetRequest` work in
 the last section is finished and tested but not yet committed.
 
 The starting point was a read of [Crest](https://crestbrowser.com/) and its
-source (MPL-2.0) against `Sources/Kylmora`, to find what a direct competitor
+source (MPL-2.0) against `Sources/Barc`, to find what a direct competitor
 ships that we do not. None of their code was used; only the shape of the
 problem. The four items below were taken in order of user-visible value.
 
@@ -19,8 +20,8 @@ password manager's extension work at all: the vault lives in the app and the
 extension is only a front end.
 
 - Reads the host manifests apps already install for Chrome, Chromium, Edge,
-  Brave, Vivaldi, Opera, Arc and Firefox as well as Kylmora's own, because
-  almost no app ships a Kylmora manifest -- and the app's own manifest still
+  Brave, Vivaldi, Opera, Arc and Firefox as well as Barc's own, because
+  almost no app ships a Barc manifest -- and the app's own manifest still
   decides which extensions may reach it.
 - 4-byte length framing, persistent connections, per-host allow lists,
   enterprise policy keys, and a Settings list that says **why** a manifest was
@@ -35,7 +36,7 @@ Both spellings: Chrome's `chrome.sidePanel` and Firefox's
 `browser.sidebarAction`.
 
 - WebKit's engine has **neither** API. Confirmed empirically inside a real
-  background service worker, not assumed. So Kylmora provides the API and the
+  background service worker, not assumed. So Barc provides the API and the
   panel itself.
 - The panel is styled as the page card is -- same radius, gutters, hairline,
   shadow and header height -- after three rounds of correction.
@@ -52,7 +53,7 @@ The note that started this said we had nothing. That was wrong -- there was a
 shim -- but it was a stub: clicks did nothing, `tag` stacked instead of
 replacing, `close()` never withdrew, `addEventListener` was an empty function,
 permission reset on reload, and **no `UNUserNotificationCenterDelegate` existed
-anywhere**, so a notification posted while Kylmora was frontmost was swallowed
+anywhere**, so a notification posted while Barc was frontmost was swallowed
 entirely. That is the common case, not an edge one.
 
 - **Verified** with seven end-to-end tests in a real `WKWebView` over the real
@@ -68,7 +69,7 @@ The widest gap. WebKit's engine does not implement the API, so an MV3 content
 blocker -- which is most of them now -- installs cleanly, reports no error,
 shows a healthy icon and **blocks nothing**.
 
-Kylmora now reads the rules itself and translates them into a
+Barc now reads the rules itself and translates them into a
 `WKContentRuleList`, so the matching runs inside WebKit's own matcher.
 
 - Static rulesets, dynamic rules (kept across launches), session rules,
@@ -76,7 +77,7 @@ Kylmora now reads the rules itself and translates them into a
 - `redirect` and `modifyHeaders`, which the content matcher cannot express, are
   applied at navigation time for pages and frames.
 - **Verified live, in the running browser.** uBlock Origin Lite 2026.914.1325
-  was installed into Kylmora and pointed at a local server offering two files,
+  was installed into Barc and pointed at a local server offering two files,
   one at a path uBOL's own rules name and one not. Result:
   `ads:BLOCKED app:200`.
 
@@ -144,7 +145,7 @@ against the real API, not inferred from documentation.
 
 Automations, Boosts, the screenshot editor, our own PDF viewer, encrypted-DNS
 profiles, proxies, anti-fingerprinting, 29 per-site settings, live folders, the
-tab overview with a task manager, enterprise policies and MDM, the `kylmora://`
+tab overview with a task manager, enterprise policies and MDM, the `barc://`
 scheme and CLI, mouse and rocker gestures, vim keys and link hints -- and a
 5 MB dependency-free bundle that runs on macOS 14, where Crest requires 26.1.
 

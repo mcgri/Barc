@@ -1,6 +1,7 @@
-# Deploying and managing Kylmora in an organisation
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
+# Deploying and managing Barc in an organisation
 
-This is for IT administrators. It covers how to get Kylmora onto a fleet of
+This is for IT administrators. It covers how to get Barc onto a fleet of
 Macs, how to lock settings in place on them, and how to check that a policy
 has taken effect.
 
@@ -8,27 +9,27 @@ has taken effect.
 
 Every release on the releases page carries two files:
 
-**https://github.com/kylmora/kylmora/releases/latest**
+**https://github.com/mcgri/Barc/releases/latest**
 
-- `Kylmora.dmg` — for people. Open it, drag the app to Applications.
-- `Kylmora.pkg` — for fleets. An installer package that puts the app in
+- `Barc.dmg` — for people. Open it, drag the app to Applications.
+- `Barc.pkg` — for fleets. An installer package that puts the app in
   `/Applications` with no interaction, which is what a device-management tool
   needs to install software silently on every enrolled Mac. Use this one.
 
 Both are built and notarised by CI from a `vX.Y.Z` tag, so what you deploy is
 byte-for-byte what an employee would download. The bundle identifier is
-`com.kylmora.Kylmora`.
+`io.github.mcgri.Barc`.
 
 Hand the `.pkg` to whatever your device-management tool uses for third-party
 apps:
 
 | Tool | How |
 | --- | --- |
-| Jamf Pro | Upload `Kylmora.pkg` to the distribution point, add it to a policy, scope the policy to the Macs. |
+| Jamf Pro | Upload `Barc.pkg` to the distribution point, add it to a policy, scope the policy to the Macs. |
 | Microsoft Intune | Apps ▸ macOS ▸ Add ▸ *macOS app (PKG)*, upload the file, assign it. |
 | Kandji, Mosyle, Addigy, Fleet | A custom-app upload of the `.pkg`, assigned to a device group. |
 | Munki | Import the `.pkg` with `munkiimport`. |
-| Script / SSH | `sudo installer -pkg Kylmora.pkg -target /` |
+| Script / SSH | `sudo installer -pkg Barc.pkg -target /` |
 
 To build the package yourself from a checkout: `make bundle` then `make pkg`
 (add `INSTALLER_ID="Developer ID Installer: …"` to sign it).
@@ -43,29 +44,29 @@ through the MDM and leave the in-app check on as well.
 
 ## 2. How policies reach the browser
 
-Kylmora reads policies from three places, in this order of precedence. The
+Barc reads policies from three places, in this order of precedence. The
 first one that has a value for a key wins.
 
 1. **Managed Preferences (MDM / configuration profile).** A profile whose
-   payload targets the bundle ID `com.kylmora.Kylmora`. macOS stores it in
+   payload targets the bundle ID `io.github.mcgri.Barc`. macOS stores it in
    `/Library/Managed Preferences/` and marks the values as *forced*, which is
    the only path where the user genuinely cannot override anything. This is
    what a real fleet should use. A ready-made profile is in
-   [`Resources/Enterprise/Kylmora.mobileconfig`](../Resources/Enterprise/Kylmora.mobileconfig).
+   [`Resources/Enterprise/Barc.mobileconfig`](../Resources/Enterprise/Barc.mobileconfig).
 2. **A `policies.json` file**, either machine-wide at
-   `/Library/Application Support/Kylmora/policies.json` (needs admin rights
+   `/Library/Application Support/Barc/policies.json` (needs admin rights
    to write, so ordinary users cannot edit it) or per user at
-   `~/Library/Application Support/Kylmora/policies.json`. Handy for scripted
+   `~/Library/Application Support/Barc/policies.json`. Handy for scripted
    deployments and for testing without an MDM. Example in
    [`Resources/Enterprise/policies.json`](../Resources/Enterprise/policies.json).
    The file is read when the app launches.
-3. **Plain preferences** (`defaults write com.kylmora.Kylmora HomepageURL …`).
+3. **Plain preferences** (`defaults write io.github.mcgri.Barc HomepageURL …`).
    Accepted so a policy can be tried on one Mac in a minute, but the user can
    undo it with `defaults delete`, so do not rely on it for enforcement.
 
 Whenever any key is set through any of these, the app considers itself
 *managed*: a "Managed by <OrganizationName>" footer appears in Settings, the
-affected controls are greyed out, and **Kylmora ▸ Enterprise Policies…**
+affected controls are greyed out, and **Barc ▸ Enterprise Policies…**
 lists every enforced key with its value.
 
 ## 3. The policies
@@ -93,20 +94,20 @@ comma-separated string.
 | `PasswordManagerDisabled` | bool | No saving or autofilling of credentials (for fleets that mandate a separate password manager). | `true` |
 | `ContentBlockingForced` | bool | Ad and tracker blocking stays on; the switches in Privacy are locked. | `true` |
 | `AutoUpdateForced` | bool | Automatic update checks stay on; the switch in About is locked. | `true` |
-| `DNSOverHTTPSURL` | string | Preselects this DNS-over-HTTPS resolver in Settings ▸ Advanced and locks the picker. It does not change DNS by itself: page loads use the Mac's DNS settings, which only a `com.apple.dnsSettings.managed` profile can switch to encrypted DNS. Push that profile through your MDM alongside this policy; Kylmora's "Install DNS Profile" button makes the same profile for a single Mac. | `"https://dns.acme.com/dns-query"` |
+| `DNSOverHTTPSURL` | string | Preselects this DNS-over-HTTPS resolver in Settings ▸ Advanced and locks the picker. It does not change DNS by itself: page loads use the Mac's DNS settings, which only a `com.apple.dnsSettings.managed` profile can switch to encrypted DNS. Push that profile through your MDM alongside this policy; Barc's "Install DNS Profile" button makes the same profile for a single Mac. | `"https://dns.acme.com/dns-query"` |
 | `RAMCacheOnlyForced` | bool | Web cache is kept in memory only, never written to disk. | `true` |
 
 ## 4. Checking that it worked
 
 On a managed Mac:
 
-- Open **Kylmora ▸ Enterprise Policies…**. The header reads "Managed by
+- Open **Barc ▸ Enterprise Policies…**. The header reads "Managed by
   <OrganizationName>" and the table lists each enforced key and its value.
   On an unmanaged Mac the same sheet says so and the table is empty.
 - Open **Settings**. A "Managed by …" footer sits under the list of panes,
   and the controls a policy covers are greyed out.
 - From Terminal, for a profile-delivered policy:
-  `defaults read com.kylmora.Kylmora HomepageURL` prints the value, and
+  `defaults read io.github.mcgri.Barc HomepageURL` prints the value, and
   `profiles list` shows the profile installed.
 
 Policies from a profile or `defaults` are picked up at launch; if the app is
@@ -114,9 +115,9 @@ already running when a profile lands, quit and reopen it.
 
 ## 5. Testing on one Mac without an MDM
 
-Either double-click `Resources/Enterprise/Kylmora.mobileconfig` and approve
+Either double-click `Resources/Enterprise/Barc.mobileconfig` and approve
 it in System Settings ▸ General ▸ Device Management (this installs it as a
 user-approved profile, which counts as forced), or copy
 `Resources/Enterprise/policies.json` to
-`~/Library/Application Support/Kylmora/policies.json`, edit it, and relaunch
-Kylmora. Remove the profile or delete the file to go back to unmanaged.
+`~/Library/Application Support/Barc/policies.json`, edit it, and relaunch
+Barc. Remove the profile or delete the file to go back to unmanaged.

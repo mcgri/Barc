@@ -1,3 +1,4 @@
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
 # `chrome.declarativeNetRequest`
 
 An MV3 content blocker ships its filter list as `declarativeNetRequest` rules.
@@ -5,10 +6,10 @@ WebKit's extension engine does not implement the API at all, so on a plain
 `WKWebExtensionController` such a blocker installs cleanly, reports no error,
 shows a healthy toolbar icon -- and blocks nothing.
 
-Kylmora reads the rules itself, translates them into a `WKContentRuleList` and
+Barc reads the rules itself, translates them into a `WKContentRuleList` and
 gives that to the web views of the Spaces where the extension is enabled. The
 matching then happens inside WebKit's own matcher, at the same cost as
-Kylmora's own filter lists, which is to say a cost you cannot measure.
+Barc's own filter lists, which is to say a cost you cannot measure.
 
 ## What works
 
@@ -42,7 +43,7 @@ the tests pin hardest.
 
 WebKit's content matcher can block and it can upgrade a scheme. It cannot send
 a request somewhere else and it cannot touch a header. Those two are applied at
-navigation time instead, where Kylmora may cancel a load and re-issue it:
+navigation time instead, where Barc may cancel a load and re-issue it:
 
 - **`redirect` works for a page or a frame**, in all four spellings Chrome
   allows -- `url`, `extensionPath`, `transform` (including `queryTransform`)
@@ -51,7 +52,7 @@ navigation time instead, where Kylmora may cancel a load and re-issue it:
   requests with no body. Re-issuing a POST would lose the body, so a POST is
   left alone.
 - **Neither works for a subresource.** An image, a script or an XHR is fetched
-  by WebKit out of process and Kylmora never sees it. Nothing short of running
+  by WebKit out of process and Barc never sees it. Nothing short of running
   a man-in-the-middle proxy with its own root certificate could change that,
   which is not a thing this browser is going to do to your traffic.
 - **Response headers cannot be changed at all**, by anything here. A rule that
@@ -103,8 +104,8 @@ not report what it matched. An empty answer is the honest one.
 
 The same way side panels do. WebKit starts an extension's background worker and
 owns its world, so nothing can be added to it afterwards -- the namespace is put
-into Kylmora's own copy of the package before the engine loads it, and calls
-come back through a reserved name (`com.kylmora.netrequest`) that Kylmora
+into Barc's own copy of the package before the engine loads it, and calls
+come back through a reserved name (`io.github.mcgri.barc.netrequest`) that Barc
 answers in process. No program is started and nothing is installed on the Mac.
 
 An extension that asks for neither this nor a side panel is left byte for byte

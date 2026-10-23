@@ -1,6 +1,7 @@
-# Contributing to Kylmora
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
+# Contributing to Barc
 
-Thanks for your interest in Kylmora! It's a native macOS browser built on
+Thanks for your interest in Barc! It's a native macOS browser built on
 AppKit and the system WebKit, with **zero third-party dependencies**.
 Contributions of every kind are welcome — bug reports, feature ideas,
 documentation, tests, and code.
@@ -33,8 +34,8 @@ labelled `good first issue` are a gentle place to start.
 
 ```sh
 # Fork the repo on GitHub, then:
-git clone https://github.com/<your-username>/kylmora.git
-cd kylmora
+git clone https://github.com/<your-username>/barc.git
+cd barc
 make run        # builds, bundles and launches the app
 ```
 
@@ -43,7 +44,7 @@ make run        # builds, bundles and launches the app
 Everything goes through the `Makefile`:
 
 ```sh
-make run        # build, bundle and launch build/Kylmora.app
+make run        # build, bundle and launch build/Barc.app
 make bundle     # build the app bundle without launching
 make test       # run the unit test suite — must stay green
 make size       # report the release bundle size
@@ -53,7 +54,7 @@ make measure    # launch and report launch time, memory and bundle size
 ## Project layout
 
 ```
-Sources/Kylmora/
+Sources/Barc/
 ├── Application/      App delegate, menus, launch, update check
 ├── Window/           The single main window and its chrome
 ├── Sidebar/          The vertical sidebar (tabs, spaces, actions)
@@ -78,7 +79,7 @@ Sources/Kylmora/
 ├── Sites/            Per-website settings and behaviour scripts
 ├── Settings/         The Settings window and its panes
 └── ...
-Tests/KylmoraTests/   The swift-testing suite
+Tests/BarcTests/   The swift-testing suite
 Tools/                make-icon.py, measure.sh
 Resources/            Info.plist, entitlements, app icon
 ```

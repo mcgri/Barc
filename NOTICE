@@ -1,0 +1,29 @@
+Barc
+https://github.com/mcgri/Barc
+
+This product includes software developed for Kylmora.
+Original project: https://github.com/kylmora/kylmora
+Original project website: https://kylmora.com
+Initial upstream commit: 08059591cfc740d3f5f94622a3674ad360abb378
+
+Original browser copyright notice:
+© 2026 Kylmora · kylmora.com
+
+Barc-specific modifications:
+© 2026 Barc contributors
+
+The source is distributed under the Apache License, Version 2.0.
+A complete copy is supplied in LICENSE. The license's warranty disclaimers
+and limitations of liability apply. This notice does not change the license.
+
+Changes made for Barc on 2026-10-23 include the application name and icon,
+bundle and module identities, URL schemes, storage and Keychain namespaces,
+command-line helper, build and release configuration, support routes,
+update configuration, and documentation. Modified text files carry notices
+identifying these changes. The original Git history is preserved.
+
+Barc is an independent fork, not an official Kylmora release. References to
+Kylmora identify the origin of the inherited software. The Barc B icon is
+separate artwork inspired by Arc's visual style. Arc's original icon is not
+included as Barc's application icon. Kylmora and Arc names and marks belong
+to their respective owners; no trademark rights or endorsement are granted.

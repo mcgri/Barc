@@ -1,3 +1,4 @@
+# Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 name: CI
 
 # Pull requests only. `main` takes nothing but merged pull requests, and a
@@ -71,11 +72,13 @@ jobs:
       - name: Check the bundle is complete
         run: |
           set -e
-          app=build/Kylmora.app
-          test -x "$app/Contents/MacOS/Kylmora"
+          app=build/Barc.app
+          test -x "$app/Contents/MacOS/Barc"
           test -f "$app/Contents/Info.plist"
-          test -f "$app/Contents/Resources/Kylmora.icns"
-          test -x "$app/Contents/Resources/kylmora-cli"
+          test -f "$app/Contents/Resources/Barc.icns"
+          test -x "$app/Contents/Resources/barc-cli"
+          cmp LICENSE "$app/Contents/Resources/LICENSE"
+          cmp NOTICE "$app/Contents/Resources/NOTICE"
           codesign --verify --deep --strict "$app"
           echo "bundle ok: $(du -sh "$app" | cut -f1)"
 
@@ -102,7 +105,7 @@ jobs:
       - name: Check both architectures are present
         run: |
           set -e
-          bin=build/Kylmora.app/Contents/MacOS/Kylmora
+          bin=build/Barc.app/Contents/MacOS/Barc
           lipo -info "$bin"
           lipo -info "$bin" | grep -q x86_64
           lipo -info "$bin" | grep -q arm64
@@ -111,7 +114,7 @@ jobs:
           # older Macs it was added for, and nothing else here would notice.
           slices=$(otool -l "$bin" | grep -A3 LC_BUILD_VERSION | grep -c "minos 14.0")
           test "$slices" -eq 2 || { echo "deployment target moved off 14.0"; exit 1; }
-          echo "universal ok: $(du -sh build/Kylmora.app | cut -f1)"
+          echo "universal ok: $(du -sh build/Barc.app | cut -f1)"
 
   gate:
     # The name the branch rules require. Everything it reports happened

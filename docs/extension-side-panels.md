@@ -1,14 +1,15 @@
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
 # Extension side panels
 
 A growing number of extensions put their real interface in a panel beside the
 page rather than in a popup that vanishes when you click away: a translator, a
 notebook, a reading assistant, a chat. Chrome calls it `chrome.sidePanel`,
 Firefox calls it `browser.sidebarAction`, and WebKit's extension engine — the
-one Kylmora runs extensions on — has neither. An extension that wants a panel
+one Barc runs extensions on — has neither. An extension that wants a panel
 gets an API that is not there, and in the worst case its background worker
 throws on its first line and nothing about the extension works at all.
 
-Kylmora provides the panel and the API.
+Barc provides the panel and the API.
 
 ## What an extension gets
 
@@ -49,28 +50,28 @@ The panel itself is an ordinary extension page — the same
 `chrome-extension://` origin as the popup and the options page — hosted in a
 web view built from the configuration the engine hands out for that extension.
 `chrome.storage`, `chrome.runtime` and the rest work in it as they do anywhere
-else. Kylmora adds the side panel API to it with an injected script and answers
+else. Barc adds the side panel API to it with an injected script and answers
 its calls through a message handler.
 
 A background worker cannot be reached that way. WebKit starts it, WebKit owns
 its world, and nothing the app does afterwards can add an API to it. So for an
 extension that declares a side panel — and only for such an extension —
-Kylmora writes one file into **its own copy** of the package and points the
+Barc writes one file into **its own copy** of the package and points the
 manifest's background entry at it:
 
 ```js
-importScripts('kylmora-sidepanel.js');   // the API this engine does not have
+importScripts('barc-sidepanel.js');   // the API this engine does not have
 importScripts('worker.js');              // the extension's own code, unchanged
 ```
 
 The extension's own files are not edited. The manifest gains the new entry
-point, the `nativeMessaging` permission, and a `kylmora_side_panel` key
+point, the `nativeMessaging` permission, and a `barc_side_panel` key
 recording what was done, so a second pass does not wrap the wrapper. Nothing is
 written for an extension that has no panel; its package is left byte for byte
 as it arrived.
 
 `nativeMessaging` is how the shim talks back: it opens a port to
-`com.kylmora.sidepanel`, a name Kylmora reserves and answers inside the app. No
+`io.github.mcgri.barc.sidepanel`, a name Barc reserves and answers inside the app. No
 program is started, nothing reaches the disk or the network, and a manifest on
 disk claiming that name is ignored. See
 [native-messaging.md](native-messaging.md) for the channel itself.
@@ -82,7 +83,7 @@ disk claiming that name is ignored. See
   Settings says so.
 - **Panel icons** from `sidebar_action.default_icon` are read but the header
   shows the extension's own icon.
-- **Per-tab panels need the `tabs` permission.** Kylmora cannot see the numbers
+- **Per-tab panels need the `tabs` permission.** Barc cannot see the numbers
   WebKit gives tabs, so the extension reports which tab is in front; without
   that permission a panel is the same on every tab.
 - **One panel at a time.** Chrome shows one, and so does this.

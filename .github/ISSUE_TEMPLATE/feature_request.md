@@ -6,11 +6,13 @@ labels: enhancement
 assignees: ""
 ---
 
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
+
 **The problem**
 What are you trying to do that's hard or impossible today?
 
 **The idea**
-What would you like Kylmora to do?
+What would you like Barc to do?
 
 **Alternatives considered**
 Any other approaches you've thought about.

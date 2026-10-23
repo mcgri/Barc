@@ -1,6 +1,7 @@
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
 # Tools: the design
 
-A native workbench inside Kylmora for the small jobs people currently do by
+A native workbench inside Barc for the small jobs people currently do by
 uploading a private file to an ad-covered website and hitting a paywall on the
 third one. Merge a PDF, turn a HEIC into a JPG, pull the text out of a
 screenshot, cut the background off a photo.
@@ -18,11 +19,11 @@ promise the About pane already makes.
 
 ## 1. Where it lives
 
-**A tab, at `kylmora://tools`.** Not a settings pane, not a separate window,
+**A tab, at `barc://tools`.** Not a settings pane, not a separate window,
 not a web page.
 
 The mechanism already exists and is already proven twice. `StartPage` is a
-native `NSView` drawn over a blank web view, addressed as `kylmora://start`,
+native `NSView` drawn over a blank web view, addressed as `barc://start`,
 carried through the session file, and never fetched (`Tab.contentOverlay`,
 `Tab.showsStartPage`). `PDFDocumentView` is the same pattern for a document.
 Tools is the third instance of a pattern the browser already runs on, so it
@@ -70,7 +71,7 @@ Tools opens with it staged and the likely tool already chosen. A dropped
 
 ## 2. The UI
 
-Kylmora's own vocabulary, not a stock Apple inspector. Every measurement below
+Barc's own vocabulary, not a stock Apple inspector. Every measurement below
 is an existing `Style` token or a new one in the same family, so the page reads
 as part of the browser rather than as a utility someone stapled on.
 
@@ -225,7 +226,7 @@ demand item in this category and the fastest route to legal trouble.
 
 - **If a control is there, it does something.** The README's promise applies
   hardest here, because a broken tool is worse than an absent one: someone
-  came to Kylmora specifically to avoid the site that wasted their time.
+  came to Barc specifically to avoid the site that wasted their time.
 - **No progress theatre.** These operations are fast. A merge that takes 200ms
   gets a result, not a fake progress bar.
 - **Every tool states its limit.** Compress PDF says how much it actually
@@ -238,7 +239,7 @@ demand item in this category and the fastest route to legal trouble.
 
 ## 5. Order of work
 
-1. `kylmora://tools` routing — the host, the `showsTools` flag, the
+1. `barc://tools` routing — the host, the `showsTools` flag, the
    `contentOverlay` branch, session restore. Nothing visible yet.
 2. `ToolsHubView` — plates, tool cards, hover lift. The hub with tools that
    are not built yet simply lists fewer of them.

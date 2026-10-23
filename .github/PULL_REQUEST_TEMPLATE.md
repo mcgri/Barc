@@ -1,4 +1,5 @@
-<!-- Thanks for contributing to Kylmora! Please fill this in. -->
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
+<!-- Thanks for contributing to Barc! Please fill this in. -->
 
 **What does this PR do?**
 A short description of the change.

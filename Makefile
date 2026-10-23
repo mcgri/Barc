@@ -1,5 +1,6 @@
-APP_NAME    := Kylmora
-BUNDLE_ID   := com.kylmora.Kylmora
+# Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+APP_NAME    := Barc
+BUNDLE_ID   := io.github.mcgri.Barc
 CONFIG      ?= release
 # Which architectures the binary carries. Empty means "whatever this machine
 # is", which is what a local build wants: building the second slice as well
@@ -32,17 +33,17 @@ BIN ?= $(shell swift build -c $(CONFIG) $(ARCH_FLAGS) --show-bin-path)/$(APP_NAM
 # update check stops offering a release you already have -- while the About
 # pane still shows the whole string, so you can see it is not a real 0.1.54.
 PLACEHOLDER_VERSION := 0.1.0
-ENTITLEMENTS := Resources/Kylmora.entitlements
-ICON         := Resources/Kylmora.icns
-ICON_MARK    := Resources/Icon/kylmora-mark.png
+ENTITLEMENTS := Resources/Barc.entitlements
+ICON         := Resources/Barc.icns
+ICON_MARK    := Resources/Icon/barc-icon.png
 
 # Signing. With no Developer ID configured the bundle is ad-hoc signed, which
 # still applies the entitlements (and so still sandboxes) on this machine but
 # cannot be distributed or notarised.
 #   make bundle DEV_ID="Developer ID Application: You (TEAMID)"
-#   make notarize DEV_ID="..." NOTARY_PROFILE=kylmora-notary
+#   make notarize DEV_ID="..." NOTARY_PROFILE=barc-notary
 # NOTARY_PROFILE names credentials stored once with:
-#   xcrun notarytool store-credentials kylmora-notary \
+#   xcrun notarytool store-credentials barc-notary \
 #       --apple-id you@example.com --team-id TEAMID --password <app-specific>
 DEV_ID         ?=
 NOTARY_PROFILE ?=
@@ -52,7 +53,7 @@ NOTARY_PROFILE ?=
 INSTALLER_ID   ?=
 # A suffix on the package's file name, so an architecture-specific package can
 # sit beside the universal one in the same build/ directory. Empty gives
-# Kylmora.pkg; "-AppleSilicon" gives Kylmora-AppleSilicon.pkg.
+# Barc.pkg; "-AppleSilicon" gives Barc-AppleSilicon.pkg.
 PKG_SUFFIX     ?=
 PKG            := $(BUILD_DIR)/$(APP_NAME)$(PKG_SUFFIX).pkg
 
@@ -75,12 +76,12 @@ endif
 build:
 	swift build -c $(CONFIG) $(ARCH_FLAGS) $(SWIFT_FLAGS)
 
-# The app icon is generated from the K mark; see Tools/make-icon.py.
+# Package the approved Barc artwork; see Tools/make-icon.py.
 icon: $(ICON)
 
-# The icon is committed, so building the app does not need Pillow. A fresh
+# The icon is committed, so building the app does not need an image library. A fresh
 # checkout gives every file the same mtime, though, so make decides to rebuild
-# it anyway -- and on a runner without Pillow that failed the whole build over
+# it anyway -- and on a runner without packaging tools that failed the whole build over
 # a file that was already correct and already in the tree. Regenerate it when
 # the generator can run; keep what is checked in when it cannot, and say so.
 $(ICON): $(ICON_MARK) Tools/make-icon.py
@@ -115,6 +116,7 @@ bundle: build $(ICON)
 		echo "local build stamped $$described ($$commits)"; \
 	fi
 	@cp "$(ICON)" "$(APP_BUNDLE)/Contents/Resources/"
+	@cp LICENSE NOTICE "$(APP_BUNDLE)/Contents/Resources/"
 	@printf 'APPL????' > "$(APP_BUNDLE)/Contents/PkgInfo"
 	@cp "$(BIN)" "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
 ifeq ($(CONFIG),release)
@@ -123,7 +125,7 @@ ifeq ($(CONFIG),release)
 endif
 	@# In Resources, not MacOS: codesign treats anything in MacOS as nested code
 	@# that must carry its own signature, and a shell script cannot.
-	@cp Tools/kylmora "$(APP_BUNDLE)/Contents/Resources/kylmora-cli" && chmod +x "$(APP_BUNDLE)/Contents/Resources/kylmora-cli"
+	@cp Tools/barc "$(APP_BUNDLE)/Contents/Resources/barc-cli" && chmod +x "$(APP_BUNDLE)/Contents/Resources/barc-cli"
 ifeq ($(strip $(DEV_ID)),)
 	@codesign --force --sign - --identifier "$(BUNDLE_ID)" \
 		--entitlements "$(ENTITLEMENTS)" "$(APP_BUNDLE)" >/dev/null 2>&1 \

@@ -1,11 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleExecutable</key>
-	<string>Kylmora</string>
+	<string>Barc</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A website is asking to use the camera. Your website settings decide which sites may.</string>
 	<key>NSMicrophoneUsageDescription</key>
@@ -15,17 +16,17 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>A website is asking where you are. Your website settings decide which sites may know.</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.kylmora.Kylmora</string>
+	<string>io.github.mcgri.Barc</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Kylmora</string>
+	<string>Barc</string>
 	<key>CFBundleDisplayName</key>
-	<string>Kylmora</string>
+	<string>Barc</string>
 	<key>CFBundleIconFile</key>
-	<string>Kylmora</string>
+	<string>Barc</string>
 	<key>NSHumanReadableCopyright</key>
-	<string>© 2026 Kylmora · kylmora.com</string>
+	<string>Original browser © 2026 Kylmora. Barc modifications © 2026 Barc contributors. Apache License 2.0.</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -53,13 +54,13 @@
 		</dict>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>Kylmora Web App</string>
+			<string>Barc Web App</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>kylmora</string>
-				<string>kylmora-webapp</string>
+				<string>barc</string>
+				<string>barc-webapp</string>
 			</array>
 		</dict>
 	</array>

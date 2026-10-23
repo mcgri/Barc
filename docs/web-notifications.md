@@ -1,3 +1,4 @@
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
 # Web notifications
 
 A page that calls `new Notification(...)` -- or, far more often now,
@@ -6,7 +7,7 @@ Notification Centre, and clicking it comes back to the tab that sent it.
 
 WebKit defines both APIs in a `WKWebView` and attaches neither to anything:
 there is no notification provider behind them, so the built-in versions refuse.
-Kylmora replaces them the same way it replaces the other per-site APIs WebKit
+Barc replaces them the same way it replaces the other per-site APIs WebKit
 cannot switch, through a script in the page and a message handler in the app.
 
 ## What a page gets
@@ -26,8 +27,8 @@ cannot switch, through a script in the page and a message handler in the app.
 ## The click
 
 This is the part that makes the feature worth having. A notification the person
-cannot click back to its page is a dead end, so every one Kylmora posts carries
-its identifier in `userInfo`. A click looks that identifier up, brings Kylmora
+cannot click back to its page is a dead end, so every one Barc posts carries
+its identifier in `userInfo`. A click looks that identifier up, brings Barc
 to the front, switches to the Space the tab is in, selects the tab, and runs the
 page's own `click` handler. A dismissal fires `close` and does not drag the tab
 forward -- dismissing is not a request to go there.
@@ -40,17 +41,17 @@ The Websites pane's **Notifications** setting is the authority.
   answers `denied` without a system prompt, and nothing reaches the system.
 - **Allow** -- `permission` is `granted` and no prompt is raised again.
 - **Ask** -- the first `requestPermission()` raises the macOS prompt for
-  Kylmora, and the answer is written back to the site's setting. Without
+  Barc, and the answer is written back to the site's setting. Without
   writing it back a granted site would find `permission` at `default` on its
   next load and ask again on every visit.
 
-macOS's own permission for Kylmora sits above all of this: if notifications are
+macOS's own permission for Barc sits above all of this: if notifications are
 off for the app in System Settings, nothing is shown whatever a site is set to.
 
 ## Limits worth knowing
 
-- **Notifications appear while Kylmora is frontmost.** macOS suppresses banners
-  for the active application unless the app asks for them; Kylmora asks. This is
+- **Notifications appear while Barc is frontmost.** macOS suppresses banners
+  for the active application unless the app asks for them; Barc asks. This is
   not a detail -- a browser is frontmost most of the time it is notifying.
 - **A service worker's own `notificationclick` handler does not run.** The shim
   lives in the page, and a worker's script is out of reach from there. The click

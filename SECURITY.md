@@ -1,34 +1,8 @@
-# Security Policy
+<!-- Modified for Barc: project identity and security reporting, 2026-10-23. -->
+# Security policy
 
-Kylmora is a web browser, so security reports are taken seriously and handled
-privately.
+Barc is an independent fork of [Kylmora](https://github.com/kylmora/kylmora). Report vulnerabilities in this fork to Barc's maintainer, not Kylmora's support addresses.
 
-## Reporting a vulnerability
+Do not disclose a vulnerability in a public issue. If private vulnerability reporting is enabled, use [Barc's private advisory form](https://github.com/mcgri/Barc/security/advisories/new). If it is unavailable, arrange a private reporting channel with the repository owner before sharing sensitive details.
 
-**Please do not open a public issue for a security vulnerability.**
-
-Report it privately through either of these channels:
-
-- **GitHub (preferred):** use the repository's **Security → Report a
-  vulnerability** form to open a private security advisory.
-- **Email:** security@kylmora.com
-
-Please include:
-
-- A description of the issue and its impact.
-- Steps to reproduce, and a proof of concept if you have one.
-- The Kylmora version (Settings → About) and your macOS version.
-
-### What to expect
-
-- We aim to acknowledge your report within a few days.
-- We'll keep you updated as we investigate and work on a fix.
-- If you'd like, we'll credit you once the issue is resolved and disclosed.
-
-Please give us a reasonable amount of time to ship a fix before any public
-disclosure.
-
-## Supported versions
-
-Kylmora is pre-1.0 and moves quickly; security fixes land on the latest release.
-Please make sure you're on the newest version before reporting.
+Include the Barc version, macOS version, impact and steps to reproduce. Barc currently provides local development builds; a signed release and automatic update channel have not yet been configured. Keep macOS updated for system WebKit security fixes.

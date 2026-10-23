@@ -1,7 +1,8 @@
-# What Kylmora does not have yet
+<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
+# What Barc does not have yet
 
 A gap list, written 2026-09-15 against the code as of commit `c6faebb`. It was
-built two ways: a sweep of every folder under `Sources/Kylmora` to record what
+built two ways: a sweep of every folder under `Sources/Barc` to record what
 actually exists, and the demand research in `docs/research/browser-features/`
 (what people beg Orion, Zen, Arc, Vivaldi, Brave, Firefox and Safari for).
 Anything the research listed as MISSING that has since been built is left out.
@@ -51,7 +52,7 @@ Things a person expects from any browser and will hit within a week.
   still open.
 - ~~**PDF viewer.**~~ Done 2026-09-15: PDFKit viewer with thumbnails, search
   and a match count, page number, zoom, rotate, Open in Preview and Save; a
-  per-site setting chooses Kylmora's viewer, WebKit's, download, or Preview.
+  per-site setting chooses Barc's viewer, WebKit's, download, or Preview.
 - **New Window** (⌘N). Only Little Arc, floating and web-app windows exist.
   A second full window with the same Spaces is expected, and "Move Tab to New
   Window" with it.
@@ -97,18 +98,18 @@ these are the survivors.
 |---|---|---|---|
 | 1 | **iPhone / iPad app** | The single most repeated "one missing feature" from Safari and Arc users. The companion Shortcut helps, but people want tabs and bookmarks on the phone. | Read-only first: a SwiftUI iOS app that reads the same encrypted sync archive and opens tabs in SFSafariViewController. Full browser later. |
 | 2 | **Extension compatibility list** | Orion loses users because broken extensions silently pretend to work. | Auto-generate `docs/extensions.md` from a test matrix of the top 100 Chrome/Firefox extensions: works / partial (APIs missing) / broken. Show the verdict in the install sheet. |
-| 3 | **AppleScript + CLI + URL scheme** | Power users automate browsers. | Done 2026-09-15 for the CLI and the scheme: `kylmora open <url> --space Work --background`, `kylmora space`, `kylmora command <palette id>`, `kylmora new-tab`, all as `kylmora://` addresses. Still open: an AppleScript dictionary (`sdef`) that can also read state and run JavaScript. |
+| 3 | **AppleScript + CLI + URL scheme** | Power users automate browsers. | Done 2026-09-15 for the CLI and the scheme: `barc open <url> --space Work --background`, `barc space`, `barc command <palette id>`, `barc new-tab`, all as `barc://` addresses. Still open: an AppleScript dictionary (`sdef`) that can also read state and run JavaScript. |
 | 4 | **Tree-style tabs** | Groups nest; tabs do not. Tree-style users want a tab opened from a tab to sit indented under its parent, collapsible. | Store `parentTabID`; indent in the sidebar; "close subtree". |
 | 5 | **Semantic history search** | FTS5 exists; people want "that article about battery on Apple silicon last week". | Local embeddings with `NaturalLanguage` sentence embeddings, stored in SQLite, no network. |
 | 6 | **Global media controls** | One place to pause whatever is playing, in any Space. | Extend the now-playing row into a popover listing every playing tab; hook `MPNowPlayingInfoCenter` so the keyboard media keys and Control Center work. |
 | 7 | **Full RSS reader** | Live Folders subscribe; there is no reading view. | Unread counts, an article list, and a reader-mode article pane. |
-| 8 | **Profiles export as a shareable file** | "Send me your setup." | Export a Space's look, pinned sites, routing rules and Boosts as `.kylmoraspace`; import merges. |
+| 8 | **Profiles export as a shareable file** | "Send me your setup." | Export a Space's look, pinned sites, routing rules and Boosts as `.barcspace`; import merges. |
 | 9 | **Per-site JS toggle in the address bar** | Exists as a per-site setting; people want the one-click switch. | Add JavaScript and Content Blocking toggles to the shield popover. |
 | 10 | **Reader mode for every page, forced per domain** | Exists. Add "auto reader on sites that pass a threshold" and a reader theme editor (sepia, fonts, width, line height). | |
 
 ## 4. Customisation depth
 
-The user's goal is "highly customizable". Kylmora has the switches; what it
+The user's goal is "highly customizable". Barc has the switches; what it
 lacks is the layer that lets people compose them.
 
 **A rules engine ("when X, do Y").** Done 2026-09-15 as the Automations
@@ -133,7 +134,7 @@ AppleScript, and every tab action). Still open: a keyboard shortcut per
 custom command.
 
 **Theme engine for the chrome.** Partly done 2026-09-15: theme files
-(`.kylmoratheme`, export and import in the Spaces pane) and sidebar density.
+(`.barctheme`, export and import in the Spaces pane) and sidebar density.
 Still open from the list below:
 
 - Sidebar density (compact / regular / roomy), row height, favicon size.
@@ -141,7 +142,7 @@ Still open from the list below:
 - Accent colour independent of the Space colour.
 - Corner radius, hairlines on/off, vibrancy on/off.
 - Custom CSS for the reader, error pages and start page.
-- Themes as files (`.kylmoratheme`), a gallery in Settings, share/import.
+- Themes as files (`.barctheme`), a gallery in Settings, share/import.
 
 **Keyboard.** Done 2026-09-15: chords (record a stroke, then a plain key
 within a moment), a cheat sheet on ⌘/, and a shortcut per custom command.
@@ -211,14 +212,14 @@ history CSV; passwords CSV (Touch ID gated); shortcuts JSON; Boosts; rules.
   Zen mode respects it).
 - Confirm-before-quit only when N tabs are open (setting).
 - Autocomplete of the whole URL inline in the omnibox with an opt-out.
-- Suggest search engine for the current site ("Add Kylmora search for
+- Suggest search engine for the current site ("Add Barc search for
   github.com?") when the site has an OpenSearch description.
 - Menu bar extra / Dock menu with recent tabs and "New tab in Space".
 - Handoff to Safari on iPhone via `NSUserActivity` (works today with no
   iOS app, because Safari accepts web activities).
 - Continuity: receive tabs from Safari on iPhone through Handoff.
-- Share sheet extension target ("Add to Kylmora reading list").
-- Services menu items: "Open in Kylmora", "Search with Kylmora".
+- Share sheet extension target ("Add to Barc reading list").
+- Services menu items: "Open in Barc", "Search with Barc".
 - Accessibility: reduce motion honoured for sidebar slides; increased
   contrast theme; every control's `accessibilityLabel` audited with the
   Accessibility Inspector.

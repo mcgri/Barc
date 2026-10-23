@@ -1,0 +1,426 @@
+// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+import AppKit
+import Foundation
+
+/// Coordinates automatic background update checks, manual checks, in-app download
+/// and relaunch workflow in the style of Sparkle.
+@MainActor
+final class UpdateController: NSObject, URLSessionDownloadDelegate {
+    static let shared = UpdateController()
+
+    enum State: Equatable {
+        case idle
+        case checking
+        case updateAvailable(UpdateCheck.Release)
+        case downloading(progress: Double, bytesWritten: Int64, totalBytes: Int64)
+        case readyToInstall(fileURL: URL, version: String)
+        /// Mounting, verifying and staging the download.
+        case installing
+        case error(String)
+    }
+
+    private(set) var state: State = .idle {
+        didSet { onStateChange?(state) }
+    }
+    var onStateChange: ((State) -> Void)?
+
+    private(set) var updateWindowController: UpdateWindowController?
+    private var downloadSession: URLSession?
+    private var currentDownloadTask: URLSessionDownloadTask?
+    private var activeRelease: UpdateCheck.Release?
+    private var downloadedFileURL: URL?
+    private var backgroundTimer: Timer?
+
+    /// Injectable provider for checking updates, allowing tests to run without network access.
+    var checkOutcomeProvider: (String) async -> UpdateCheck.Outcome = { current in
+        await UpdateCheck.run(current: current)
+    }
+
+    /// Injectable relaunch handler for unit tests.
+    var relaunchHandler: ((URL) -> Void)?
+
+    /// How an alert reaches the user.
+    ///
+    /// A seam, because `runModal()` blocks until somebody clicks, and a test
+    /// that triggers one never returns. Replaced in tests; in the app it is a
+    /// sheet when there is a window to hang it on and a modal when there is
+    /// not.
+    var presentAlert: (NSAlert, NSWindow?) -> Void = { alert, parent in
+        if let parent {
+            alert.beginSheetModal(for: parent)
+        } else {
+            alert.runModal()
+        }
+    }
+
+    override init() {
+        super.init()
+    }
+
+    // MARK: - Background Scheduling
+
+    func startBackgroundChecking() {
+        guard backgroundTimer == nil else { return }
+
+        // Initial check after launch if enabled
+        if Settings.shared.automaticallyCheckForUpdates {
+            let lastCheck = Settings.shared.lastUpdateCheckDate
+            let shouldCheckNow = lastCheck == nil || Date().timeIntervalSince(lastCheck!) >= 86400
+            if shouldCheckNow {
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: 10_000_000_000) // 10 seconds grace period
+                    guard let self, Settings.shared.automaticallyCheckForUpdates else { return }
+                    self.checkForUpdates(userInitiated: false)
+                }
+            }
+        }
+
+        // Periodic check every 4 hours
+        backgroundTimer = Timer.scheduledTimer(withTimeInterval: 14400, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor [weak self] in
+                guard let self, Settings.shared.automaticallyCheckForUpdates else { return }
+                let lastCheck = Settings.shared.lastUpdateCheckDate
+                if lastCheck == nil || Date().timeIntervalSince(lastCheck!) >= 86400 {
+                    self.checkForUpdates(userInitiated: false)
+                }
+            }
+        }
+    }
+
+    func stopBackgroundChecking() {
+        backgroundTimer?.invalidate()
+        backgroundTimer = nil
+    }
+
+    // MARK: - Update Checking
+
+    /// - Parameter userInitiated: whether a person asked, as opposed to the
+    ///   timer. A person always gets an answer.
+    func checkForUpdates(userInitiated: Bool, in parentWindow: NSWindow? = nil) {
+        if userInitiated {
+            // Someone clicked, so something has to happen. This used to be
+            // guarded by the same condition as a background check, which meant
+            // the menu item did nothing at all whenever the controller was
+            // still holding the result of an earlier one: no window, no alert,
+            // no check. Settings has its own checker and was unaffected, which
+            // is why one worked and the other looked broken.
+            switch state {
+            case .checking:
+                // Already on its way; a second click cannot make it faster.
+                return
+            case .downloading:
+                // Don't interrupt a download. Show what is already happening.
+                updateWindowController?.showWindow(nil)
+                return
+            case .updateAvailable(let release):
+                // An answer is already in hand: put it back on screen rather
+                // than asking the site again.
+                presentUpdateWindow(for: release)
+                return
+            case .readyToInstall:
+                if let release = activeRelease {
+                    presentUpdateWindow(for: release)
+                    return
+                }
+                // No release to show: fall through and ask again.
+            case .installing:
+                updateWindowController?.showWindow(nil)
+                return
+            case .idle, .error:
+                break
+            }
+        } else {
+            guard state == .idle || isFailedState else { return }
+        }
+
+        state = .checking
+
+        Task { [weak self] in
+            guard let self else { return }
+            let current = AppInfo.version
+            let outcome = await self.checkOutcomeProvider(current)
+            self.handleCheckOutcome(outcome, userInitiated: userInitiated, in: parentWindow)
+        }
+    }
+
+    private var isFailedState: Bool {
+        if case .error = state { return true }
+        return false
+    }
+
+    private func handleCheckOutcome(_ outcome: UpdateCheck.Outcome, userInitiated: Bool, in parentWindow: NSWindow?) {
+        Settings.shared.lastUpdateCheckDate = Date()
+
+        switch outcome {
+        case .upToDate(let current):
+            state = .idle
+            if userInitiated {
+                showUpToDateAlert(current: current, in: parentWindow)
+            }
+
+        case .unreachable(let reason):
+            state = .error(reason)
+            if userInitiated {
+                showErrorAlert(reason: reason, in: parentWindow)
+            }
+
+        case .available(let release):
+            self.activeRelease = release
+            state = .updateAvailable(release)
+
+            // If background check and user chose to skip this version, ignore
+            if !userInitiated, let skipped = Settings.shared.skippedUpdateVersion, skipped == release.version {
+                state = .idle
+                return
+            }
+
+            // If background check and auto-download is enabled, download automatically
+            if !userInitiated && Settings.shared.automaticallyDownloadUpdates && release.updatePackageURL != nil {
+                presentUpdateWindow(for: release)
+                startDownload(for: release)
+                return
+            }
+
+            presentUpdateWindow(for: release)
+        }
+    }
+
+    // MARK: - Presentation
+
+    func presentUpdateWindow(for release: UpdateCheck.Release) {
+        if let existing = updateWindowController, existing.window?.isVisible == true {
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let windowController = UpdateWindowController(release: release, controller: self)
+        self.updateWindowController = windowController
+        windowController.showWindow(nil)
+        windowController.window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func showUpToDateAlert(current: String, in parentWindow: NSWindow?) {
+        let alert = NSAlert()
+        alert.messageText = "You\u{2019}re up to date!"
+        alert.informativeText = "\(AppInfo.name) \(current) is currently the newest version available."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+
+        presentAlert(alert, parentWindow)
+    }
+
+    private func showErrorAlert(reason: String, in parentWindow: NSWindow?) {
+        let alert = NSAlert()
+        alert.messageText = "Update Check Failed"
+        alert.informativeText = reason
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+
+        presentAlert(alert, parentWindow)
+    }
+
+    // MARK: - Downloading
+
+    func startDownload(for release: UpdateCheck.Release) {
+        guard let downloadURL = release.updatePackageURL else {
+            // The feed named a version but gave no package for it. Say so:
+            // silently opening the release page looks identical to the
+            // updater refusing to work.
+            state = .error("The update feed does not say where to download \(release.version).")
+            if let webURL = release.url {
+                NSWorkspace.shared.open(webURL)
+            }
+            return
+        }
+
+        self.activeRelease = release
+
+        // Local test/file URL handling
+        if downloadURL.isFileURL {
+            self.downloadedFileURL = downloadURL
+            self.state = .readyToInstall(fileURL: downloadURL, version: release.version)
+            self.updateWindowController?.transition(to: .readyToInstall(fileURL: downloadURL))
+            return
+        }
+
+        state = .downloading(progress: 0.0, bytesWritten: 0, totalBytes: 0)
+        updateWindowController?.transition(to: .downloading(progress: 0.0, bytesWritten: 0, totalBytes: 0))
+
+        let config = URLSessionConfiguration.default
+        let session = URLSession(configuration: config, delegate: self, delegateQueue: .main)
+        self.downloadSession = session
+
+        let task = session.downloadTask(with: downloadURL)
+        self.currentDownloadTask = task
+        task.resume()
+    }
+
+    func cancelDownload() {
+        currentDownloadTask?.cancel()
+        currentDownloadTask = nil
+        downloadSession?.invalidateAndCancel()
+        downloadSession = nil
+        state = .idle
+    }
+
+    // MARK: - Installation & Relaunch
+
+    /// Installs what was downloaded and reopens the new copy.
+    ///
+    /// The whole point of the button: no disk image to drag from, no old copy
+    /// to move to the Trash. The work is in `UpdateInstaller` -- mount,
+    /// verify, stage, then a script that swaps the bundle once this process
+    /// has gone. Nothing on disk changes until the download has proved it is
+    /// a notarised copy signed by whoever signed the copy already installed.
+    ///
+    /// Anything that fails falls back to what this used to do: reveal the
+    /// download and let the user install it by hand. A refused update is a
+    /// nuisance; an update that silently does nothing is worse.
+    func relaunchAndInstall() {
+        guard case .readyToInstall(let fileURL, _) = state else { return }
+
+        if let customHandler = relaunchHandler {
+            customHandler(fileURL)
+            return
+        }
+
+        guard fileURL.pathExtension.lowercased() == "dmg" else {
+            // A .pkg carries its own installer and knows how to replace the
+            // app. Anything else is not something to open and hope: opening
+            // whatever was downloaded is what used to send people to a web
+            // page instead of updating them.
+            if fileURL.pathExtension.lowercased() == "pkg" {
+                NSWorkspace.shared.open(fileURL)
+                NSApp.terminate(nil)
+            } else {
+                failInstall(
+                    UpdateInstaller.Failure.stageFailed(
+                        "What was downloaded is not a disk image or an installer."
+                    ),
+                    fallback: fileURL
+                )
+            }
+            return
+        }
+
+        state = .installing
+        updateWindowController?.transition(to: .installing)
+
+        Task { [weak self] in
+            let staged: URL
+            do {
+                staged = try await Self.stage(dmg: fileURL)
+            } catch {
+                await MainActor.run {
+                    self?.failInstall(error, fallback: fileURL)
+                }
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                do {
+                    try UpdateInstaller.startSwap(staged: staged)
+                } catch {
+                    self.failInstall(error, fallback: fileURL)
+                    return
+                }
+                // The script is waiting for this process to end.
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
+    /// Mounting and verifying touch the disk and run three command-line tools,
+    /// which has no business happening on the main thread while a window is
+    /// showing a spinner.
+    private static func stage(dmg: URL) async throws -> URL {
+        try await Task.detached(priority: .userInitiated) {
+            try UpdateInstaller.stage(dmg: dmg)
+        }.value
+    }
+
+    private func failInstall(_ error: any Error, fallback: URL) {
+        let reason = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        state = .error(reason)
+        updateWindowController?.transition(to: .readyToInstall(fileURL: fallback))
+
+        let alert = NSAlert()
+        alert.messageText = "Barc could not install the update"
+        alert.informativeText = reason + "\n\nThe download is still here, and you can install it yourself."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        presentAlert(alert, nil)
+        // Shown as well as said. The install failed, so the only way forward
+        // is by hand, and hunting for the file is not part of the apology.
+        NSWorkspace.shared.activateFileViewerSelecting([fallback])
+    }
+
+    // MARK: - URLSessionDownloadDelegate
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didFinishDownloadingTo location: URL
+    ) {
+        let updatesDirectory = AppPaths.supportDirectory.appending(path: "Updates")
+        try? FileManager.default.createDirectory(at: updatesDirectory, withIntermediateDirectories: true)
+
+        let suggestedFilename = downloadTask.response?.suggestedFilename ?? "Barc-Update"
+        let destinationURL = updatesDirectory.appending(path: suggestedFilename)
+
+        try? FileManager.default.removeItem(at: destinationURL)
+        do {
+            try FileManager.default.moveItem(at: location, to: destinationURL)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.downloadedFileURL = destinationURL
+                let version = self.activeRelease?.version ?? AppInfo.version
+                self.state = .readyToInstall(fileURL: destinationURL, version: version)
+                self.updateWindowController?.transition(to: .readyToInstall(fileURL: destinationURL))
+            }
+        } catch {
+            Task { @MainActor [weak self] in
+                self?.state = .error("Failed to save downloaded update: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    nonisolated func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let progress = totalBytesExpectedToWrite > 0
+            ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+            : 0.0
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.state = .downloading(
+                progress: progress,
+                bytesWritten: totalBytesWritten,
+                totalBytes: totalBytesExpectedToWrite
+            )
+            self.updateWindowController?.transition(
+                to: .downloading(
+                    progress: progress,
+                    bytesWritten: totalBytesWritten,
+                    totalBytes: totalBytesExpectedToWrite
+                )
+            )
+        }
+    }
+
+    nonisolated func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
+        guard let error else { return }
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.state = .error(error.localizedDescription)
+            self.updateWindowController?.transition(to: .prompt)
+        }
+    }
+}

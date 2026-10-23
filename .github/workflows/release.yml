@@ -1,3 +1,4 @@
+# Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 name: Release
 
 on:
@@ -55,11 +56,11 @@ jobs:
         with:
           xcode-version: latest-stable
 
-      # The icon (Resources/Kylmora.icns) is committed. Keep its timestamp newer
+      # The icon (Resources/Barc.icns) is committed. Keep its timestamp newer
       # than its sources so `make bundle` uses it instead of regenerating it,
       # which would require Pillow.
       - name: Use the committed icon
-        run: touch Resources/Kylmora.icns
+        run: touch Resources/Barc.icns
 
       # Single source of truth for the version: the git tag. `vX.Y.Z` becomes the
       # app's version, so there is never a version number to bump by hand.
@@ -72,7 +73,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" Resources/Info.plist
           /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" Resources/Info.plist
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "Building Kylmora $VERSION (build $GITHUB_RUN_NUMBER) -- ${{ matrix.variant }}"
+          echo "Building Barc $VERSION (build $GITHUB_RUN_NUMBER) -- ${{ matrix.variant }}"
 
       # Put the Developer ID certificate into a throwaway keychain that exists
       # only for this job, so codesign can find the identity.
@@ -131,7 +132,7 @@ jobs:
       - name: Check the binary carries the architectures it claims
         run: |
           set -e
-          bin=build/Kylmora.app/Contents/MacOS/Kylmora
+          bin=build/Barc.app/Contents/MacOS/Barc
           lipo -info "$bin"
           for arch in ${{ matrix.archs }}; do
             lipo -info "$bin" | grep -q "$arch" || { echo "missing $arch"; exit 1; }
@@ -150,7 +151,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: Tools/notarize.sh build/Kylmora.app
+        run: Tools/notarize.sh build/Barc.app
 
       - name: Install dmgbuild
         run: |
@@ -163,8 +164,8 @@ jobs:
       # Built around the stapled app, so what ships already carries its ticket.
       - name: Package the styled .dmg
         run: |
-          ./dmgvenv/bin/dmgbuild -D app="build/Kylmora.app" \
-            -s Tools/dmg-settings.py "Kylmora" "build/Kylmora${{ matrix.suffix }}.dmg"
+          ./dmgvenv/bin/dmgbuild -D app="build/Barc.app" \
+            -s Tools/dmg-settings.py "Barc" "build/Barc${{ matrix.suffix }}.dmg"
 
       # The disk image is notarised in its own right, so the download itself is
       # trusted — not just the app once it has been copied out.
@@ -174,10 +175,10 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          codesign --force --sign "$DEV_ID" --timestamp build/Kylmora${{ matrix.suffix }}.dmg
-          Tools/notarize.sh build/Kylmora${{ matrix.suffix }}.dmg
+          codesign --force --sign "$DEV_ID" --timestamp build/Barc${{ matrix.suffix }}.dmg
+          Tools/notarize.sh build/Barc${{ matrix.suffix }}.dmg
           # What Gatekeeper itself will say when a user opens the download.
-          spctl --assess --type open --context context:primary-signature -vv build/Kylmora${{ matrix.suffix }}.dmg
+          spctl --assess --type open --context context:primary-signature -vv build/Barc${{ matrix.suffix }}.dmg
 
       # An installer package for fleets. A device-management tool (Intune,
       # Jamf, Kandji...) installs a .pkg silently as root on every enrolled
@@ -200,18 +201,18 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          Tools/notarize.sh build/Kylmora${{ matrix.suffix }}.pkg
-          spctl --assess --type install -vv build/Kylmora${{ matrix.suffix }}.pkg
+          Tools/notarize.sh build/Barc${{ matrix.suffix }}.pkg
+          spctl --assess --type install -vv build/Barc${{ matrix.suffix }}.pkg
 
       # Handed to the publish job below. Only the finished, stapled files --
       # the app bundle and the build tree are not worth carrying between jobs.
       - name: Hand the packages to the publish job
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: kylmora-${{ matrix.variant }}
+          name: barc-${{ matrix.variant }}
           path: |
-            build/Kylmora${{ matrix.suffix }}.dmg
-            build/Kylmora${{ matrix.suffix }}.pkg
+            build/Barc${{ matrix.suffix }}.dmg
+            build/Barc${{ matrix.suffix }}.pkg
           if-no-files-found: error
           retention-days: 1
 
@@ -221,7 +222,7 @@ jobs:
         if: always()
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
-          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/installer.p12" "$RUNNER_TEMP/Kylmora.app.zip"
+          rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/installer.p12" "$RUNNER_TEMP/Barc.app.zip"
 
   # Reached only once both variants are notarized and stapled, so an
   # unnotarised build can never become a release, and a release is never
@@ -244,10 +245,10 @@ jobs:
       - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
         with:
           files: |
-            dist/Kylmora.dmg
-            dist/Kylmora-AppleSilicon.dmg
-            dist/Kylmora.pkg
-            dist/Kylmora-AppleSilicon.pkg
+            dist/Barc.dmg
+            dist/Barc-AppleSilicon.dmg
+            dist/Barc.pkg
+            dist/Barc-AppleSilicon.pkg
           generate_release_notes: true
           fail_on_unmatched_files: true
           draft: false
@@ -257,11 +258,11 @@ jobs:
 
             | Download | For |
             |---|---|
-            | `Kylmora.dmg` | Any Mac — Apple Silicon or Intel |
-            | `Kylmora-AppleSilicon.dmg` | Apple Silicon only, a smaller download |
+            | `Barc.dmg` | Any Mac — Apple Silicon or Intel |
+            | `Barc-AppleSilicon.dmg` | Apple Silicon only, a smaller download |
 
-            Open it and drag **Kylmora** to Applications. If you are not sure
-            which one you want, take `Kylmora.dmg` — it runs everywhere.
+            Open it and drag **Barc** to Applications. If you are not sure
+            which one you want, take `Barc.dmg` — it runs everywhere.
 
             Signed with a Developer ID and notarized by Apple, so it opens
             normally — no security warning to click through.
@@ -273,11 +274,11 @@ jobs:
 
             | Package | For |
             |---|---|
-            | `Kylmora.pkg` | Any Mac — Apple Silicon or Intel |
-            | `Kylmora-AppleSilicon.pkg` | Apple Silicon only, a smaller payload |
+            | `Barc.pkg` | Any Mac — Apple Silicon or Intel |
+            | `Barc-AppleSilicon.pkg` | Apple Silicon only, a smaller payload |
 
             Either installs the app to `/Applications` silently, for
             deployment through an MDM such as Jamf, Intune or Kandji. To lock
             settings across a fleet, see
-            [docs/enterprise-policies.md](https://github.com/kylmora/kylmora/blob/main/docs/enterprise-policies.md)
+            [docs/enterprise-policies.md](https://github.com/mcgri/Barc/blob/main/docs/enterprise-policies.md)
             and the sample profile in `Resources/Enterprise/`.

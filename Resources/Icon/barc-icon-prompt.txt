@@ -1,0 +1,23 @@
+Barc icon
+
+Generation method: built-in image-generation tool.
+Reference: locally installed Arc application icon, used for visual style.
+
+Initial prompt
+
+Use case: logo-brand.
+Asset type: final square macOS application icon for a browser named Barc.
+Primary request: create a Barc icon based on the attached Arc browser icon.
+Input image 1 is a visual reference for palette, rounded ribbon construction, proportions, clean white macOS rounded-square tile, soft dimensional edge and shadow treatment. Create a new distinctive capital B monogram in that visual language.
+Subject: a single bold, immediately legible uppercase B made from thick softly rounded interlocking ribbon strokes, with one upright stem and two rounded bowls, two open white counters. Use Arc's coral pink, warm rose, saturated royal blue and deep violet; the left stem primarily blue/violet, the bowls coral/rose, with elegant dark overlapping areas. Rounded stroke ends, simple smooth geometry, playful and polished, legible at dock size.
+Composition: one icon only, centered and front-facing, large monogram within a white softly rounded square tile, matching the reference's generous but compact padding. Square canvas, ideally 1024x1024 or larger. The white tile must remain opaque, with fully transparent canvas outside its rounded corners. Subtle contact shadows under the colored ribbons and very restrained dimensionality, crisp clean edges.
+Constraints: deliver the actual icon asset, no presentation scene, no device, no grid, no additional variants, no wordmark, no explanatory text, no watermark. It must read as B rather than A, 8, or abstract loops. Keep the reference's cheerful colour personality and simple ribbon appearance.
+
+Edge refinement prompt
+
+Use case: precise-object-edit.
+Edit target: the attached Barc macOS icon.
+Keep the B monogram, colors, ribbon overlap, white outline, central composition and white rounded-square tile unchanged.
+Fix only the tile's perimeter and transparent outside canvas: the tile must have a perfectly smooth continuous rounded-square silhouette, with clean antialiased edges, consistent smooth corners, and only a subtle clean soft shadow. Remove every rough, ragged, torn, speckled, scribbled, or chalky white/gray pixel fringe around the top and side edges and any stray pixels outside the icon. No grain/noise anywhere along the edge. The exterior canvas must be genuinely transparent. Preserve the opaque white tile and same overall icon scale and padding.
+One square icon, front facing, no text, no layout or additional variants.
+

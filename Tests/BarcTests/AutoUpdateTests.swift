@@ -1,0 +1,224 @@
+// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+import AppKit
+import Foundation
+import Testing
+@testable import Barc
+
+@Suite("Auto-Update (Sparkle-Style) & Security Assurances (F-23)", .serialized)
+@MainActor
+struct AutoUpdateTests {
+
+    @Test("UpdateController transitions to available on new release")
+    func updateAvailable() async {
+        let controller = UpdateController()
+        let origDownload = Settings.shared.automaticallyDownloadUpdates
+        Settings.shared.automaticallyDownloadUpdates = false
+        defer { Settings.shared.automaticallyDownloadUpdates = origDownload }
+
+        let expectedRelease = UpdateCheck.Release(
+            version: "99.0.0",
+            url: URL(string: "https://github.com/mcgri/Barc/releases"),
+            notes: "Amazing new features"
+        )
+
+        controller.checkOutcomeProvider = { _ in
+            .available(expectedRelease)
+        }
+
+        controller.checkForUpdates(userInitiated: false)
+
+        for _ in 0..<100 {
+            if controller.state != .checking { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(controller.state == .updateAvailable(expectedRelease))
+        #expect(controller.updateWindowController != nil)
+        #expect(controller.updateWindowController?.release.version == "99.0.0")
+    }
+
+    @Test("UpdateController respects skipped version during background checks")
+    func skippedVersionBackground() async {
+        let controller = UpdateController()
+        Settings.shared.skippedUpdateVersion = "99.0.0"
+        defer { Settings.shared.skippedUpdateVersion = nil }
+
+        controller.checkOutcomeProvider = { _ in
+            .available(UpdateCheck.Release(version: "99.0.0", url: URL(string: "https://github.com/mcgri/Barc"), notes: "Notes"))
+        }
+
+        controller.checkForUpdates(userInitiated: false)
+
+        for _ in 0..<100 {
+            if controller.state != .checking { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        // Skipped in background check: state returns to idle
+        #expect(controller.state == .idle)
+    }
+
+    @Test("UpdateController transitions to idle on up-to-date outcome")
+    func upToDateOutcome() async {
+        let controller = UpdateController()
+        controller.checkOutcomeProvider = { current in
+            .upToDate(current: current)
+        }
+
+        controller.checkForUpdates(userInitiated: false)
+
+        for _ in 0..<100 {
+            if controller.state != .checking { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(controller.state == .idle)
+        #expect(Settings.shared.lastUpdateCheckDate != nil)
+    }
+
+    @Test("UpdateController transitions to error on unreachable outcome")
+    func unreachableOutcome() async {
+        let controller = UpdateController()
+        controller.checkOutcomeProvider = { _ in
+            .unreachable("Could not reach update server.")
+        }
+
+        controller.checkForUpdates(userInitiated: false)
+
+        for _ in 0..<100 {
+            if controller.state != .checking { break }
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+
+        #expect(controller.state == .error("Could not reach update server."))
+    }
+
+    @Test("UpdateWindowController renders info, security notice, and transitions")
+    func updateWindowTransitions() {
+        let controller = UpdateController()
+        let release = UpdateCheck.Release(
+            version: "1.5.0",
+            url: URL(string: "https://github.com/mcgri/Barc"),
+            notes: "Major security and speed overhaul",
+            downloadUrl: URL(string: "https://github.com/mcgri/Barc/Barc-1.5.0.dmg")
+        )
+        let windowController = UpdateWindowController(release: release, controller: controller)
+        _ = windowController.window
+
+        #expect(windowController.release.version == "1.5.0")
+        #expect(windowController.displayState == .prompt)
+
+        // Transition to downloading
+        windowController.transition(to: .downloading(progress: 0.5, bytesWritten: 5000, totalBytes: 10000))
+        if case .downloading(let progress, _, _) = windowController.displayState {
+            #expect(progress == 0.5)
+        } else {
+            Issue.record("Expected downloading state")
+        }
+
+        // Transition to ready
+        let testURL = URL(filePath: "/tmp/Barc-1.5.0.dmg")
+        windowController.transition(to: .readyToInstall(fileURL: testURL))
+        if case .readyToInstall(let fileURL) = windowController.displayState {
+            #expect(fileURL == testURL)
+        } else {
+            Issue.record("Expected readyToInstall state")
+        }
+    }
+
+    @Test("Auto-update settings toggle and persist")
+    func settingsPersistence() {
+        let origCheck = Settings.shared.automaticallyCheckForUpdates
+        let origDownload = Settings.shared.automaticallyDownloadUpdates
+        defer {
+            Settings.shared.automaticallyCheckForUpdates = origCheck
+            Settings.shared.automaticallyDownloadUpdates = origDownload
+        }
+
+        Settings.shared.automaticallyCheckForUpdates = false
+        #expect(!Settings.shared.automaticallyCheckForUpdates)
+
+        Settings.shared.automaticallyCheckForUpdates = true
+        #expect(Settings.shared.automaticallyCheckForUpdates)
+
+        Settings.shared.automaticallyDownloadUpdates = true
+        #expect(Settings.shared.automaticallyDownloadUpdates)
+    }
+
+    @Test("CommandCatalog and ShortcutManager register check-for-updates")
+    func commandsAndShortcuts() {
+        let catalog = CommandCatalog.all
+        let candidate = catalog.first { $0.id == "check-for-updates" }
+        #expect(candidate != nil)
+        #expect(candidate?.title.contains("Updates") == true)
+
+        let definition = ShortcutManager.shared.definition(for: "check-for-updates")
+        #expect(definition != nil)
+        #expect(definition?.category == .tools)
+    }
+
+    @Test("AboutSettingsViewController includes update checkboxes and security messaging")
+    func aboutPaneSettings() {
+        let pane = AboutSettingsViewController()
+        _ = pane.view
+
+        #expect(pane.isAutoCheckEnabled == (UpdateCheck.feedURL != nil && Settings.shared.automaticallyCheckForUpdates))
+        #expect(pane.isAutoDownloadEnabled == (UpdateCheck.feedURL != nil && Settings.shared.automaticallyDownloadUpdates))
+    }
+
+    @Test("A check the user asked for always does something")
+    @MainActor
+    func userInitiatedCheckIsNeverSwallowed() async {
+        // The menu item and the Settings button take different routes to the
+        // same check, and only one of them was guarded by the controller's
+        // state. So after any check that found an update, the menu item did
+        // nothing at all: no window, no alert, no request. Settings kept
+        // working, which is what made it look like the menu was broken.
+        let controller = UpdateController()
+        // No modal: `runModal()` waits for a click that never comes in a test.
+        controller.presentAlert = { _, _ in }
+        var checks = 0
+        controller.checkOutcomeProvider = { current in
+            checks += 1
+            return .upToDate(current: current)
+        }
+
+        controller.checkForUpdates(userInitiated: true)
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(checks == 1)
+
+        // Ask again from a resting state: it asks the site again.
+        controller.checkForUpdates(userInitiated: true)
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(checks == 2, "a second click has to reach the site too")
+    }
+
+    @Test("Holding an update already found, a second click shows it rather than nothing")
+    @MainActor
+    func secondClickShowsTheUpdateItAlreadyFound() async {
+        let release = UpdateCheck.Release(
+            version: "99.0.0",
+            url: URL(string: "https://example.com/Barc.dmg"),
+            notes: "Notes"
+        )
+        let controller = UpdateController()
+        controller.presentAlert = { _, _ in }
+        var checks = 0
+        controller.checkOutcomeProvider = { _ in
+            checks += 1
+            return .available(release)
+        }
+
+        controller.checkForUpdates(userInitiated: true)
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(checks == 1)
+        #expect(controller.state == .updateAvailable(release))
+
+        // The controller is now holding the answer. Clicking again must put
+        // that answer back on screen, not fall through a guard and return.
+        controller.checkForUpdates(userInitiated: true)
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(checks == 1, "it already knows; no second request")
+        #expect(controller.state == .updateAvailable(release), "and it is still showing it")
+    }
+}

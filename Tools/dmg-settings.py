@@ -1,9 +1,10 @@
-# dmgbuild settings for the Kylmora installer disk image.
-#   dmgbuild -s Tools/dmg-settings.py "Kylmora" build/Kylmora.dmg
+# Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+# dmgbuild settings for the Barc installer disk image.
+#   dmgbuild -s Tools/dmg-settings.py "Barc" build/Barc.dmg
 # Run from the repository root, after `make bundle` has produced the app.
 import os.path
 
-app = defines.get("app", "build/Kylmora.app")  # noqa: F821 (dmgbuild injects `defines`)
+app = defines.get("app", "build/Barc.app")  # noqa: F821 (dmgbuild injects `defines`)
 appname = os.path.basename(app)
 
 # Contents: the app plus a shortcut to /Applications to drag it onto.

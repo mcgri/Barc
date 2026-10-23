@@ -1,9 +1,10 @@
 #!/bin/bash
+# Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 # Submits one artifact to Apple's notary service, waits for a verdict, and
 # staples the ticket to it.
 #
-#   Tools/notarize.sh build/Kylmora.app        # zipped for upload, stapled in place
-#   Tools/notarize.sh build/Kylmora.dmg
+#   Tools/notarize.sh build/Barc.app        # zipped for upload, stapled in place
+#   Tools/notarize.sh build/Barc.dmg
 #
 # Requires APPLE_ID, APPLE_APP_PASSWORD and APPLE_TEAM_ID in the environment.
 #
