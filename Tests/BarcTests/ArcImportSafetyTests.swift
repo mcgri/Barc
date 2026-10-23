@@ -129,6 +129,31 @@ struct ArcImportSafetyTests {
 @Suite("Arc native storage boundaries")
 @MainActor
 struct ArcNativeStorageSafetyTests {
+    @Test("Imported passwords with an empty username remain readable",
+          .enabled(if: ProcessInfo.processInfo.environment["BARC_TEST_SYNTHETIC_KEYCHAIN"] == "1"))
+    func emptyUsernameKeychain() throws {
+        let identity = Space.Identity.makeIsolated()
+        let sourceID = "synthetic-empty-username-" + UUID().uuidString
+        let path = KeychainPasswordStore.path(for: identity, sourceID: sourceID)
+        defer { _ = KeychainPasswordStore.delete(host: "empty-username-fixture.invalid", username: "", identity: identity,
+            storagePath: path, scheme: "https") }
+        #expect(KeychainPasswordStore.save(host: "empty-username-fixture.invalid", username: "", password: "fictional-only",
+            identity: identity, sourceID: sourceID, overwrite: false))
+        let saved = KeychainPasswordStore.all(identity: identity)
+        #expect(saved.count == 1)
+        #expect(saved.first?.username == "")
+        #expect(saved.first?.password == "fictional-only")
+        #expect(KeychainPasswordStore.credentials(host: "empty-username-fixture.invalid", identity: identity).count == 1)
+        defer { _ = KeychainPasswordStore.delete(host: "empty-username-fixture.invalid", username: "named-user", identity: identity,
+            storagePath: path, scheme: "https") }
+        #expect(KeychainPasswordStore.save(host: "empty-username-fixture.invalid", username: "named-user", password: "fictional-named",
+            identity: identity, sourceID: sourceID, overwrite: false))
+        let neighbours = KeychainPasswordStore.all(identity: identity)
+        #expect(neighbours.count == 2)
+        #expect(neighbours.first(where: { $0.username.isEmpty })?.password == "fictional-only")
+        #expect(neighbours.first(where: { $0.username == "named-user" })?.password == "fictional-named")
+    }
+
     @Test("A local build saves, reads and preserves imported Keychain records",
           .enabled(if: ProcessInfo.processInfo.environment["BARC_TEST_SYNTHETIC_KEYCHAIN"] == "1"))
     func nativeKeychain() throws {
@@ -189,6 +214,18 @@ struct ArcNativeStorageSafetyTests {
         #expect(result.skipReasons?["Expired cookies"] == 1)
         #expect(result.skipReasons?["Partitioned cookies"] == 1)
         #expect(result.failed == 0)
+    }
+
+    @Test("Nameless source cookies report the native cookie API limit")
+    func namelessCookies() async {
+        _ = NSApplication.shared
+        let cookie = ArcProfileReader.Cookie(name: "", value: "fictional-only", domain: "nameless.invalid", path: "/",
+            expires: nil, secure: true, httpOnly: false, sameSite: 1, partitioned: false)
+        #expect(ArcCookieTransfer.nativeCookie(cookie) == nil)
+        let result = await ArcCookieTransfer.transfer(.init(records: [cookie], source: 1), to: .nonPersistent())
+        #expect(result.failed == 1)
+        #expect(result.imported == 0)
+        #expect(result.failureReasons?["WebKit does not support cookies without a name"] == 1)
     }
 
     @Test("Spaces sharing an Arc profile keep one identity when a sibling Space is removed")

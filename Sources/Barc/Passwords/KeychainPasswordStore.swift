@@ -103,8 +103,8 @@ enum KeychainPasswordStore {
     static func credentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0) -> [PasswordCredential] {
         guard !identity.isPrivate else { return [] }
         return items(matching: query(host: host, identity: identity, scheme: scheme, port: port)).compactMap { item in
-            guard let account = item[kSecAttrAccount as String] as? String,
-                  let password = password(in: item) else { return nil }
+            guard let password = password(in: item) else { return nil }
+            let account = item[kSecAttrAccount as String] as? String ?? ""
             return credential(host: host, account: account, password: password, item: item)
         }
     }
@@ -114,8 +114,8 @@ enum KeychainPasswordStore {
         guard !identity.isPrivate else { return [] }
         return items(matching: query(identity: identity)).compactMap { item in
             guard let host = item[kSecAttrServer as String] as? String,
-                  let account = item[kSecAttrAccount as String] as? String,
                   let password = password(in: item) else { return nil }
+            let account = item[kSecAttrAccount as String] as? String ?? ""
             return credential(host: host, account: account, password: password, item: item)
         }.sorted { $0.host == $1.host ? $0.username < $1.username : $0.host < $1.host }
     }
@@ -161,6 +161,10 @@ enum KeychainPasswordStore {
         // item individually through its normal native access control.
         return items.compactMap { attributes in
             var exact = query
+            // The login Keychain omits an empty account from its attributes.
+            // It remains a valid credential and needs an explicit empty-account
+            // constraint so another account at the same host/path cannot match.
+            exact[kSecAttrAccount as String] = attributes[kSecAttrAccount as String] as? String ?? ""
             for key in [kSecAttrServer, kSecAttrAccount, kSecAttrPath, kSecAttrPort,
                         kSecAttrProtocol, kSecAttrSecurityDomain, kSecAttrAuthenticationType] {
                 if let value = attributes[key as String] { exact[key as String] = value }

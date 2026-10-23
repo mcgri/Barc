@@ -38,7 +38,7 @@ The search-data option restores a detected default search engine for the importe
 
 Review the result before relying on imported website sessions. The report lists per-profile counts, verification, skipped records and unavailable data, and is saved under `Arc Imports` in Barc's application-data folder. A session backup is saved before each import.
 
-Some websites require signing in again. Partitioned cookies and partitioned local storage are skipped to preserve their isolation. Cookie lifetimes are kept, including session-only cookies, which may end when the browser quits. WebKit can reject storage that exceeds its quota. IndexedDB databases, tab-scoped session storage, passkeys, extensions, generic form suggestions and Arc's back/forward stacks, scroll positions and in-page form state remain in Arc. Search shortcuts use Barc's shared engine list; history, passwords, addresses and website data use the matching profile identity.
+Some websites require signing in again. Partitioned cookies and partitioned local storage are skipped to preserve their isolation. Cookies without a name cannot be represented by WebKit's public cookie API and are reported as unavailable. Cookie lifetimes are kept, including session-only cookies, which may end when the browser quits. WebKit can reject storage that exceeds its quota. IndexedDB databases, tab-scoped session storage, passkeys, extensions, generic form suggestions and Arc's back/forward stacks, scroll positions and in-page form state remain in Arc. Search shortcuts use Barc's shared engine list; history, passwords, addresses and website data use the matching profile identity.
 
 The [implementation plan](docs/arc-import-plan.md) describes the supported formats and verification requirements.
 

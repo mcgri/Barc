@@ -116,7 +116,8 @@ enum ArcCookieTransfer {
             }
             guard let native = nativeCookie(row) else {
                 result.failed += 1
-                result.failureReasons = (result.failureReasons ?? [:]).merging(["Unsupported cookie attributes": 1], uniquingKeysWith: +)
+                let reason = row.name.isEmpty ? "WebKit does not support cookies without a name" : "Unsupported cookie attributes"
+                result.failureReasons = (result.failureReasons ?? [:]).merging([reason: 1], uniquingKeysWith: +)
                 continue
             }
             guard matches(native, expected: row) else {
