@@ -871,14 +871,15 @@ struct FolderHeaderPlacementTests {
             .first { ($0.dataSource as AnyObject?) === sidebar }
     }
 
-    @Test("An empty folder's name is on the card, not hanging under it")
-    func emptyFolderHeaderIsInsideItsPlate() throws {
+    @Test("Standard folders share the tab rhythm; custom plates retain their clearance", arguments: [false, true])
+    func emptyFolderHeaderPlacement(custom: Bool) throws {
         // The header used to be pinned to the bottom of its row, which is the
         // same thing as sitting under the gap only while the gap under the
         // plate is somebody else's. An empty folder's header row carries both
         // gaps, so the name dropped ten points clear of the card it names.
         let (session, _) = TestSession.make()
-        _ = session.createGroup(named: "Hello new group")
+        let group = session.createGroup(named: "Hello new group")
+        if custom { session.setAppearance(TabGroupAppearance(fill: .solid, startColorHex: "#aabbcc"), for: group) }
 
         let sidebar = SidebarViewController(session: session)
         sidebar.loadViewIfNeeded()
@@ -899,7 +900,7 @@ struct FolderHeaderPlacementTests {
             UITestSupport.descendants(of: cell).compactMap { $0 as? TabGroupHeaderView }.first
         )
 
-        let gap = Style.Metrics.folderPlateGap
+        let gap = custom ? Style.Metrics.folderPlateGap : 0
         // The plate's own band in this row, as `FolderPlateRowView` draws it:
         // under the gap above, above the gap below.
         let plateTop = gap

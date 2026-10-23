@@ -239,12 +239,11 @@ struct ChromeThemeTests {
 
     // MARK: - Type
 
-    @Test("A folder's name is smaller than the tabs it holds")
-    func headersDoNotOutrankTheirRows() {
-        // A header labels a group; it is not an item competing with the items.
-        #expect(Style.Fonts.groupHeader.pointSize < Style.Fonts.body.pointSize)
-        // And the space's name, which labels the whole window, outranks both.
-        #expect(Style.Fonts.title.pointSize > Style.Fonts.body.pointSize)
+    @Test("Folder and tab titles use Arc's 14-point sidebar text")
+    func sidebarTypeMatchesArc() {
+        #expect(Style.Fonts.tabTitle.pointSize == 14)
+        #expect(Style.Fonts.groupHeader.pointSize == Style.Fonts.tabTitle.pointSize)
+        #expect(Style.Fonts.title.pointSize == Style.Fonts.tabTitle.pointSize)
     }
 
     // MARK: - Controls

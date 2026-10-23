@@ -2366,8 +2366,8 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return Style.Metrics.rowHeight }
         if case .newTab = rows[row] { return Style.Metrics.rowHeight + 12 }
-        if case .group = rows[row] {
-            return Style.Metrics.groupHeaderHeight + Style.Metrics.folderPlateGap
+        if case .group(let group, _, _) = rows[row] {
+            return Style.Metrics.groupHeaderHeight + (group.appearance.isStandard ? 0 : Style.Metrics.folderPlateGap)
                 + plateGapBelow(row: row)
         }
         // The row that owns a plate's rounded bottom corners owns the padding
@@ -2375,7 +2375,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         // step by the time the table asks for a height -- including the asks
         // that come from `buildSlices`, which is why this reads `plates`
         // rather than the slices it is in the middle of computing.
-        guard plates.indices.contains(row), plates[row].contains(where: { $0.segment == .bottom }) else {
+        guard plates.indices.contains(row), plates[row].contains(where: { $0.segment == .bottom && isPaintedPlate($0) }) else {
             return Style.Metrics.rowHeight + plateGapBelow(row: row)
         }
         return Style.Metrics.rowHeight + Style.Metrics.folderPlateBottomPadding
@@ -2395,14 +2395,21 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     /// still inside a plate this row is also in, because that plate has not
     /// ended yet.
     private func plateGapBelow(row: Int) -> CGFloat {
-        guard plates.indices.contains(row), !plates[row].isEmpty else { return 0 }
+        guard plates.indices.contains(row) else { return 0 }
+        let visible = plates[row].filter(isPaintedPlate)
+        guard !visible.isEmpty else { return 0 }
         let next = row + 1
         guard rows.indices.contains(next) else { return 0 }
-        if case .group = rows[next] { return 0 }
-        let mine = Set(plates[row].compactMap(\.groupID))
+        if case .group(let nextGroup, _, _) = rows[next], !nextGroup.appearance.isStandard { return 0 }
+        let mine = Set(visible.compactMap(\.groupID))
         let theirs = Set(plates.indices.contains(next) ? plates[next].compactMap(\.groupID) : [])
         guard mine.isDisjoint(with: theirs) else { return 0 }
         return Style.Metrics.folderPlateGap
+    }
+
+    private func isPaintedPlate(_ piece: FolderPlatePlan.Piece) -> Bool {
+        guard let id = piece.groupID else { return false }
+        return shownSpace.group(withID: id)?.appearance.isStandard == false
     }
 
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
@@ -2453,7 +2460,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             // A row with plate slices sits on a group plate, where its pill
             // needs a matching trailing margin so it does not run flush into
             // the plate's rounded right edge.
-            cell.isInGroupPlate = slices.indices.contains(row) && !slices[row].isEmpty
+            cell.isInGroupPlate = slices.indices.contains(row) && slices[row].contains { !$0.appearance.isStandard }
             return cell
         }
     }
@@ -2500,7 +2507,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             // names -- a rounded card with the title hanging out underneath it.
             header.topAnchor.constraint(
                 equalTo: container.topAnchor,
-                constant: Style.Metrics.folderPlateGap
+                constant: group.appearance.isStandard ? 0 : Style.Metrics.folderPlateGap
             )
         ])
         return container

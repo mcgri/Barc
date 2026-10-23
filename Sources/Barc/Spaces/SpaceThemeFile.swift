@@ -74,13 +74,9 @@ enum SidebarDensity: String, CaseIterable, Codable, Sendable {
     var rowHeight: CGFloat {
         switch self {
         case .compact: return 28
-        // Two points taller than it was, which is a point at the top and a
-        // point at the bottom of the pill drawn inside it -- the two device
-        // pixels each way that the selected row was asked for. The row grows
-        // with the pill rather than the pill eating into the row, so the
-        // clear material between one pill and the next is untouched.
-        case .regular: return 34
-        case .roomy: return 38
+        // Arc's regular sidebar uses a 41-point row.
+        case .regular: return 41
+        case .roomy: return 46
         }
     }
 

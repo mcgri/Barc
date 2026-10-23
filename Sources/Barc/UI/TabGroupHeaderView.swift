@@ -62,10 +62,7 @@ final class TabGroupHeaderView: NSView {
         emojiLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.font = Style.Fonts.groupHeader
-        // Secondary, not primary. A folder header names the rows under it; it
-        // is not one of them, and drawing it in full-contrast bold at the same
-        // size as the tabs made every folder shout over its own contents.
-        titleLabel.textColor = Style.Colors.secondaryText
+        titleLabel.textColor = Style.Colors.primaryText
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.usesSingleLineMode = true
         titleLabel.setAccessibilityElement(false)
@@ -85,7 +82,7 @@ final class TabGroupHeaderView: NSView {
                                      folderIcon.heightAnchor.constraint(equalToConstant: 16)])
         let stack = NSStackView(views: [folderIcon, emojiLabel, titleLabel, chevron])
         stack.orientation = .horizontal
-        stack.spacing = 5
+        stack.spacing = Style.Metrics.rowContentSpacing
         stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -175,6 +172,7 @@ final class TabGroupHeaderView: NSView {
         removeButton.isHidden = !(isHovered && onRemove != nil && !isLocked)
         customizeButton.isHidden = !(isHovered && onCustomize != nil)
         lockGlyph.isHidden = !isLocked
+        chevron.isHidden = !isHovered
     }
 
     /// Flips the group and tells the caller. Used by the click handler and by

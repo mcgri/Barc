@@ -345,24 +345,24 @@ struct TabRowTests {
         #expect(UITestSupport.badgeIcons(in: row).isEmpty)
     }
 
-    @Test("A sleeping row shows a moon, and an ordinary one shows nothing")
-    func sleepingRowShowsAMoon() {
-        // The dimmed title says "suspended" only to someone comparing it with
-        // the row above. The moon says it on its own.
+    @Test("Sleeping tabs keep the same clean title as awake tabs")
+    func sleepingRowKeepsTitleSpace() {
         let asleep = TabRowView()
         asleep.configure(TabRowContent(title: "Start", isAsleep: true))
-        #expect(UITestSupport.badgeIcons(in: asleep).count == 1)
+        #expect(UITestSupport.badgeIcons(in: asleep).isEmpty)
+        #expect(asleep.accessibilityLabel() == "Start, sleeping")
 
         let awake = TabRowView()
         awake.configure(TabRowContent(title: "Start"))
         #expect(UITestSupport.badgeIcons(in: awake).isEmpty)
     }
 
-    @Test("The locks are visible on the row, not only in the menu that set them")
-    func locksAreVisible() {
+    @Test("Retention policies do not crowd the title with extra icons")
+    func policiesStayOutOfTheTitle() {
         let row = TabRowView()
         row.configure(TabRowContent(title: "Start", keepsAwake: true, keepsInSidebar: true))
-        #expect(UITestSupport.badgeIcons(in: row).count == 2)
+        #expect(UITestSupport.badgeIcons(in: row).isEmpty)
+        #expect(row.accessibilityLabel() == "Start, kept awake, kept in sidebar")
     }
 
     @Test("The close button takes the trailing slot back from the badge")

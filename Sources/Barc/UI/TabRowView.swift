@@ -266,7 +266,7 @@ final class TabRowView: NSTableCellView {
         clipsToBounds = false
         if let layer { highlight = RowHighlight(in: layer) }
 
-        titleLabel.font = Style.Fonts.body
+        titleLabel.font = Style.Fonts.tabTitle
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.usesSingleLineMode = true
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -399,9 +399,7 @@ final class TabRowView: NSTableCellView {
     func configure(_ content: TabRowContent) {
         self.content = content
         titleLabel.stringValue = content.title
-        titleLabel.textColor = content.isAsleep
-            ? Style.Colors.secondaryText
-            : Style.Colors.primaryText
+        titleLabel.textColor = Style.Colors.primaryText
         toolTip = content.address
 
         emojiLabel.stringValue = content.emoji ?? ""
@@ -509,20 +507,15 @@ final class TabRowView: NSTableCellView {
             titleAudioConstraint?.isActive = false
         }
 
-        // Third in line for the trailing slot, yielding to close, spinner and audio.
-        let showBadge = !showClose && !content.isLoading && !hasAudio
-        // The lock outranks the badge's own yielding: it is the reason the row
-        // has no close button, so it shows even while the row is hovered.
+        // Sleep and retention are background policies, not extra sidebar chrome.
+        // Keep their descriptions available to accessibility without shortening titles.
         lockedIcon.isHidden = !(content.isLocked && !hasAudio)
-        // Suppressed under a padlock rather than drawn next to it. Locking a
-        // tab already keeps it in the sidebar, and two glyphs for one promise
-        // invites the reader to hunt for a difference that is not there.
-        stayIcon.isHidden = !(showBadge && content.keepsInSidebar && !content.isLocked)
-        awakeIcon.isHidden = !(showBadge && content.keepsAwake)
-        sleepIcon.isHidden = !(showBadge && content.isAsleep)
-        let idle = showBadge ? content.idleText : nil
-        idleLabel.stringValue = idle ?? ""
-        idleLabel.isHidden = idle == nil
+        stayIcon.isHidden = true
+        awakeIcon.isHidden = true
+        sleepIcon.isHidden = true
+        idleLabel.stringValue = ""
+        idleLabel.isHidden = true
+
     }
 
     /// The plate drawn behind a selected or hovered row.

@@ -62,6 +62,7 @@ final class IconButton: NSButton {
         symbolName: String,
         label: String,
         side: CGFloat = Style.Metrics.iconButtonSide,
+        symbolSize: CGFloat? = nil,
         onClick: (() -> Void)? = nil
     ) {
         self.label = label
@@ -88,7 +89,7 @@ final class IconButton: NSButton {
         // frame amounts to on the smallest buttons, produces a glyph that is
         // both too small to hit and too thin to see.
         glyph.symbolConfiguration = NSImage.SymbolConfiguration(
-            pointSize: Self.symbolPointSize(forSide: side), weight: .medium
+            pointSize: symbolSize ?? Self.symbolPointSize(forSide: side), weight: .medium
         )
         glyph.imageScaling = .scaleProportionallyDown
         glyph.contentTintColor = Style.Colors.secondaryText

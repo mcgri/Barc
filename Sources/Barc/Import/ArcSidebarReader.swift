@@ -50,6 +50,11 @@ enum ArcSidebarReader {
             }
         }
         guard !spaceObjects.isEmpty else { throw ArcImportFailure.invalidSidebar }
+        let windowState = windows.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        let savedWindows = windowState?["windows"] as? [[String: Any]] ?? []
+        let frontWindow = savedWindows.first { ($0["focusedSpaceID"] as? String) == (windowState?["lastFocusedSpaceID"] as? String) }
+            ?? savedWindows.first
+        let expandedFolders = (frontWindow?["expandedItems"] as? [String]).map(Set.init)
         var items: [String: ArcSidebar.Item] = [:]
         var orderedIDs: [String] = []
         var skipped = 0
@@ -64,7 +69,8 @@ enum ArcSidebarReader {
                 children: object["childrenIds"] as? [String] ?? [], url: url,
                 isFolder: payload["list"] != nil,
                 lastActiveAt: (tab?["timeLastActiveAt"] as? Double).map { Date(timeIntervalSinceReferenceDate: $0) },
-                customName: object["title"] as? String
+                customName: object["title"] as? String,
+                isCollapsed: payload["list"] != nil ? expandedFolders.map { !$0.contains(key) } : nil
             )
             orderedIDs.append(key)
         }

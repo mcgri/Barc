@@ -52,6 +52,27 @@ enum ArcImportBench {
 @Suite("Arc's current local sidebar")
 @MainActor
 struct ArcSidebarReaderTests {
+    @Test("The front window's expanded folders survive the import alongside mixed sibling order")
+    func folderExpansionAndOrder() throws {
+        let original = try ArcImportBench.snapshot()
+        defer { original.remove() }
+        let windows = try JSONSerialization.data(withJSONObject: ["lastFocusedSpaceID": "personal-space", "windows": [
+            ["focusedSpaceID": "personal-space", "expandedItems": ["folder"]]
+        ]])
+        let sidebar = try ArcSidebarReader.read(sidebar: ArcImportBench.sidebar(), archive: nil,
+                                                profiles: original.profiles, windows: windows)
+        let source = ArcSourceSnapshot(root: original.root, sourceFingerprint: original.sourceFingerprint,
+            profiles: original.profiles, sidebar: sidebar, unsupportedIndexedDBFolders: [:], extensions: [:])
+        let built = try #require(ArcSpaceBuilder.build(source, options: ArcImportOptions(profileIDs: ["Default"])).first?.snapshot)
+        let groups = try #require(built.groups)
+        #expect(groups.first { $0.name == "Folder" && $0.parentID == nil }?.isCollapsed == false)
+        #expect(groups.first { $0.parentID != nil }?.isCollapsed == true)
+        let nested = try #require(groups.first { $0.parentID != nil }?.sidebarPosition)
+        let nestedTab = try #require(built.tabs.first { $0.importedSourceID?.hasSuffix("/nested-pin") == true }?.sidebarPosition)
+        let sibling = try #require(built.tabs.first { $0.importedSourceID?.hasSuffix("/pin") == true }?.sidebarPosition)
+        #expect(nested < nestedTab && nestedTab < sibling)
+    }
+
     @Test("Arc Favorites become tiles; a root pinned tab stays a retained list row")
     func favoritesAndPinnedListAreSeparate() throws {
         let original = try ArcImportBench.snapshot()

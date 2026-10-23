@@ -32,7 +32,7 @@ final class ActionRowView: NSView {
         glyph.setAccessibilityElement(false)
         glyph.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = Style.Fonts.body
+        titleLabel.font = Style.Fonts.tabTitle
         titleLabel.textColor = Style.Colors.secondaryText
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.usesSingleLineMode = true

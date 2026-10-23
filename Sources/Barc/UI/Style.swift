@@ -23,23 +23,8 @@ enum Style {
         /// why the chrome reads as one system rather than several.
         static let elementSeparation: CGFloat = 8
 
-        /// Resting sidebar width.
-        ///
-        /// Twenty per cent under the 306 this was measured at, at the user's
-        /// request. The page is what the window is for, and 306 points of
-        /// chrome beside it claimed more of the window than a list of tab
-        /// titles needs. Titles truncate sooner at this width and the pinned
-        /// strip fits fewer tiles across before it wraps, which is the trade
-        /// being made rather than an oversight.
-        ///
-        /// Still comfortably above `sidebarMinWidth`, so nothing that degrades
-        /// gracefully further down has to start doing so here.
-        ///
-        /// This is where every window opens, not only a first launch: an
-        /// autosaved divider position outranks a split item's own thickness
-        /// bounds, so `BrowserWindowController.buildSplitView` sets the divider
-        /// from this number explicitly each time it builds one.
-        static let sidebarWidth: CGFloat = 245
+        /// Matches the 228-point sidebar in the Arc reference window.
+        static let sidebarWidth: CGFloat = 228
         /// Our own floor. A common floor is 150; some designs let it go about
         /// a third narrower still, and the tile strip already wraps to one
         /// column before this, so nothing breaks down there.
@@ -100,14 +85,7 @@ enum Style {
         /// rows use, which is also the size the favicon cache stores for.
         static let tileIconSide: CGFloat = 16
 
-        /// Full height of a tab row: the pill plus its 2-point margin above
-        /// and below.
-        ///
-        /// Tighter than the usual 37–40 at the user's request. Thirteen-point
-        /// text in a 28-point pill still has seven points above and below it,
-        /// so the rows read as a list rather than a stack of buttons, and
-        /// eight more of them fit on a screen.
-        /// Set by the sidebar density in Settings; 32 is the regular one.
+        /// Height and selection plate follow the sidebar density setting.
         @MainActor static var rowHeight: CGFloat { Settings.shared.sidebarDensity.rowHeight }
         /// The filled rounded rectangle drawn behind the selected row.
         @MainActor static var rowPillHeight: CGFloat { Settings.shared.sidebarDensity.pillHeight }
@@ -138,7 +116,7 @@ enum Style {
         static let rowContentInset: CGFloat = 8
         /// A folder header is a row pill plus the same margins, so it lines
         /// up with the tabs under it.
-        static let groupHeaderHeight: CGFloat = 32
+        @MainActor static var groupHeaderHeight: CGFloat { rowHeight }
         /// The plate a folder and its children sit on. A little rounder than
         /// the pills inside it, as a container should be. The gap between this
         /// and `rowCornerRadius` is what says which shape is inside which.
@@ -247,19 +225,9 @@ enum Style {
         /// the whole window, and everything under it is a member of it.
         static var title: NSFont { .systemFont(ofSize: 14, weight: .semibold) }
 
-        /// A folder's name.
-        ///
-        /// Smaller than the tabs inside it, not larger. A folder header is a
-        /// label for a group, not an item competing with the items -- the same
-        /// reasoning behind every section header in macOS. Set at the same
-        /// weight as the body text at a smaller size, and drawn in the
-        /// secondary colour, it reads as a caption over the rows rather than
-        /// as the loudest thing on the screen, which is what a bold 13-point
-        /// header on 13-point rows was.
-        static var groupHeader: NSFont { .systemFont(ofSize: 11.5, weight: .semibold) }
-        /// Emoji ignore weight, and at 13pt they sit a shade small next to
-        /// 13pt text, so group emoji get their own size.
-        static var groupEmoji: NSFont { .systemFont(ofSize: 12) }
+        static var tabTitle: NSFont { .systemFont(ofSize: 14) }
+        static var groupHeader: NSFont { .systemFont(ofSize: 14, weight: .semibold) }
+        static var groupEmoji: NSFont { .systemFont(ofSize: 16) }
         /// A second line under a label: the sentence that explains a setting.
         /// Smaller than the body and always drawn in the secondary colour, so
         /// it reads as an aside rather than as more of the same.
@@ -329,7 +297,7 @@ enum Style {
         /// shadow (`rowSelectedShadow`) as well -- three cues, none of them
         /// loud. A flat fill on its own was what made the selected tab read as
         /// a white blob dropped on the tint.
-        static var rowSelectedFill: NSColor { veil(light: 0.92, dark: 0.16) }
+        static var rowSelectedFill: NSColor { veil(light: 0.80, dark: 0.16) }
         /// The hairline around the selected plate: a shade of the surface it
         /// sits on, not a border colour. It defines the edge at the point the
         /// fill and the tint underneath are closest in value.
@@ -355,7 +323,7 @@ enum Style {
         static var folderPlateStroke: NSColor { ink(light: 0.05, dark: 0.07) }
 
         /// Fill behind a pinned tile.
-        static var tileFill: NSColor { veil(light: 0.42, dark: 0.07) }
+        static var tileFill: NSColor { veil(light: 0.06, dark: 0.07) }
         static var tileHoverFill: NSColor { veil(light: 0.68, dark: 0.13) }
         /// The dashed outline of the empty pinned slot.
         static var emptySlotStroke: NSColor { ink(light: 0.16, dark: 0.20) }

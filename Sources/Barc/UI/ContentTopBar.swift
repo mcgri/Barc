@@ -17,10 +17,10 @@ struct TopBarAction {
 /// Browser navigation and page actions, hosted at the top of the sidebar.
 @MainActor
 final class ContentTopBar: NSView {
-    let sidebarToggle = IconButton(symbolName: "sidebar.leading", label: "Toggle Sidebar", side: 24)
-    let backButton = IconButton(symbolName: "chevron.left", label: "Back", side: 24)
-    let forwardButton = IconButton(symbolName: "chevron.right", label: "Forward", side: 24)
-    let reloadButton = IconButton(symbolName: "arrow.clockwise", label: "Reload", side: 24)
+    let sidebarToggle = IconButton(symbolName: "sidebar.leading", label: "Toggle Sidebar", side: 24, symbolSize: 16)
+    let backButton = IconButton(symbolName: "arrow.left", label: "Back", side: 24, symbolSize: 16)
+    let forwardButton = IconButton(symbolName: "arrow.right", label: "Forward", side: 24, symbolSize: 16)
+    let reloadButton = IconButton(symbolName: "arrow.clockwise", label: "Reload", side: 24, symbolSize: 16)
     let utilitiesButton = IconButton(symbolName: "ellipsis", label: "Page Utilities", side: 24)
     let addressField = AddressField()
 

@@ -51,6 +51,7 @@ struct ArcSidebar: Sendable {
         let isFolder: Bool
         let lastActiveAt: Date?
         var customName: String? = nil
+        var isCollapsed: Bool? = nil
     }
     struct Space: Sendable {
         let id: String

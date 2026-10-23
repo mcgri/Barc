@@ -65,8 +65,8 @@ struct SpaceThemeFileTests {
         let token = NotificationCenter.default.addObserver(forName: .sidebarDensityDidChange, object: nil, queue: nil) { _ in notified += 1 }
         defer { NotificationCenter.default.removeObserver(token) }
         settings.sidebarDensity = .roomy
-        #expect(Style.Metrics.rowHeight == 38)
-        #expect(Style.Metrics.rowPillHeight == 32)
+        #expect(Style.Metrics.rowHeight == 46)
+        #expect(Style.Metrics.rowPillHeight == 40)
         settings.sidebarDensity = .roomy
         #expect(notified == 1, "setting the same density again is not a change")
         settings.sidebarDensity = .compact
