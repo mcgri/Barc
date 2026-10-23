@@ -9,6 +9,13 @@ final class SidebarHeaderView: NSView {
     private var navigationLeading: NSLayoutConstraint?
     private var navigationTop: NSLayoutConstraint?
     private var headerHeight: NSLayoutConstraint!
+    private struct LightOrigin {
+        weak var host: NSView?
+        let frame: NSRect
+        let translates: Bool
+        let autoresizing: NSView.AutoresizingMask
+    }
+    private var lightOrigins: [ObjectIdentifier: LightOrigin] = [:]
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -25,13 +32,22 @@ final class SidebarHeaderView: NSView {
         needsLayout = true
     }
 
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if window !== newWindow { returnTrafficLights() }
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         placeTrafficLights()
     }
 
     var hostsTrafficLights = true {
-        didSet { if hostsTrafficLights != oldValue { needsLayout = true } }
+        didSet {
+            guard hostsTrafficLights != oldValue else { return }
+            if !hostsTrafficLights { returnTrafficLights() }
+            needsLayout = true
+        }
     }
 
     func installNavigation(_ view: NSView) {
@@ -60,6 +76,8 @@ final class SidebarHeaderView: NSView {
         for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
             guard let button = window.standardWindowButton(type) else { continue }
             if button.superview !== self {
+                lightOrigins[ObjectIdentifier(button)] = LightOrigin(host: button.superview, frame: button.frame,
+                    translates: button.translatesAutoresizingMaskIntoConstraints, autoresizing: button.autoresizingMask)
                 button.removeFromSuperview()
                 button.translatesAutoresizingMaskIntoConstraints = true
                 addSubview(button)
@@ -67,6 +85,19 @@ final class SidebarHeaderView: NSView {
             }
             button.frame.origin = NSPoint(x: 13 + CGFloat(index) * 22,
                                           y: bounds.height - 24 - button.frame.height / 2)
+        }
+    }
+
+    private func returnTrafficLights() {
+        guard let window else { return }
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), button.superview === self,
+                  let origin = lightOrigins.removeValue(forKey: ObjectIdentifier(button)) else { continue }
+            button.removeFromSuperview()
+            (origin.host ?? window.contentView?.superview)?.addSubview(button)
+            button.translatesAutoresizingMaskIntoConstraints = origin.translates
+            button.autoresizingMask = origin.autoresizing
+            button.frame = origin.frame
         }
     }
 

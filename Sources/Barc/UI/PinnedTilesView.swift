@@ -17,12 +17,14 @@ struct PinnedTile {
     /// shortcuts reads as one thing with a current item rather than as a row of
     /// competing logos.
     let isActive: Bool
+    let favicon: PageFavicon?
 
-    init(id: String, title: String, url: URL? = nil, isActive: Bool = false) {
+    init(id: String, title: String, url: URL? = nil, isActive: Bool = false, favicon: PageFavicon? = nil) {
         self.id = id
         self.title = title
         self.url = url
         self.isActive = isActive
+        self.favicon = favicon
     }
 }
 
@@ -246,7 +248,7 @@ private final class PinnedTileView: NSView {
         icon.onImageChanged = { [weak self] image in self?.applyRing(for: image) }
         updateHighlight()
         if let url = tile.url {
-            icon.show(for: url, in: nil, isPrivate: isPrivate)
+            icon.show(for: url, in: nil, isPrivate: isPrivate, restored: tile.favicon)
         }
 
         toolTip = tile.title

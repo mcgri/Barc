@@ -12,7 +12,7 @@ enum ArcSourceSnapshotter {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Arc")
     }
 
-    static func capture(_ selected: URL, temporaryParent: URL = FileManager.default.temporaryDirectory) throws -> ArcSourceSnapshot {
+    static func capture(_ selected: URL, temporaryParent: URL = FileManager.default.temporaryDirectory, sidebarOnly: Bool = false) throws -> ArcSourceSnapshot {
         let manager = FileManager.default
         var source = selected.standardizedFileURL.resolvingSymlinksInPath()
         if source.lastPathComponent == "User Data" { source.deleteLastPathComponent() }
@@ -58,8 +58,11 @@ enum ArcSourceSnapshotter {
                 var databases: [String] = []
                 for profile in profiles {
                     let prefix = "User Data/\(profile.folder)/"
-                    for name in ["Preferences", "Secure Preferences", "Bookmarks"] { try copy(prefix + name) }
-                    for name in ["History", "Login Data", "Web Data", "Cookies", "Network/Cookies"] {
+                    if !sidebarOnly {
+                        for name in ["Preferences", "Secure Preferences", "Bookmarks"] { try copy(prefix + name) }
+                    }
+                    let names = sidebarOnly ? ["Favicons"] : ["History", "Login Data", "Web Data", "Cookies", "Network/Cookies", "Favicons"]
+                    for name in names {
                         let relative = prefix + name
                         if manager.fileExists(atPath: source.appending(path: relative).path) {
                             try copy(relative)
@@ -70,7 +73,7 @@ enum ArcSourceSnapshotter {
                         }
                     }
                     let storage = source.appending(path: prefix + "Local Storage/leveldb")
-                    if manager.fileExists(atPath: storage.path) {
+                    if !sidebarOnly, manager.fileExists(atPath: storage.path) {
                         observed[prefix + "Local Storage/leveldb"] = try stamp(storage)
                         let files = try manager.contentsOfDirectory(at: storage, includingPropertiesForKeys: [.isRegularFileKey])
                         for file in files where file.lastPathComponent != "LOCK" {
@@ -89,13 +92,16 @@ enum ArcSourceSnapshotter {
                     _ = path
                     throw ArcImportFailure.sourceChanging
                 }
-                for path in databases { try freezeDatabase(target.appending(path: path)) }
+                for path in databases {
+                    do { try freezeDatabase(target.appending(path: path)) }
+                    catch { throw ArcImportFailure.invalidDatabase(path.replacingOccurrences(of: "User Data/", with: "")) }
+                }
                 let sidebar = try ArcSidebarReader.read(
                     sidebar: Data(contentsOf: target.appending(path: "StorableSidebar.json")),
                     archive: try? Data(contentsOf: target.appending(path: "StorableArchiveItems.json")), profiles: profiles,
                     windows: try? Data(contentsOf: target.appending(path: "StorableWindows.json")))
                 return ArcSourceSnapshot(root: target, sourceFingerprint: ArcImportID.fingerprint(source), profiles: profiles,
-                                         sidebar: sidebar, unsupportedIndexedDBFolders: indexedDB, extensions: extensions)
+                                         sidebar: sidebar, unsupportedIndexedDBFolders: indexedDB, extensions: extensions, sidebarOnly: sidebarOnly)
             } catch {
                 try? manager.removeItem(at: target)
                 if error as? ArcImportFailure == .sourceChanging, attempt < 2 { continue }

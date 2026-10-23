@@ -51,6 +51,7 @@ final class Tab: Identifiable {
     private(set) var pageTitle: String?
     private(set) var importedSourceID: String?
     var sidebarPosition: Int?
+    var restoredFavicon: PageFavicon?
 
     /// The identity this tab's pages load under: its space's. Fixed, because
     /// WebKit binds a web view to its data store at creation and there is no
@@ -687,6 +688,7 @@ final class Tab: Identifiable {
         self.pageTitle = snapshot.title
         self.importedSourceID = snapshot.importedSourceID
         self.sidebarPosition = snapshot.sidebarPosition
+        self.restoredFavicon = snapshot.favicon
         self.identity = identity
         self.groupID = snapshot.groupID
         self.pinnedSiteID = snapshot.pinnedSiteID
@@ -729,7 +731,8 @@ final class Tab: Identifiable {
             autoReloadSeconds: autoReloadInterval.map { Int($0) },
             emoji: emoji,
             importedSourceID: importedSourceID,
-            sidebarPosition: sidebarPosition
+            sidebarPosition: sidebarPosition,
+            favicon: restoredFavicon.flatMap { $0.matches(url) ? $0 : nil }
         )
     }
 

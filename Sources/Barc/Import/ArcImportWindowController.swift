@@ -21,6 +21,7 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
     private let additionalBox = NSButton(checkboxWithTitle: "Addresses, search shortcuts and download history", target: nil, action: nil)
     private var categoryBoxes: [NSButton] { [tabsBox, historyBox, passwordBox, cookieBox, storageBox, additionalBox] }
     private var source: ArcSourceSnapshot?
+    private var selectedFolder: URL?
     private var coordinator: ArcImportCoordinator?
     private var loadTask: Task<Void, Never>?
     private var captureTask: Task<ArcSourceSnapshot, Error>?
@@ -120,8 +121,10 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
         load(selected)
     }
 
-    func load(_ selected: URL) {
+    func load(_ selected: URL, importWhenLoaded: Bool = false, selectedProfiles: Set<String>? = nil) {
         guard !importing else { return }
+        selectedFolder = selected
+        let sidebarOnly = tabsBox.state == .on && [historyBox, passwordBox, cookieBox, storageBox, additionalBox].allSatisfy { $0.state == .off }
         coordinator?.clearSensitiveState(); coordinator = nil
         loadTask?.cancel(); captureTask?.cancel()
         source?.remove(); source = nil
@@ -132,10 +135,11 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
         loading = true; updateControls(); spinner.startAnimation(nil)
         progressLabel.stringValue = "Making a private snapshot of Arc and reading its profiles…"
         let access = selected.startAccessingSecurityScopedResource()
-        let task = Task.detached { try ArcSourceSnapshotter.capture(selected) }
+        let task = Task.detached { try ArcSourceSnapshotter.capture(selected, sidebarOnly: sidebarOnly) }
         captureTask = task
         loadTask = Task { [weak self] in
             var pending: ArcSourceSnapshot?
+            var resumeImport = false
             defer { pending?.remove() }
             defer { if access { selected.stopAccessingSecurityScopedResource() } }
             do {
@@ -147,10 +151,15 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
                 self.source?.remove(); self.source = snapshot
                 pending = nil
                 self.populate(snapshot, inventory: inventory)
+                if let selectedProfiles {
+                    for (folder, box) in self.profileBoxes { box.state = selectedProfiles.contains(folder) ? .on : .off }
+                }
+                resumeImport = importWhenLoaded
             } catch {
                 self?.progressLabel.stringValue = error.localizedDescription
             }
             self?.loading = false; self?.spinner.stopAnimation(nil); self?.updateControls()
+            if resumeImport { self?.importSelected() }
         }
     }
 
@@ -161,7 +170,8 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
         for profile in snapshot.profiles {
             let tabs = spaces.filter { $0.profile == profile.folder }.reduce(0) { $0 + $1.snapshot.tabs.count }
             let counts = inventory.first { $0.profile.folder == profile.folder }
-            let box = NSButton(checkboxWithTitle: "\(profile.name) · \(tabs) \(tabs == 1 ? "tab" : "tabs") · \(counts?.passwords ?? 0) saved passwords · \(counts?.history ?? 0) history visits", target: self, action: #selector(selectionChanged))
+            let details = snapshot.sidebarOnly ? "" : " · \(counts?.passwords ?? 0) saved passwords · \(counts?.history ?? 0) history visits"
+            let box = NSButton(checkboxWithTitle: "\(profile.name) · \(tabs) \(tabs == 1 ? "tab" : "tabs")\(details)", target: self, action: #selector(selectionChanged))
             box.state = .on; box.identifier = NSUserInterfaceItemIdentifier(profile.folder)
             profileStack.addArrangedSubview(box); profileBoxes[profile.folder] = box
         }
@@ -190,6 +200,11 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
         options.sidebar = tabsBox.state == .on; options.history = historyBox.state == .on; options.bookmarks = options.history
         options.passwords = passwordBox.state == .on; options.cookies = cookieBox.state == .on
         options.localStorage = storageBox.state == .on; options.supplementary = additionalBox.state == .on
+        if source.sidebarOnly && (options.history || options.bookmarks || options.passwords || options.cookies || options.localStorage || options.supplementary) {
+            guard let selectedFolder else { return }
+            load(selectedFolder, importWhenLoaded: true, selectedProfiles: selected)
+            return
+        }
         let coordinator = self.coordinator ?? ArcImportCoordinator(session: session)
         self.coordinator = coordinator
         coordinator.progress = { [weak self] in self?.progressLabel.stringValue = $0 }

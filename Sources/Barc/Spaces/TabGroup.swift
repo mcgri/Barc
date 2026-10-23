@@ -65,6 +65,8 @@ final class TabGroup: Identifiable {
     /// from a fortnight of filing, and there is no undo for it.
     var isLocked: Bool
     var sidebarPosition: Int?
+    var badgeIcon: Data?
+    var hasUserChosenIcon: Bool
 
     init(
         id: UUID = UUID(),
@@ -78,7 +80,9 @@ final class TabGroup: Identifiable {
         iconFileName: String? = nil,
         isLive: Bool = false,
         isLocked: Bool = false,
-        sidebarPosition: Int? = nil
+        sidebarPosition: Int? = nil,
+        badgeIcon: Data? = nil,
+        hasUserChosenIcon: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -92,6 +96,8 @@ final class TabGroup: Identifiable {
         self.isLive = isLive
         self.isLocked = isLocked
         self.sidebarPosition = sidebarPosition
+        self.badgeIcon = badgeIcon
+        self.hasUserChosenIcon = hasUserChosenIcon
     }
 
     var displayName: String {
@@ -115,6 +121,8 @@ final class TabGroup: Identifiable {
     /// Puts one of the three fields in and takes the other two out, so the
     /// folder wears one thing at a time.
     func setIcon(_ icon: FolderIcon) {
+        badgeIcon = nil
+        hasUserChosenIcon = true
         switch icon {
         case .automatic:
             (emoji, symbolName, iconFileName) = (nil, nil, nil)

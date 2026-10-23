@@ -57,6 +57,27 @@ enum ArcFlowBench {
 
 @Suite("Arc import source snapshot")
 struct ArcSnapshotTests {
+    @Test("Sidebar-only previews read no credential, history or autofill databases")
+    func sidebarOnlySnapshot() throws {
+        let root = try ArcImportBench.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let arc = root.appending(path: "Arc")
+        _ = try ArcFlowBench.source(in: arc, profiles: [.init(folder: "Default", name: "Personal")])
+        let profile = arc.appending(path: "User Data/Default")
+        for name in ["History", "Login Data", "Web Data", "Cookies"] {
+            try Data("unrelated invalid database".utf8).write(to: profile.appending(path: name))
+        }
+        let copy = try ArcSourceSnapshotter.capture(arc, temporaryParent: root, sidebarOnly: true)
+        defer { copy.remove() }
+        #expect(copy.sidebarOnly)
+        #expect(!copy.sidebar.spaces.isEmpty)
+        let copiedProfile = copy.profileURL(copy.profiles[0])
+        for name in ["History", "Login Data", "Web Data", "Cookies"] {
+            #expect(!FileManager.default.fileExists(atPath: copiedProfile.appending(path: name).path))
+            #expect(try Data(contentsOf: profile.appending(path: name)) == Data("unrelated invalid database".utf8))
+        }
+    }
+
     @Test("A WAL-backed database is copied consistently without changing the source files")
     func walSnapshot() throws {
         let root = try ArcImportBench.directory()

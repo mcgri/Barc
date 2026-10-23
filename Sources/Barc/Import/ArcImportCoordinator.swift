@@ -66,6 +66,9 @@ final class ArcImportCoordinator {
         guard options.sidebar || options.history || options.bookmarks || options.passwords || options.cookies || options.localStorage || options.supplementary else {
             throw ArcImportFailure.noSelection
         }
+        guard !source.sidebarOnly || !(options.history || options.bookmarks || options.passwords || options.cookies || options.localStorage || options.supplementary) else {
+            throw ArcImportFailure.incompleteSnapshot
+        }
         Self.running = true
         defer { Self.running = false }
         let selected = source.profiles.filter { options.profileIDs.contains($0.folder) }
@@ -191,6 +194,29 @@ final class ArcImportCoordinator {
                 } catch { result.notes.append("Additional data: " + error.localizedDescription); result.counts["Additional data"] = .init(failed: 1) }
             }
             var incoming = profileSpaces.map(\.snapshot)
+            let beforeIcons = Set(session.spaces.flatMap(\.tabs).filter { $0.restoredFavicon != nil }.compactMap(\.importedSourceID))
+            var expectedIcons: [String: PageFavicon] = [:]
+            if options.sidebar {
+                do {
+                    let pages = incoming.flatMap { $0.tabs.map(\.url) }
+                    let read = try await Task.detached { try ArcFaviconReader.read(profileURL, pages: pages) }.value
+                    let githubBadge = try await Task.detached { try ArcFaviconReader.githubBadge(profileURL) }.value
+                    for spaceIndex in incoming.indices {
+                        var groups = incoming[spaceIndex].groups ?? []
+                        for groupIndex in groups.indices where groups[groupIndex].symbolName == "arc.github.folder" {
+                            groups[groupIndex].badgeIcon = githubBadge
+                        }
+                        incoming[spaceIndex].groups = groups
+                        for tabIndex in incoming[spaceIndex].tabs.indices {
+                            let url = incoming[spaceIndex].tabs[tabIndex].url
+                            guard let key = PageFavicon.key(for: url), let data = read.icons[key] else { continue }
+                            let icon = PageFavicon(pageURL: url, data: data)
+                            incoming[spaceIndex].tabs[tabIndex].favicon = icon
+                            if let sourceID = incoming[spaceIndex].tabs[tabIndex].importedSourceID { expectedIcons[sourceID] = icon }
+                        }
+                    }
+                } catch { result.notes.append("Cached tab icons could not be read; normal icon discovery remains available.") }
+            }
             for offset in incoming.indices {
                 if let defaultSearch { incoming[offset].searchEngineID = defaultSearch }
                 incoming[offset].bookmarkFolder = "From Arc/" + profile.name
@@ -200,6 +226,16 @@ final class ArcImportCoordinator {
                 }
             }
             let applied = try session.applyArcSpaces(incoming)
+            if !expectedIcons.isEmpty {
+                let actual = Dictionary(session.spaces.flatMap(\.tabs).compactMap { tab -> (String, PageFavicon)? in
+                    guard let sourceID = tab.importedSourceID, let icon = tab.restoredFavicon else { return nil }
+                    return (sourceID, icon)
+                }, uniquingKeysWith: { first, _ in first })
+                let matched = expectedIcons.filter { actual[$0.key] == $0.value }
+                let existing = matched.keys.filter { beforeIcons.contains($0) }.count
+                result.counts["Cached tab icons"] = .init(source: expectedIcons.count, imported: matched.count - existing,
+                    existing: existing, skipped: expectedIcons.count - matched.count, verified: matched.count)
+            }
             let tabs = incoming.reduce(0) { $0 + $1.tabs.count }
             let archive = incoming.reduce(0) { $0 + ($1.archivedTabs?.count ?? 0) }
             result.counts["Spaces"] = .init(source: incoming.count, imported: applied.spaces, existing: incoming.count - applied.spaces, verified: incoming.count)

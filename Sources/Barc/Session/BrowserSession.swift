@@ -2184,7 +2184,9 @@ final class BrowserSession {
                             iconFileName: $0.iconFileName,
                             isLive: $0.isLive ? true : nil,
                             isLocked: $0.isLocked ? true : nil,
-                            sidebarPosition: $0.sidebarPosition
+                            sidebarPosition: $0.sidebarPosition,
+                            badgeIcon: $0.badgeIcon,
+                            iconWasCustomized: $0.hasUserChosenIcon ? true : nil
                         )
                     },
                     pinnedSites: space.pinnedSites.map {
@@ -2271,7 +2273,9 @@ final class BrowserSession {
                     iconFileName: $0.iconFileName,
                     isLive: $0.isLive ?? false,
                     isLocked: $0.isLocked ?? false,
-                    sidebarPosition: $0.sidebarPosition
+                    sidebarPosition: $0.sidebarPosition,
+                    badgeIcon: $0.badgeIcon,
+                    hasUserChosenIcon: $0.iconWasCustomized ?? false
                 )
             }
             space.restore(
@@ -2370,6 +2374,12 @@ final class BrowserSession {
                 space = existing
                 if let engine = stored.searchEngineID { space.searchEngineID = engine }
                 for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }
+                for group in built.groups {
+                    guard let current = space.group(withID: group.id), current.badgeIcon == nil, !current.hasUserChosenIcon,
+                          current.emoji == nil, current.iconFileName == nil,
+                          current.symbolName == nil || current.symbolName == "folder" || current.symbolName == "arc.github.folder" else { continue }
+                    current.badgeIcon = group.badgeIcon
+                }
                 for pin in built.pinnedSites where !space.pinnedSites.contains(where: { $0.id == pin.id }) { space.addPinnedSite(pin); addedFavorites += 1 }
             } else {
                 space = built
@@ -2382,6 +2392,15 @@ final class BrowserSession {
             }
             let known = Set(space.tabs.compactMap(\.importedSourceID))
                 .union(archivedTabs.filter { $0.spaceID == id }.compactMap { $0.snapshot.importedSourceID })
+            let incomingIcons = Dictionary(stored.tabs.compactMap { tab -> (String, PageFavicon)? in
+                guard let key = tab.importedSourceID, let icon = tab.favicon else { return nil }
+                return (key, icon)
+            }, uniquingKeysWith: { first, _ in first })
+            for tab in space.tabs where tab.restoredFavicon == nil {
+                if let key = tab.importedSourceID, let icon = incomingIcons[key], icon.matches(tab.url) {
+                    tab.restoredFavicon = icon
+                }
+            }
             for tab in stored.tabs where tab.importedSourceID.map({ !known.contains($0) }) ?? false {
                 let restored = Tab(restoring: tab, identity: identity)
                 adopt(restored)

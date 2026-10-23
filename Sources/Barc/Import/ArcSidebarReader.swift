@@ -63,6 +63,11 @@ enum ArcSidebarReader {
             let payload = object["data"] as? [String: Any] ?? [:]
             let tab = payload["tab"] as? [String: Any]
             let url = (tab?["savedURL"] as? String).flatMap(validURL)
+            let folder = payload["list"] as? [String: Any]
+            let folderInfo = folder?["customInfo"] as? [String: Any]
+            let folderIcon = folderInfo?["iconType"] as? [String: Any]
+            let folderEmoji = folderIcon?["emoji_v2"] as? String
+                ?? (folderIcon?["emoji"] as? Int).flatMap(UnicodeScalar.init).map(String.init)
             if tab != nil, url == nil { skipped += 1 }
             items[key] = ArcSidebar.Item(
                 id: key, parentID: object["parentID"] as? String, title: object["title"] as? String ?? tab?["savedTitle"] as? String,
@@ -70,7 +75,8 @@ enum ArcSidebarReader {
                 isFolder: payload["list"] != nil,
                 lastActiveAt: (tab?["timeLastActiveAt"] as? Double).map { Date(timeIntervalSinceReferenceDate: $0) },
                 customName: object["title"] as? String,
-                isCollapsed: payload["list"] != nil ? expandedFolders.map { !$0.contains(key) } : nil
+                isCollapsed: payload["list"] != nil ? expandedFolders.map { !$0.contains(key) } : nil,
+                folderEmoji: folderEmoji, folderBadge: folderIcon?["icon"] as? String
             )
             orderedIDs.append(key)
         }

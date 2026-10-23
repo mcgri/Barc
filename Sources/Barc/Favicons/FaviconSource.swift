@@ -32,13 +32,17 @@ enum FaviconSource {
     /// are ranked by how close they get to this without going under it.
     static let targetPixelSize = 32
 
-    /// The cache is keyed by host alone. A site serves one favicon for its
-    /// whole origin in practice, and folding `http` and `https` together avoids
-    /// fetching the same bytes twice for a host that upgrades mid-session.
+    /// Conventional icons share a host cache, with separate keys for custom
+    /// ports so development servers cannot replace one another's icons.
     static func cacheKey(for pageURL: URL) -> String? {
         guard isFetchableScheme(pageURL.scheme), let host = pageURL.host() else { return nil }
         let trimmed = host.lowercased()
-        return trimmed.isEmpty ? nil : trimmed
+        guard !trimmed.isEmpty else { return nil }
+        if let port = pageURL.port,
+           !((pageURL.scheme == "http" && port == 80) || (pageURL.scheme == "https" && port == 443)) {
+            return trimmed + ":\(port)"
+        }
+        return trimmed
     }
 
     /// `/favicon.ico` at the page's own origin: the convention that predates

@@ -285,6 +285,32 @@ struct ArcLevelDBTests {
 struct ArcLiveSourceTests {
     @Test(.enabled(if: ProcessInfo.processInfo.environment["BARC_ARC_TEST_ROOT"] != nil))
     @MainActor
+    func liveIconSnapshot() async throws {
+        let input = try #require(ProcessInfo.processInfo.environment["BARC_ARC_TEST_ROOT"])
+        let source = try await Task.detached { try ArcSourceSnapshotter.capture(URL(fileURLWithPath: input), sidebarOnly: true) }.value
+        defer { source.remove() }
+        let spaces = ArcSpaceBuilder.build(source, options: ArcImportOptions(profileIDs: Set(source.profiles.map(\.folder))))
+        var counts: [[String: Any]] = []
+        for profile in source.profiles {
+            let pages = spaces.filter { $0.profile == profile.folder }.flatMap { $0.snapshot.tabs.map(\.url) }
+            let directory = source.profileURL(profile)
+            let icons = try await Task.detached { try ArcFaviconReader.read(directory, pages: pages) }.value
+            let badge = try await Task.detached { try ArcFaviconReader.githubBadge(directory) }.value
+            counts.append(["profile": profile.folder, "tabs": pages.count, "cachedPageIcons": icons.icons.count, "githubBadge": badge != nil])
+            for file in ["Login Data", "Cookies", "Network/Cookies", "Web Data", "History"] {
+                #expect(!FileManager.default.fileExists(atPath: directory.appending(path: file).path))
+            }
+        }
+        #expect(source.profiles.count == 6)
+        #expect(counts.reduce(0) { $0 + ($1["cachedPageIcons"] as? Int ?? 0) } > 0)
+        if let output = ProcessInfo.processInfo.environment["BARC_ARC_TEST_REPORT"] {
+            try JSONSerialization.data(withJSONObject: ["profiles": counts], options: [.prettyPrinted, .sortedKeys])
+                .write(to: URL(fileURLWithPath: output), options: [.atomic])
+        }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["BARC_ARC_TEST_ROOT"] != nil))
+    @MainActor
     func liveSnapshot() async throws {
         let input = try #require(ProcessInfo.processInfo.environment["BARC_ARC_TEST_ROOT"])
         let source = try await Task.detached { try ArcSourceSnapshotter.capture(URL(fileURLWithPath: input)) }.value
@@ -297,11 +323,13 @@ struct ArcLiveSourceTests {
             let (visitCount, storage) = try await Task.detached {
                 (try ArcProfileReader.history(profileURL).count, try ArcLocalStorageReader.read(profileURL))
             }.value
+            let pages = own.flatMap { $0.snapshot.tabs.map(\.url) }
+            let icons = try await Task.detached { try ArcFaviconReader.read(profileURL, pages: pages) }.value
             counts.append(["profile": profile.folder, "spaces": own.count, "tabs": own.reduce(0) { $0 + $1.snapshot.tabs.count },
                            "folders": own.reduce(0) { $0 + ($1.snapshot.groups?.count ?? 0) },
                            "archive": own.reduce(0) { $0 + ($1.snapshot.archivedTabs?.count ?? 0) },
                            "history": visitCount, "localStorage": storage.source, "localStorageUnsupported": storage.unsupported,
-                           "localStorageInvalid": storage.invalid])
+                           "localStorageInvalid": storage.invalid, "cachedPageIcons": icons.icons.count])
         }
         #expect(source.profiles.count == 6)
         #expect(Set(spaces.filter { $0.profile != nil }.compactMap { $0.snapshot.identity }).count == source.profiles.count)

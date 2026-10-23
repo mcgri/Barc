@@ -955,7 +955,8 @@ final class SidebarViewController: NSViewController {
                     // The tab the shortcut owns, not a URL comparison: the
                     // site navigates away from the pinned address immediately
                     // and the tile would stop recognising its own page.
-                    isActive: activeID != nil && space.tab(forPin: site.id)?.id == activeID
+                    isActive: activeID != nil && space.tab(forPin: site.id)?.id == activeID,
+                    favicon: space.tab(forPin: site.id)?.restoredFavicon
                 )
             },
             isPrivate: space.isPrivate
@@ -1376,7 +1377,7 @@ final class SidebarViewController: NSViewController {
         // `tab.url` deliberately, not `displayURL`: the latter follows a typed
         // address before it commits, which would swap one site's icon for
         // another's mid-keystroke.
-        cell.favicon.show(for: tab.url, in: tab.currentWebView, isPrivate: tab.isPrivate)
+        cell.favicon.show(for: tab.url, in: tab.currentWebView, isPrivate: tab.isPrivate, restored: tab.restoredFavicon)
         cell.onClose = { [weak self] in
             guard let self else { return }
             guard !tab.isLocked else { return session.reportCloseRefused(tab) }
@@ -2475,7 +2476,10 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             name: group.name,
             isExpanded: !group.isCollapsed,
             isLocked: group.isLocked,
-            symbolName: group.symbolName
+            symbolName: group.symbolName,
+            iconFileName: group.iconFileName,
+            badgeIcon: group.badgeIcon,
+            tint: group.appearance.isStandard ? shownSpace.color : group.tint
         )
         header.onToggle = { [weak self] _ in self?.session.toggleCollapsed(group) }
         // The cross asks first, and by default keeps the tabs (they come back

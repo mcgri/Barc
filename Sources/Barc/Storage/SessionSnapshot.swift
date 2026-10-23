@@ -49,6 +49,7 @@ struct SessionSnapshot: Codable, Equatable {
         /// Stable source identifier for repeatable imports. Never a page URL or secret.
         var importedSourceID: String? = nil
         var sidebarPosition: Int? = nil
+        var favicon: PageFavicon? = nil
     }
 
     struct Space: Codable, Equatable {
@@ -189,6 +190,8 @@ struct SessionSnapshot: Codable, Equatable {
         /// for sessions written before the lock existed.
         var isLocked: Bool?
         var sidebarPosition: Int? = nil
+        var badgeIcon: Data? = nil
+        var iconWasCustomized: Bool? = nil
     }
 
     struct Pinned: Codable, Equatable {

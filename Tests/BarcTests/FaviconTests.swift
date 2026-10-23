@@ -19,6 +19,14 @@ struct FaviconSourceTests {
         #expect(FaviconSource.cacheKey(for: URL(string: "http://example.com/a")!) == "example.com")
     }
 
+    @Test("Different local development ports keep their own icons")
+    func cacheSeparatesPorts() {
+        let sales = URL(string: "http://localhost:1000/")!
+        let app = URL(string: "http://localhost:3000/")!
+        #expect(FaviconSource.cacheKey(for: sales) != FaviconSource.cacheKey(for: app))
+        #expect(FaviconSource.cacheKey(for: URL(string: "https://example.com:443/a")!) == "example.com")
+    }
+
     @Test("Pages that cannot have a favicon have no key", arguments: [
         "about:blank",
         "file:///tmp/index.html",
@@ -187,6 +195,95 @@ struct FaviconDecoderTests {
     func refusesSVG() {
         let svg = Data("<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'></svg>".utf8)
         #expect(throws: FaviconDecoder.Failure.unsupportedFormat) { try FaviconDecoder.normalize(svg) }
+    }
+}
+
+@Suite("Arc's cached page icons")
+struct ArcFaviconReaderTests {
+    @Test("Only requested pages are read, and the closest usable bitmap is retained")
+    func selectedPages() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "Favicons")
+        do {
+            let db = try SQLiteDatabase(path: file.path)
+            try db.execute("CREATE TABLE icon_mapping (page_url TEXT, icon_id INTEGER); CREATE TABLE favicon_bitmaps (id INTEGER PRIMARY KEY, icon_id INTEGER, image_data BLOB, width INTEGER, height INTEGER); CREATE TABLE favicons (id INTEGER PRIMARY KEY, url TEXT); INSERT INTO favicons VALUES (1, 'https://github.com/favicon.ico');")
+            try db.run("INSERT INTO icon_mapping VALUES (?, ?);", [.text("http://localhost:1000/"), .integer(1)])
+            try db.run("INSERT INTO icon_mapping VALUES (?, ?);", [.text("http://localhost:3000/"), .integer(2)])
+            try db.run("INSERT INTO icon_mapping VALUES (?, ?);", [.text("https://unrelated.invalid/"), .integer(3)])
+            for (id, side, channel) in [(1, 16, ICOFixture.Channel.red), (1, 32, .green), (1, 64, .blue), (2, 32, .blue), (3, 32, .red)] {
+                try db.run("INSERT INTO favicon_bitmaps(icon_id,image_data,width,height) VALUES(?,?,?,?);",
+                    [.integer(Int64(id)), .blob(try ICOFixture.png(side: side, channel: channel)), .integer(Int64(side)), .integer(Int64(side))])
+            }
+            try db.run("INSERT INTO favicon_bitmaps(icon_id,image_data,width,height) VALUES(1,?,32,32);", [.blob(Data("invalid".utf8))])
+            try db.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        }
+        let a = URL(string: "http://localhost:1000/#dashboard")!
+        let b = URL(string: "http://localhost:3000/")!
+        let read = try ArcFaviconReader.read(directory, pages: [a, b])
+        #expect(read.icons.count == 2)
+        #expect(read.skipped == 1)
+        let first = try #require(read.icons[PageFavicon.key(for: a)!])
+        let second = try #require(read.icons[PageFavicon.key(for: b)!])
+        #expect(try ICOFixture.dominantChannel(of: first) == .green)
+        #expect(try ICOFixture.dominantChannel(of: second) == .blue)
+        let badge = try #require(try ArcFaviconReader.githubBadge(directory))
+        #expect(try ICOFixture.dominantChannel(of: badge) == .green)
+    }
+
+    @Test("An icon's page match ignores fragments but keeps paths, queries and ports separate")
+    func exactPageMatch() throws {
+        let icon = PageFavicon(pageURL: URL(string: "http://localhost:1000/a?q=1#one")!, data: Data([1, 2]))
+        #expect(icon.matches(URL(string: "http://localhost:1000/a?q=1#two")!))
+        #expect(!icon.matches(URL(string: "http://localhost:3000/a?q=1")!))
+        #expect(!icon.matches(URL(string: "http://localhost:1000/b?q=1")!))
+        #expect(!icon.matches(URL(string: "http://localhost:1000/a?q=2")!))
+        #expect(try JSONDecoder().decode(PageFavicon.self, from: JSONEncoder().encode(icon)) == icon)
+    }
+
+    @Test("A repeated import fills a missing icon without adding tabs or replacing an existing icon")
+    @MainActor
+    func enrichExistingTabs() throws {
+        let session = TestSession.make().0
+        let id = UUID()
+        let url = URL(string: "http://localhost:1000/")!
+        let sourceID = "fixture/tab/space/page"
+        var incoming = SessionSnapshot.Space(id: id, name: "Imported", tabs: [
+            SessionSnapshot.Tab(url: url, importedSourceID: sourceID)
+        ], activeTabIndex: 0, identity: .isolated(id))
+        _ = try session.applyArcSpaces([incoming])
+        let count = session.spaces.flatMap(\.tabs).count
+        let icon = PageFavicon(pageURL: url, data: try ICOFixture.png(side: 32, channel: .green))
+        incoming.tabs[0].favicon = icon
+        _ = try session.applyArcSpaces([incoming])
+        let tab = try #require(session.spaces.flatMap(\.tabs).first { $0.importedSourceID == sourceID })
+        #expect(tab.restoredFavicon == icon)
+        #expect(tab.snapshot().favicon == icon)
+        incoming.tabs[0].favicon = PageFavicon(pageURL: url, data: try ICOFixture.png(side: 32, channel: .blue))
+        _ = try session.applyArcSpaces([incoming])
+        #expect(tab.restoredFavicon == icon)
+        #expect(session.spaces.flatMap(\.tabs).count == count)
+        tab.load(URL(string: "about:blank")!)
+        #expect(tab.snapshot().favicon == nil)
+    }
+
+    @Test("Folder badges survive a session round trip and a user-chosen icon removes the old badge")
+    @MainActor
+    func folderBadges() throws {
+        let session = TestSession.make().0
+        let data = try ICOFixture.png(side: 32, channel: .green)
+        let group = TabGroup(name: "Source folder", symbolName: "folder", badgeIcon: data)
+        session.activeSpace.addGroup(group)
+        let imported = session.snapshot().spaces[0]
+        let restored = try #require(BrowserSession.spaces(from: session.snapshot())?.first?.groups.first)
+        #expect(restored.badgeIcon == data)
+        restored.setIcon(.emoji("🧪"))
+        #expect(restored.badgeIcon == nil)
+        group.setIcon(.automatic)
+        _ = try session.applyArcSpaces([imported])
+        #expect(group.badgeIcon == nil, "A repeated import must respect Remove Icon")
+        #expect(BrowserSession.spaces(from: session.snapshot())?.first?.groups.first?.hasUserChosenIcon == true)
     }
 }
 

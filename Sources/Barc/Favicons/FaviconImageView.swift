@@ -50,7 +50,7 @@ final class FaviconImageView: NSImageView {
     /// `webView` is the tab's live web view when it has one, and is used only
     /// to read the page's declared icons. Pass `nil` for a tab that is not
     /// loaded; discovery falls back to the `/favicon.ico` convention.
-    func show(for pageURL: URL, in webView: WKWebView?, isPrivate: Bool) {
+    func show(for pageURL: URL, in webView: WKWebView?, isPrivate: Bool, restored: PageFavicon? = nil) {
         let host = FaviconSource.cacheKey(for: pageURL)
         guard let host else {
             reset(to: nil)
@@ -60,6 +60,14 @@ final class FaviconImageView: NSImageView {
         // A cached icon is set without ever showing the placeholder, so a
         // scrolled or re-configured row does not flash.
         let service = FaviconService.shared
+        if let restored, restored.matches(pageURL),
+           let png = try? FaviconDecoder.normalize(restored.data), let image = NSImage(data: png) {
+            reset(to: image)
+            token = host
+            // The source icon remains available while its tab is sleeping.
+            // Navigation to another page fails the URL match and uses discovery.
+            return
+        }
         let cached = service.cachedImage(for: pageURL)
         if token != host { reset(to: cached) } else if let cached { apply(cached) }
         token = host

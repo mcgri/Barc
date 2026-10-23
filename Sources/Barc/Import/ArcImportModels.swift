@@ -3,7 +3,7 @@ import CryptoKit
 
 enum ArcImportFailure: LocalizedError, Equatable {
     case invalidFolder, unreadable(String), invalidSidebar, sourceChanging, invalidDatabase(String)
-    case unsupportedStorage(String), keyUnavailable, cancelled, alreadyRunning, noSelection
+    case unsupportedStorage(String), keyUnavailable, cancelled, alreadyRunning, noSelection, incompleteSnapshot
 
     var errorDescription: String? {
         switch self {
@@ -17,6 +17,7 @@ enum ArcImportFailure: LocalizedError, Equatable {
         case .cancelled: return "Import cancelled."
         case .alreadyRunning: return "An Arc import is already running. Wait for it to finish before starting another."
         case .noSelection: return "Select at least one Arc profile and one data category to import."
+        case .incompleteSnapshot: return "This preview contains only sidebar data. Choose Arc's folder again to read other data categories."
         }
     }
 }
@@ -52,6 +53,8 @@ struct ArcSidebar: Sendable {
         let lastActiveAt: Date?
         var customName: String? = nil
         var isCollapsed: Bool? = nil
+        var folderEmoji: String? = nil
+        var folderBadge: String? = nil
     }
     struct Space: Sendable {
         let id: String
@@ -87,6 +90,7 @@ struct ArcSourceSnapshot: Sendable {
     let sidebar: ArcSidebar
     let unsupportedIndexedDBFolders: [String: Int]
     let extensions: [String: Int]
+    var sidebarOnly: Bool = false
 
     func profileURL(_ profile: ArcProfile) -> URL {
         root.appending(path: "User Data").appending(path: profile.folder)
