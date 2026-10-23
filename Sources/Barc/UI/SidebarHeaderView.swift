@@ -19,6 +19,17 @@ final class SidebarHeaderView: NSView {
 
     required init?(coder: NSCoder) { fatalError("Created in code only") }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        placeTrafficLights()
+        needsLayout = true
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        placeTrafficLights()
+    }
+
     var hostsTrafficLights = true {
         didSet { if hostsTrafficLights != oldValue { needsLayout = true } }
     }
@@ -41,6 +52,10 @@ final class SidebarHeaderView: NSView {
         navigationTop?.constant = compact ? Style.Metrics.titlebarHeight : 12
         headerHeight.constant = compact ? Style.Metrics.titlebarHeight + (navigation?.frame.height ?? 24) : Style.Metrics.titlebarHeight
         super.layout()
+        placeTrafficLights()
+    }
+
+    private func placeTrafficLights() {
         guard hostsTrafficLights, let window else { return }
         for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
             guard let button = window.standardWindowButton(type) else { continue }

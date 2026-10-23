@@ -1355,6 +1355,7 @@ final class SidebarViewController: NSViewController {
         cell.configure(TabRowContent(
             title: tab.displayTitle,
             address: tab.note.map { "\(tab.url.absoluteString)\n\($0)" } ?? tab.url.absoluteString,
+            subtitle: SidebarLocalAddress.label(for: tab.url),
             isLoading: tab.isLoading,
             isAsleep: tab.isAsleep,
             isFailed: tab.failure != nil,
@@ -2365,7 +2366,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     /// last pill, so the card has clearance at both ends.
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return Style.Metrics.rowHeight }
-        if case .newTab = rows[row] { return Style.Metrics.rowHeight + 12 }
+        if case .newTab = rows[row] { return Style.Metrics.rowHeight + 24 }
         if case .group(let group, _, _) = rows[row] {
             return Style.Metrics.groupHeaderHeight + (group.appearance.isStandard ? 0 : Style.Metrics.folderPlateGap)
                 + plateGapBelow(row: row)
@@ -2528,14 +2529,14 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         NSLayoutConstraint.activate([
             divider.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
             divider.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            divider.topAnchor.constraint(equalTo: container.topAnchor, constant: 2),
+            divider.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
             divider.heightAnchor.constraint(equalToConstant: 0.5),
             header.leadingAnchor.constraint(
                 equalTo: container.leadingAnchor,
                 constant: Style.Metrics.sidebarInset
             ),
             header.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: 6)
+            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: 12)
         ])
         return container
     }

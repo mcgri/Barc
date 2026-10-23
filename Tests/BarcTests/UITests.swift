@@ -333,6 +333,50 @@ struct TabGroupHeaderTests {
 @Suite("Tab row")
 @MainActor
 struct TabRowTests {
+    @Test("Idle titles use the trailing space until a visible control needs it")
+    func titleWidthFollowsVisibleControls() throws {
+        let row = TabRowView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: Style.Metrics.rowHeight).isActive = true
+        row.indentation = 0
+        row.onClose = {}
+        let title = "A long page title that needs every available point of the sidebar"
+        row.configure(TabRowContent(title: title))
+        let host = UITestSupport.host(row, width: 228, height: Style.Metrics.rowHeight)
+        host.layoutSubtreeIfNeeded()
+        let field = try #require(UITestSupport.textFields(in: row).first { $0.stringValue == title })
+        func trailingEdge() -> CGFloat { field.convert(field.alignmentRect(forFrame: field.bounds), to: row).maxX }
+        let restingEdge = trailingEdge()
+        #expect(abs(restingEdge - (row.bounds.maxX - 11)) < 1)
+        row.isSelected = true
+        host.layoutSubtreeIfNeeded()
+        #expect(trailingEdge() < restingEdge - 15)
+        row.isSelected = false
+        host.layoutSubtreeIfNeeded()
+        #expect(abs(trailingEdge() - restingEdge) < 1)
+    }
+
+    @Test("Local page hints sit under the title and disappear when a cell is reused")
+    func localPageHint() throws {
+        let row = TabRowView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: Style.Metrics.rowHeight).isActive = true
+        row.configure(TabRowContent(title: "Development", subtitle: "localhost:3000"))
+        let host = UITestSupport.host(row, width: 228, height: Style.Metrics.rowHeight)
+        host.layoutSubtreeIfNeeded()
+        let title = try #require(UITestSupport.textFields(in: row).first { $0.stringValue == "Development" })
+        let detail = try #require(UITestSupport.textFields(in: row).first { $0.stringValue == "localhost:3000" })
+        #expect(!detail.isHidden)
+        #expect(title.convert(title.bounds, to: row).midY > row.favicon.frame.midY)
+        #expect(detail.convert(detail.bounds, to: row).midY < row.favicon.frame.midY)
+        row.prepareForReuse()
+        #expect(detail.isHidden && detail.stringValue.isEmpty)
+        #expect(SidebarLocalAddress.label(for: URL(string: "http://localhost:3000/path")!) == "localhost:3000")
+        #expect(SidebarLocalAddress.label(for: URL(string: "http://127.0.0.1:62919/")!) == "127.0.0.1:62919")
+        #expect(SidebarLocalAddress.label(for: URL(string: "http://[::1]:8000/")!) == "[::1]:8000")
+        #expect(SidebarLocalAddress.label(for: URL(string: "https://example.com/")!) == nil)
+    }
+
     @Test("A row carries no page thumbnail")
     func noThumbnail() {
         // Some browsers show a page preview on the selected row's trailing

@@ -12,6 +12,7 @@ struct TabRowContent {
     /// Shown in the tooltip and read by VoiceOver. `nil` for a row that has no
     /// address, such as a brand-new empty tab.
     var address: String?
+    var subtitle: String?
     var isLoading: Bool = false
     /// Holding no web view: released after being loaded, or never loaded at
     /// all. Dimmed rather than hidden, because the memory really is not being
@@ -50,6 +51,7 @@ struct TabRowContent {
     init(
         title: String,
         address: String? = nil,
+        subtitle: String? = nil,
         isLoading: Bool = false,
         isAsleep: Bool = false,
         isFailed: Bool = false,
@@ -66,6 +68,7 @@ struct TabRowContent {
     ) {
         self.title = title
         self.address = address
+        self.subtitle = subtitle
         self.isLoading = isLoading
         self.isAsleep = isAsleep
         self.isFailed = isFailed
@@ -139,6 +142,8 @@ final class TabRowView: NSTableCellView {
     }
 
     private let titleLabel = NSTextField(labelWithString: "")
+    private let subtitleLabel = NSTextField(labelWithString: "")
+    private lazy var titleStack = NSStackView(views: [titleLabel, subtitleLabel])
     private let spinner = NSProgressIndicator()
     /// The emoji drawn where the favicon goes, when the tab has one.
     private let emojiLabel = NSTextField(labelWithString: "")
@@ -229,6 +234,9 @@ final class TabRowView: NSTableCellView {
     private var audioTrailingClose: NSLayoutConstraint?
     private var audioTrailingEdge: NSLayoutConstraint?
     private var titleAudioConstraint: NSLayoutConstraint?
+    private var titleSpinnerConstraint: NSLayoutConstraint?
+    private var titleCloseConstraint: NSLayoutConstraint?
+    private var titleBadgeConstraint: NSLayoutConstraint?
     private var trackingArea: NSTrackingArea?
     private var isHovered = false {
         didSet {
@@ -317,7 +325,18 @@ final class TabRowView: NSTableCellView {
             unreadDot.centerXAnchor.constraint(equalTo: favicon.trailingAnchor, constant: -1),
             unreadDot.centerYAnchor.constraint(equalTo: favicon.topAnchor, constant: 1)
         ])
-        addSubview(titleLabel)
+        subtitleLabel.font = .systemFont(ofSize: 11)
+        subtitleLabel.textColor = Style.Colors.secondaryText
+        subtitleLabel.lineBreakMode = .byTruncatingTail
+        subtitleLabel.cell?.usesSingleLineMode = true
+        subtitleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        subtitleLabel.isHidden = true
+        subtitleLabel.setAccessibilityElement(false)
+        titleStack.orientation = .vertical
+        titleStack.alignment = .leading
+        titleStack.spacing = 0
+        titleStack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(titleStack)
         addSubview(badge)
         addSubview(spinner)
         addSubview(audioButton)
@@ -348,34 +367,29 @@ final class TabRowView: NSTableCellView {
 
         trailingConstraints = [spinnerTrailing, closeTrailing, badgeTrailing, audioEdge]
 
-        let titleAudio = titleLabel.trailingAnchor.constraint(
+        let titleAudio = titleStack.trailingAnchor.constraint(
             lessThanOrEqualTo: audioButton.leadingAnchor,
             constant: -Style.Metrics.rowContentSpacing
         )
         titleAudioConstraint = titleAudio
 
+        let titleSpinner = titleStack.trailingAnchor.constraint(lessThanOrEqualTo: spinner.leadingAnchor, constant: -Style.Metrics.rowContentSpacing)
+        let titleClose = titleStack.trailingAnchor.constraint(lessThanOrEqualTo: closeButton.leadingAnchor, constant: -Style.Metrics.rowContentSpacing)
+        let titleBadge = titleStack.trailingAnchor.constraint(lessThanOrEqualTo: badge.leadingAnchor, constant: -Style.Metrics.rowContentSpacing)
+        titleSpinnerConstraint = titleSpinner
+        titleCloseConstraint = titleClose
+        titleBadgeConstraint = titleBadge
+        let titleEdge = titleStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInset)
+        titleEdge.priority = .defaultHigh
+
         NSLayoutConstraint.activate([
             leading,
             favicon.centerYAnchor.constraint(equalTo: pillStrip.centerYAnchor),
-
-            titleLabel.leadingAnchor.constraint(
-                equalTo: favicon.trailingAnchor,
-                constant: Style.Metrics.rowContentSpacing
-            ),
-            titleLabel.centerYAnchor.constraint(equalTo: pillStrip.centerYAnchor),
-            // The title stops short of the trailing slot, so a long one is
-            // truncated rather than run under the spinner or close button.
-            titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: spinner.leadingAnchor,
-                constant: -Style.Metrics.rowContentSpacing
-            ),
-            // And short of the badge, which is wider than the slot and shares
-            // the same edge. An empty badge measures zero, so this constraint
-            // costs a row with nothing to report exactly nothing.
-            titleLabel.trailingAnchor.constraint(
-                lessThanOrEqualTo: badge.leadingAnchor,
-                constant: -Style.Metrics.rowContentSpacing
-            ),
+            titleStack.leadingAnchor.constraint(equalTo: favicon.trailingAnchor, constant: Style.Metrics.rowContentSpacing),
+            titleStack.centerYAnchor.constraint(equalTo: pillStrip.centerYAnchor),
+            titleEdge,
+            titleLabel.widthAnchor.constraint(equalTo: titleStack.widthAnchor),
+            subtitleLabel.widthAnchor.constraint(equalTo: titleStack.widthAnchor),
 
             badgeTrailing,
             badge.centerYAnchor.constraint(equalTo: pillStrip.centerYAnchor),
@@ -399,6 +413,8 @@ final class TabRowView: NSTableCellView {
     func configure(_ content: TabRowContent) {
         self.content = content
         titleLabel.stringValue = content.title
+        subtitleLabel.stringValue = content.subtitle ?? ""
+        subtitleLabel.isHidden = content.subtitle?.isEmpty != false
         titleLabel.textColor = Style.Colors.primaryText
         toolTip = content.address
 
@@ -481,6 +497,9 @@ final class TabRowView: NSTableCellView {
         let canClose = onClose != nil && !content.isLocked
         let showClose = (isHovered || isSelected) && canClose
         closeButton.isHidden = !showClose
+        titleCloseConstraint?.isActive = showClose
+        titleSpinnerConstraint?.isActive = content.isLoading && !showClose
+        titleBadgeConstraint?.isActive = content.isLocked && !content.isPlayingAudio && !content.isMuted
         if content.isLoading && !showClose {
             spinner.startAnimation(nil)
         } else {
@@ -642,6 +661,10 @@ final class TabRowView: NSTableCellView {
         isHovered = false
         isSelected = false
         content = TabRowContent(title: "")
+        titleLabel.stringValue = ""
+        subtitleLabel.stringValue = ""
+        subtitleLabel.isHidden = true
+        updateTrailing()
         for view in [lockedIcon, stayIcon, awakeIcon, sleepIcon] { view.isHidden = true }
         idleLabel.stringValue = ""
         idleLabel.isHidden = true

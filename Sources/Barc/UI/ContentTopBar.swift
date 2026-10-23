@@ -116,11 +116,13 @@ final class ContentTopBar: NSView {
 @MainActor
 private final class WrappingControlsView: NSView {
     private(set) var buttons: [IconButton] = []
+    private var origins: [(x: NSLayoutConstraint, y: NSLayoutConstraint)] = []
     private var height: NSLayoutConstraint!
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
+        autoresizesSubviews = false
         height = heightAnchor.constraint(equalToConstant: 0)
         height.isActive = true
     }
@@ -128,12 +130,17 @@ private final class WrappingControlsView: NSView {
     required init?(coder: NSCoder) { fatalError("Created in code only") }
 
     func setButtons(_ buttons: [IconButton]) {
+        NSLayoutConstraint.deactivate(origins.flatMap { [$0.x, $0.y] })
+        origins = []
         for button in self.buttons { button.removeFromSuperview() }
         self.buttons = buttons
         for button in buttons {
-            button.translatesAutoresizingMaskIntoConstraints = true
-            button.autoresizingMask = [.maxXMargin, .minYMargin]
+            button.translatesAutoresizingMaskIntoConstraints = false
             addSubview(button)
+            let x = button.leadingAnchor.constraint(equalTo: leadingAnchor)
+            let y = button.topAnchor.constraint(equalTo: topAnchor)
+            origins.append((x, y))
+            NSLayoutConstraint.activate([x, y])
         }
         needsLayout = true
         arrangeButtons()
@@ -144,6 +151,12 @@ private final class WrappingControlsView: NSView {
         arrangeButtons()
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = bounds.size != newSize
+        super.setFrameSize(newSize)
+        if changed, height != nil { arrangeButtons() }
+    }
+
     private func arrangeButtons() {
         let gap: CGFloat = 3
         let side: CGFloat = 24
@@ -152,10 +165,9 @@ private final class WrappingControlsView: NSView {
         let rowCount = (buttons.count + columns - 1) / columns
         let totalHeight = CGFloat(rowCount) * (side + gap) - (rowCount > 0 ? gap : 0)
         if height.constant != totalHeight { height.constant = totalHeight }
-        for (index, button) in buttons.enumerated() {
-            button.frame = NSRect(x: CGFloat(index % columns) * (side + gap),
-                                  y: totalHeight - CGFloat(index / columns + 1) * (side + gap) + gap,
-                                  width: side, height: side)
+        for (index, origin) in origins.enumerated() {
+            origin.x.constant = CGFloat(index % columns) * (side + gap)
+            origin.y.constant = CGFloat(index / columns) * (side + gap)
         }
     }
 }
