@@ -1299,6 +1299,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
         if tabOverviewController == nil {
             let controller = TabOverviewGridViewController(session: session)
+            controller.onNewTab = { [weak self] in self?.newTab(nil) }
             controller.onDismissHandler = { [weak self] in
                 self?.tabOverviewController = nil
             }
@@ -1779,6 +1780,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func newTab(_ sender: Any?) {
+        if let overview = tabOverviewController, overview.isOpen {
+            overview.dismissOverview { [weak self] in self?.newTab(nil) }
+            return
+        }
         if Settings.shared.openCommandBarOnNewTab {
             commandBar.open(openInNewTab: true)
             updateCompactSidebarForCommandBar()

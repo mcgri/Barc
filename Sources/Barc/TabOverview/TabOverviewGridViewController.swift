@@ -12,6 +12,7 @@ final class TabOverviewGridViewController: NSViewController {
 
     var isOpen: Bool { view.superview != nil && view.alphaValue > 0.01 }
     var onDismissHandler: (() -> Void)?
+    var onNewTab: (() -> Void)?
 
     private let backgroundView = NSVisualEffectView()
     let headerView = TabOverviewHeaderView()
@@ -157,8 +158,8 @@ final class TabOverviewGridViewController: NSViewController {
         observeSessionChanges()
     }
 
-    func dismissOverview() {
-        guard isOpen else { return }
+    func dismissOverview(completion: (() -> Void)? = nil) {
+        guard isOpen else { completion?(); return }
 
         SpringPresence.disappear(view, falling: 0) { [weak self] in
             Task { @MainActor [weak self] in
@@ -169,6 +170,7 @@ final class TabOverviewGridViewController: NSViewController {
                     self.view.window?.makeFirstResponder(prev)
                 }
                 self.onDismissHandler?()
+                completion?()
             }
         }
     }
@@ -407,8 +409,7 @@ final class TabOverviewGridViewController: NSViewController {
     }
 
     private func createNewTabAndDismiss() {
-        session.newTab()
-        dismissOverview()
+        onNewTab?()
     }
 
     // MARK: - Keyboard Handling

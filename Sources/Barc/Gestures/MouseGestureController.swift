@@ -236,7 +236,7 @@ final class MouseGestureController {
         case .forward:
             wc.goForward(nil)
         case .newTab:
-            _ = wc.session.newTab()
+            wc.newTab(nil)
         case .closeTab:
             wc.closeTab(nil)
         case .reload:

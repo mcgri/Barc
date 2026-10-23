@@ -10,6 +10,19 @@ import WebKit
 @MainActor
 struct TabOverviewTests {
 
+    @Test("Overview New Tab delegates to the window's focused address bar")
+    func newTabUsesWindowAction() {
+        let (session, _) = TestSession.make()
+        let overview = TabOverviewGridViewController(session: session)
+        _ = overview.view
+        let count = session.activeSpace.tabs.count
+        var requested = false
+        overview.onNewTab = { requested = true }
+        overview.headerView.onNewTab?()
+        #expect(requested)
+        #expect(session.activeSpace.tabs.count == count)
+    }
+
     // MARK: - TabSnapshotStore Tests
 
     @Test("TabSnapshotStore sets, retrieves, removes, and clears snapshots")
