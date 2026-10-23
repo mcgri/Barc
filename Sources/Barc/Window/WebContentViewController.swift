@@ -314,14 +314,12 @@ final class WebContentViewController: NSViewController {
             }
         }
         let settings = Settings.shared
-        // The full address, so what the user edits or copies is the whole URL
-        // rather than a bare host that would drop the path.
-        // The start page has no address to show or copy: the field is empty
-        // and ready to type into.
+        // Keep the resting sidebar compact. Its popup edits the full URL,
+        // and Copy Address always copies the full URL including its path.
         let onStartPage = tab?.showsStartPage ?? false
         topBar.addressField.show(
             display: onStartPage ? "" : tab.map {
-                AddressFormatter.display($0.displayURL, full: true, unicodeDomains: settings.showsUnicodeDomains)
+                AddressFormatter.display($0.displayURL, full: false, unicodeDomains: settings.showsUnicodeDomains)
             },
             url: onStartPage ? nil : tab?.displayURL
         )

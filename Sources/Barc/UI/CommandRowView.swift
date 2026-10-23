@@ -1,3 +1,4 @@
+// Modified for Barc: compact address-popup rows with cached website icons, 2026-10-23.
 import AppKit
 
 /// One row of the command bar's result list: symbol, primary label, secondary
@@ -18,6 +19,7 @@ final class CommandRowView: NSView {
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
+    private var hasWebsiteIcon = false
 
     var isSelected = false {
         didSet {
@@ -102,10 +104,12 @@ final class CommandRowView: NSView {
         fatalError("CommandRowView is created in code only")
     }
 
-    func configure(_ result: CommandResult) {
-        iconView.image = NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
+    func configure(_ result: CommandResult, image: NSImage? = nil, compact: Bool = false) {
+        hasWebsiteIcon = image != nil
+        iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
         titleLabel.stringValue = result.title
         subtitleLabel.stringValue = result.subtitle
+        subtitleLabel.isHidden = compact
         if let shortcut = result.shortcut, !shortcut.isEmpty {
             shortcutLabel.stringValue = shortcut
             shortcutLabel.isHidden = false
@@ -115,6 +119,7 @@ final class CommandRowView: NSView {
             shortcutLabel.isHidden = true
             setAccessibilityLabel("\(result.title), \(result.subtitle)")
         }
+        applySelectionColours()
     }
 
     /// A selected row is filled with the system's selection colour, so its text
@@ -124,7 +129,7 @@ final class CommandRowView: NSView {
         titleLabel.textColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.primaryText
         subtitleLabel.textColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText
         shortcutLabel.textColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.tertiaryText
-        iconView.contentTintColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText
+        iconView.contentTintColor = hasWebsiteIcon ? nil : (isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText)
     }
 
     override func draw(_ dirtyRect: NSRect) {

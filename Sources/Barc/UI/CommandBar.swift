@@ -1,13 +1,10 @@
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import AppKit
 
-/// Sizes for the command bar. These are proportions chosen to make the panel
-/// read as a launcher, not pixel measurements: the reference screenshots show
-/// the browser at rest, with the command bar closed.
-///
-/// They live here rather than in `Style` only until the integrator folds
-/// them in.
+/// Sizes shared by the centered launcher and the compact sidebar URL popup.
 enum CommandBarMetrics {
+    static let addressPanelWidth: CGFloat = 350
+    static let addressFieldHeight: CGFloat = 44
     /// Wide enough for a long URL and its title, narrow enough that the panel
     /// still reads as a floating object rather than a sheet.
     static let panelWidth: CGFloat = 640
@@ -46,22 +43,9 @@ enum CommandBarMetrics {
     static let typingDelay = Duration.milliseconds(90)
 }
 
-/// The command bar: a floating launcher over the page, opened with Cmd-L.
-///
-/// It exists because the sidebar has no address bar, and removing Barc's
-/// without a replacement would leave no way to type an address. So this is not
-/// decoration -- it is the omnibox, moved out of the chrome and into a surface
-/// that is only present while it is being used.
-///
-/// Two things follow from that and shape the whole component. It is *modal
-/// while open*: it covers the page, swallows the click that dismisses it, and
-/// takes the keyboard. And it is *transient*: it stores nothing between
-/// openings, hands first responder back to whatever had it, and collapses to a
-/// single row the moment it has nothing to show.
-///
-/// Like the rest of `UI/` it never sees the session. It is given an
-/// async provider that returns rows and a handler that performs one; ranking
-/// lives in `CommandRanker`, which is pure and tested.
+/// One URL editor with two placements: an anchored sidebar popup for an existing
+/// page, and a centered launcher for New Tab. Both own focus until dismissed,
+/// discard abandoned edits, and receive suggestions without owning the session.
 @MainActor
 final class CommandBar: NSView, NSTextFieldDelegate {
     /// Supplies rows for a query. Async because history is a database read;
@@ -72,6 +56,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     var searchEngineProvider: (() -> SearchEngine)?
 
     var resultsProvider: (@MainActor (String) async -> [CommandResult])?
+    var resultImageProvider: ((CommandResult) -> NSImage?)?
+    var onClose: (() -> Void)?
 
     /// Performs a chosen row, or the address the user typed. The bar resolves
     /// text into a `URL` itself so that the caller has one case to handle
@@ -82,9 +68,20 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private let panel = NSVisualEffectView()
     private let fieldRow = NSView()
     private let field = NSTextField()
+    private let addressIcon = NSImageView()
     private let divider = NSBox()
     private let rowsStack = NSStackView()
     private let resultsContainer = NSStackView()
+    private var centeredConstraints: [NSLayoutConstraint] = []
+    private var addressConstraints: [NSLayoutConstraint] = []
+    private var preferredWidth: NSLayoutConstraint!
+    private var addressLeading: NSLayoutConstraint!
+    private var addressTop: NSLayoutConstraint!
+    private var fieldHeight: NSLayoutConstraint!
+    private var fieldLeading: NSLayoutConstraint!
+    private weak var addressAnchor: NSView?
+    private var initialAddressResults: [CommandResult] = []
+    private(set) var isAddressMode = false
 
     private var queryTask: Task<Void, Never>?
     /// Whatever held focus when the bar opened -- in practice the page. Weak
@@ -160,21 +157,28 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         content.translatesAutoresizingMaskIntoConstraints = false
         panel.addSubview(content)
 
-        let preferredWidth = shadowHost.widthAnchor.constraint(
+        preferredWidth = shadowHost.widthAnchor.constraint(
             equalToConstant: CommandBarMetrics.panelWidth
         )
         // Loses to the window, wins over everything else: a narrow window
         // shrinks the panel instead of pushing it off screen.
         preferredWidth.priority = .defaultHigh
 
-        NSLayoutConstraint.activate([
+        centeredConstraints = [
             shadowHost.centerXAnchor.constraint(equalTo: centerXAnchor),
             shadowHost.centerYAnchor.constraint(equalTo: centerYAnchor),
-            preferredWidth,
             shadowHost.widthAnchor.constraint(
                 lessThanOrEqualTo: widthAnchor,
                 constant: -2 * CommandBarMetrics.minimumSideGap
-            ),
+            )
+        ]
+        addressLeading = shadowHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4)
+        addressTop = shadowHost.topAnchor.constraint(equalTo: topAnchor, constant: 4)
+        addressConstraints = [addressLeading, addressTop,
+            shadowHost.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -8)]
+        NSLayoutConstraint.activate(centeredConstraints)
+        NSLayoutConstraint.activate([
+            preferredWidth,
 
             panel.topAnchor.constraint(equalTo: shadowHost.topAnchor),
             panel.leadingAnchor.constraint(equalTo: shadowHost.leadingAnchor),
@@ -208,13 +212,20 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
         fieldRow.translatesAutoresizingMaskIntoConstraints = false
         fieldRow.addSubview(field)
+        addressIcon.translatesAutoresizingMaskIntoConstraints = false
+        addressIcon.imageScaling = .scaleProportionallyDown
+        addressIcon.setAccessibilityElement(false)
+        addressIcon.isHidden = true
+        fieldRow.addSubview(addressIcon)
+        fieldHeight = fieldRow.heightAnchor.constraint(equalToConstant: CommandBarMetrics.fieldHeight)
+        fieldLeading = field.leadingAnchor.constraint(equalTo: fieldRow.leadingAnchor, constant: CommandBarMetrics.fieldInset)
 
         NSLayoutConstraint.activate([
-            fieldRow.heightAnchor.constraint(equalToConstant: CommandBarMetrics.fieldHeight),
-            field.leadingAnchor.constraint(
-                equalTo: fieldRow.leadingAnchor,
-                constant: CommandBarMetrics.fieldInset
-            ),
+            fieldHeight, fieldLeading,
+            addressIcon.leadingAnchor.constraint(equalTo: fieldRow.leadingAnchor, constant: 16),
+            addressIcon.centerYAnchor.constraint(equalTo: fieldRow.centerYAnchor),
+            addressIcon.widthAnchor.constraint(equalToConstant: 16),
+            addressIcon.heightAnchor.constraint(equalToConstant: 16),
             field.trailingAnchor.constraint(
                 equalTo: fieldRow.trailingAnchor,
                 constant: -CommandBarMetrics.fieldInset
@@ -263,8 +274,18 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// It fills the host rather than sitting at the top of it because the empty
     /// area *is* the dismiss target: a click anywhere outside the panel closes
     /// the bar, and a view cannot receive a click it does not cover.
-    func install(in host: NSView) {
+    func install(in host: NSView, centeredIn centerHost: NSView? = nil) {
         host.addSubview(self)
+        if let centerHost {
+            NSLayoutConstraint.deactivate(centeredConstraints)
+            centeredConstraints = [
+                shadowHost.centerXAnchor.constraint(equalTo: centerHost.centerXAnchor),
+                shadowHost.centerYAnchor.constraint(equalTo: centerHost.centerYAnchor),
+                shadowHost.widthAnchor.constraint(lessThanOrEqualTo: centerHost.widthAnchor,
+                                                  constant: -2 * CommandBarMetrics.minimumSideGap)
+            ]
+            NSLayoutConstraint.activate(centeredConstraints)
+        }
         NSLayoutConstraint.activate([
             topAnchor.constraint(equalTo: host.topAnchor),
             leadingAnchor.constraint(equalTo: host.leadingAnchor),
@@ -277,16 +298,53 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     /// Opens the bar with `text` selected, so the first keystroke replaces it.
     func open(text: String = "", openInNewTab: Bool = false) {
+        configurePresentation(address: false)
+        present(text: text, openInNewTab: openInNewTab)
+        if !text.isEmpty { scheduleQuery(for: text) }
+    }
+
+    /// Editing an existing URL stays beside the sidebar, with local recent tabs ready immediately.
+    func openAddress(text: String, anchor: NSView, image: NSImage? = nil, recentResults: [CommandResult] = []) {
+        addressAnchor = anchor
+        initialAddressResults = recentResults
+        addressIcon.image = image ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+        addressIcon.contentTintColor = image == nil ? Style.Colors.secondaryText : nil
+        configurePresentation(address: true)
+        present(text: text, openInNewTab: false)
+        setResults(recentResults)
+        superview?.layoutSubtreeIfNeeded()
+        select(0)
+    }
+
+    private func configurePresentation(address: Bool) {
+        NSLayoutConstraint.deactivate(isAddressMode ? addressConstraints : centeredConstraints)
+        isAddressMode = address
+        preferredWidth.constant = address ? CommandBarMetrics.addressPanelWidth : CommandBarMetrics.panelWidth
+        fieldHeight.constant = address ? CommandBarMetrics.addressFieldHeight : CommandBarMetrics.fieldHeight
+        fieldLeading.constant = address ? 44 : CommandBarMetrics.fieldInset
+        field.font = .systemFont(ofSize: address ? 14 : CommandBarMetrics.queryFontSize)
+        addressIcon.isHidden = !address
+        field.setAccessibilityLabel(address ? "Edit Address" : "Search, enter address, or type a command")
+        setAccessibilityLabel(address ? "Address popup" : "Command Bar")
+        if !address { addressAnchor = nil; initialAddressResults = [] }
+        updateAddressPosition()
+        NSLayoutConstraint.activate(address ? addressConstraints : centeredConstraints)
+        needsLayout = true
+    }
+
+    private func present(text: String, openInNewTab: Bool) {
+        queryTask?.cancel()
+        queryTask = nil
         isNewTabMode = openInNewTab
         if !isOpen {
             previousResponder = window?.firstResponder
         }
         isHidden = false
+        superview?.addSubview(self, positioned: .above, relativeTo: nil)
         field.stringValue = text
         setResults([])
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
-        if !text.isEmpty { scheduleQuery(for: text) }
     }
 
     /// Hides the bar and gives focus back. Everything typed is discarded: the
@@ -301,6 +359,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         field.stringValue = ""
         setResults([])
         restoreResponder()
+        onClose?()
     }
 
     /// Cmd-L: open the bar; close it if it is open and being typed into; and
@@ -323,7 +382,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         return (responder as? NSTextView)?.delegate === field
     }
 
-    private func focusField() {
+    func focusField() {
         window?.makeFirstResponder(field)
         field.currentEditor()?.selectAll(nil)
     }
@@ -360,7 +419,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     private func rebuildRows() {
-        let fitting = Self.maximumVisibleRows(inHeight: bounds.height)
+        let fitting = maximumRows
         visibleResults = Array(results.prefix(fitting))
 
         for view in rowsStack.arrangedSubviews {
@@ -369,7 +428,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         for (index, result) in visibleResults.enumerated() {
             let row = CommandRowView()
-            row.configure(result)
+            row.configure(result, image: resultImageProvider?(result), compact: isAddressMode)
             row.onHover = { [weak self] in self?.select(index) }
             row.onClick = { [weak self] in self?.run(at: index) }
             rowsStack.addArrangedSubview(row)
@@ -399,8 +458,28 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// a taller window keeps a truncated list forever.
     override func layout() {
         super.layout()
-        let expected = min(Self.maximumVisibleRows(inHeight: bounds.height), results.count)
+        updateAddressPosition()
+        let expected = min(maximumRows, results.count)
         if expected != visibleResults.count { rebuildRows() }
+    }
+
+    private func updateAddressPosition() {
+        guard isAddressMode, let addressAnchor, addressAnchor.window === window else { return }
+        let rect = addressAnchor.convert(addressAnchor.bounds, to: self)
+        let width = min(CommandBarMetrics.addressPanelWidth, max(0, bounds.width - 8))
+        let onRight = rect.midX > bounds.midX
+        let desiredX = onRight ? rect.maxX + 4 - width : rect.minX - 4
+        addressLeading.constant = max(4, min(desiredX, bounds.width - width - 4))
+        addressTop.constant = max(4, min(bounds.maxY - rect.maxY - 4,
+                                       bounds.height - CommandBarMetrics.addressFieldHeight - CommandBarMetrics.bottomGap))
+    }
+
+    private var maximumRows: Int {
+        guard isAddressMode else { return Self.maximumVisibleRows(inHeight: bounds.height) }
+        let available = bounds.height - addressTop.constant - CommandBarMetrics.addressFieldHeight
+            - CommandBarMetrics.bottomGap - CommandBarMetrics.dividerHeight - CommandBarMetrics.listInset * 2
+        return max(0, min(8, Int((available + CommandBarMetrics.rowSpacing)
+                                / (CommandBarMetrics.rowHeight + CommandBarMetrics.rowSpacing))))
     }
 
     // MARK: - Selection
@@ -521,6 +600,16 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     // MARK: - NSTextFieldDelegate
 
     func controlTextDidChange(_ obj: Notification) {
+        if isAddressMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryTask?.cancel()
+            queryTask = nil
+            setResults(initialAddressResults)
+            select(0)
+            return
+        }
+        // Return immediately after typing must use the new text, even before
+        // the debounced provider has replaced a previously selected suggestion.
+        setResults([])
         scheduleQuery(for: field.stringValue)
     }
 

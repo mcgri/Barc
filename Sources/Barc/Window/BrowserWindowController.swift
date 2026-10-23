@@ -15,8 +15,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private let root = BarcRootViewController()
     private let sidebar: SidebarViewController
     private let content: WebContentViewController
-    /// Cmd-L. Installed over the page, so the panel floats above the content
-    /// and not above the sidebar.
+    /// Shared URL editor: beside the sidebar for Cmd-L, centered over the page for New Tab.
     private let commandBar = CommandBar()
     /// Held while shown so it is not deallocated mid-display.
     private var siteSettingsPopover: NSPopover?
@@ -120,11 +119,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         buildSplitView()
         sidebar.installBrowserControls(content.sidebarControls)
         wireTopBar()
-        wireCommandBar()
         sidebar.onNewTab = { [weak self] in self?.newTab(nil) }
         content.onNewTab = { [weak self] in self?.newTab(nil) }
         root.host(splitViewController)
         window.contentViewController = root
+        wireCommandBar()
         // While the command bar or tab overview is open the page may not take the keyboard:
         // a page that autofocuses a field would otherwise swallow the address or filter
         // being typed (see `BrowserWindow`).
@@ -563,19 +562,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             guard let tab = self?.session.activeTab else { return }
             if tab.isLoading { tab.stopLoading() } else { tab.reload() }
         }
-        bar.addressField.onNavigate = { [weak self] text in
-            guard let self,
-                  let url = URLResolver.resolve(
-                    text,
-                    using: self.session.searchEngine(for: self.session.activeSpace)
-                  )
-            else { return }
-            if let tab = self.session.activeTab {
-                tab.load(url)
-            } else {
-                self.session.newTab(url: url)
-            }
-        }
+        bar.addressField.onOpen = { [weak self] in self?.openLocation(nil) }
         var actions = [
             TopBarAction(symbolName: "checkmark.shield.fill", label: "Shield") { [weak self] in
                 self?.showShieldPopover()
@@ -1087,7 +1074,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// the session: it is given a provider that ranks values and a handler that
     /// performs one.
     private func wireCommandBar() {
-        commandBar.install(in: content.view)
+        commandBar.install(in: root.view, centeredIn: content.view)
+        commandBar.onClose = { [weak self] in self?.updateCompactSidebarForCommandBar() }
+        commandBar.resultImageProvider = { [weak self] result in
+            switch result.action {
+            case .switchToTab(let id):
+                guard let tab = self?.session.spaces.lazy.flatMap(\.tabs).first(where: { $0.id == id }) else { return nil }
+                return FaviconService.shared.cachedImage(for: tab.displayURL)
+            case .openURL(let url): return FaviconService.shared.cachedImage(for: url)
+            default: return nil
+            }
+        }
 
         commandBar.searchEngineProvider = { [weak self] in
             guard let self else { return .duckDuckGo }
@@ -1312,11 +1309,26 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func openLocation(_ sender: Any?) {
-        if commandBar.isOpen {
-            commandBar.toggle()
+        if commandBar.isOpen && commandBar.isAddressMode {
+            commandBar.focusField()
         } else {
-            let initialText = session.activeTab.map { $0.showsStartPage ? "" : AddressFormatter.display($0.url) } ?? ""
-            commandBar.open(text: initialText, openInNewTab: false)
+            let tab = session.activeTab
+            let initialText = tab.map { $0.showsStartPage ? "" : $0.displayURL.absoluteString } ?? ""
+            let recentTabs = Settings.shared.suggestionSources.openTabs ? session.activeSpace.tabs
+                .filter { !$0.showsStartPage }
+                .sorted {
+                    if ($0.id == tab?.id) != ($1.id == tab?.id) { return $0.id == tab?.id }
+                    if $0.lastActiveAt != $1.lastActiveAt { return $0.lastActiveAt > $1.lastActiveAt }
+                    return $0.id.uuidString < $1.id.uuidString
+                } : []
+            let recentResults = recentTabs.prefix(5).map {
+                CommandResult(id: "tab:\($0.id)", kind: .openTab, title: $0.displayTitle,
+                              subtitle: AddressFormatter.display($0.displayURL), symbolName: "globe",
+                              action: .switchToTab($0.id), score: 0)
+            }
+            commandBar.openAddress(text: initialText, anchor: content.topBar.addressField,
+                                   image: tab.flatMap { FaviconService.shared.cachedImage(for: $0.displayURL) },
+                                   recentResults: recentResults)
         }
         updateCompactSidebarForCommandBar()
     }
@@ -1327,6 +1339,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         let reason = CompactRevealReason.commandBar
         if commandBar.isOpen {
             compact.controller.addReason(reason, to: .sidebar)
+            // Compact mode may have just reparented the sidebar above the
+            // editor. Keep the popup above it and refresh its anchor position.
+            root.view.addSubview(commandBar, positioned: .above, relativeTo: nil)
+            commandBar.needsLayout = true
+            root.view.layoutSubtreeIfNeeded()
         } else {
             compact.controller.removeReason(reason, from: .sidebar)
         }

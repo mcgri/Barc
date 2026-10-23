@@ -280,6 +280,68 @@ struct CommandBarViewTests {
         }
     }
 
+    @Test("The URL popup stays anchored to either sidebar as results change")
+    func addressPopupAnchorsToSidebar() throws {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 800))
+        let anchor = NSView(frame: NSRect(x: 8, y: 680, width: 220, height: 28))
+        host.addSubview(anchor)
+        let bar = CommandBar()
+        bar.install(in: host)
+        host.layoutSubtreeIfNeeded()
+        for x: CGFloat in [8, 972] {
+            anchor.setFrameOrigin(NSPoint(x: x, y: 680))
+            bar.openAddress(text: "https://example.com/a?b=c#section", anchor: anchor, recentResults: results(5))
+            for count in [1, 8] {
+                bar.setResults(results(count))
+                host.layoutSubtreeIfNeeded()
+                let panel = try #require(bar.subviews.first)
+                #expect(abs(panel.frame.width - CommandBarMetrics.addressPanelWidth) < 1)
+                #expect(abs(panel.frame.maxY - (anchor.frame.maxY + 4)) < 1)
+                #expect(host.bounds.contains(panel.frame))
+                if x < 600 { #expect(abs(panel.frame.minX - 4) < 1) }
+                else { #expect(abs(panel.frame.maxX - 1_196) < 1) }
+            }
+            bar.close()
+        }
+        bar.open(openInNewTab: true)
+        host.layoutSubtreeIfNeeded()
+        let panel = try #require(bar.subviews.first)
+        #expect(abs(panel.frame.midX - host.bounds.midX) < 1)
+        #expect(abs(panel.frame.midY - host.bounds.midY) < 1)
+        #expect(!bar.isAddressMode)
+    }
+
+    @Test("The URL popup selects the full address and typing cannot submit a stale recent tab")
+    func addressPopupEditingContract() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let host = try #require(window.contentView)
+        let anchor = NSView(frame: NSRect(x: 8, y: 680, width: 220, height: 28))
+        host.addSubview(anchor)
+        let bar = CommandBar()
+        bar.install(in: host)
+        let url = "https://example.com/a?b=c#section"
+        bar.openAddress(text: url, anchor: anchor, recentResults: results(5))
+        #expect(bar.fieldHasFocus)
+        let editor = try #require(window.firstResponder as? NSTextView)
+        #expect(editor.selectedRange() == NSRange(location: 0, length: (url as NSString).length))
+        #expect(bar.visibleResults.count == 5)
+        #expect(bar.selectedIndex == 0)
+        editor.insertText("replacement.example/path", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(bar.queryText == "replacement.example/path")
+        #expect(bar.selectedIndex == nil)
+        var destination: CommandAction?
+        var newTab = true
+        bar.onRun = { destination = $0; newTab = $1 }
+        bar.submit()
+        #expect(destination == .openURL(URL(string: "https://replacement.example/path")!))
+        #expect(!newTab)
+        #expect(!bar.isOpen)
+    }
+
     @Test("Opening a new-tab bar puts the keyboard in its empty address field")
     func openingFocusesTheAddressField() {
         _ = NSApplication.shared
