@@ -1504,9 +1504,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     override func cancelOperation(_ sender: Any?) {
         if isZenMode {
             setZenMode(false)
-            return
         }
-        super.cancelOperation(sender)
+        // NSWindowController has no implementation of this responder action.
+        // Escape can bubble here from WebKit after a menu or popover closes.
     }
 
     /// Follows the sidebar item's collapsed state.
