@@ -194,6 +194,10 @@ struct ArcImportFlowTests {
         let root = try ArcImportBench.directory()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = try ArcFlowBench.source(in: root.appending(path: "Arc"))
+        let leaf: [String: Any] = ["type": "url", "name": "Nested fixture", "url": "https://bookmarks.invalid/nested", "date_added": "13353408000123456"]
+        let folder: [String: Any] = ["type": "folder", "name": "Reports", "children": [leaf]]
+        let bookmarks: [String: Any] = ["roots": ["bookmark_bar": ["type": "folder", "name": "Bookmarks bar", "children": [folder]]]]
+        try JSONSerialization.data(withJSONObject: bookmarks).write(to: source.profileURL(source.profiles[0]).appending(path: "Bookmarks"))
         let history = try ArcFlowBench.history(source.profileURL(source.profiles[0]))
         try history.execute("PRAGMA wal_checkpoint(TRUNCATE);")
         let db = try BrowserDatabase(path: root.appending(path: "browser.sqlite"))
@@ -208,6 +212,13 @@ struct ArcImportFlowTests {
         let retry = try await coordinator.run(source, options: options)
         #expect(retry.profiles.first?.counts["History visits"]?.imported == 0)
         #expect(retry.profiles.first?.counts["History visits"]?.verified == 2)
+        #expect(retry.profiles.first?.counts["Bookmarks"]?.imported == 0)
+        #expect(retry.profiles.first?.counts["Bookmarks"]?.existing == 1)
+        let identity = try #require(ArcSpaceBuilder.build(source, options: options).first?.snapshot.identity)
+        let profileDatabase = try #require(session.database(for: identity))
+        let savedBookmark = try #require(try await profileDatabase.bookmarks().first)
+        #expect(savedBookmark.folder == "From Arc/Personal/Bookmarks bar/Reports")
+        #expect(abs(savedBookmark.created.timeIntervalSince1970 - 1_708_934_400.123456) < 0.000001)
         #expect(session.spaces.flatMap(\.tabs).compactMap(\.importedSourceID).count == 5)
         #expect(SessionStore(fileURL: sessionFile).load() != nil)
     }
