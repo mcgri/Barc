@@ -52,6 +52,25 @@ enum ArcImportBench {
 @Suite("Arc's current local sidebar")
 @MainActor
 struct ArcSidebarReaderTests {
+    @Test("Arc Favorites become tiles; a root pinned tab stays a retained list row")
+    func favoritesAndPinnedListAreSeparate() throws {
+        let original = try ArcImportBench.snapshot()
+        defer { original.remove() }
+        var sidebar = original.sidebar
+        sidebar.items["root-pin"] = .init(id: "root-pin", parentID: "personal-pins", title: "Pinned list tab",
+            children: [], url: URL(string: "https://retained.invalid/")!, isFolder: false, lastActiveAt: nil)
+        sidebar.orderedItemIDs.append("root-pin")
+        let source = ArcSourceSnapshot(root: original.root, sourceFingerprint: original.sourceFingerprint,
+            profiles: original.profiles, sidebar: sidebar, unsupportedIndexedDBFolders: [:], extensions: [:])
+        let built = try #require(ArcSpaceBuilder.build(source, options: ArcImportOptions(profileIDs: ["Default"])).first?.snapshot)
+        #expect(built.pinnedSites?.count == 1)
+        let retained = try #require(built.tabs.first { $0.url.host() == "retained.invalid" })
+        #expect(retained.keepsInSidebar == true)
+        #expect(retained.pinnedSiteID == nil)
+        let favorite = try #require(built.tabs.first { $0.importedSourceID?.hasSuffix("/favorite") == true })
+        #expect(favorite.pinnedSiteID != nil)
+    }
+
     @Test("Extended-sRGB Space colours map into the destination gamut instead of falling back to blue")
     func extendedColours() throws {
         var root = try #require(JSONSerialization.jsonObject(with: ArcImportBench.sidebar()) as? [String: Any])

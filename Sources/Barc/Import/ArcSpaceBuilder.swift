@@ -1,3 +1,4 @@
+// Modified for Barc: preserve Arc's separate Favorites and pinned list, 2026-10-24.
 import Foundation
 
 @MainActor
@@ -28,7 +29,7 @@ enum ArcSpaceBuilder {
                 let named = sidebar.items[id]?.children ?? []
                 return named + sidebar.orderedItemIDs.filter { sidebar.items[$0]?.parentID == id && !named.contains($0) }
             }
-            func walk(_ id: String, group: UUID?, pinned: Bool, root: Bool = false) {
+            func walk(_ id: String, group: UUID?, pinned: Bool, favorite: Bool, root: Bool = false) {
                 guard visited.insert(id).inserted, let item = sidebar.items[id] else { return }
                 var parent = group
                 if item.isFolder, !root {
@@ -38,18 +39,19 @@ enum ArcSpaceBuilder {
                     parent = groupID
                 }
                 if let url = item.url {
-                    let pinID = pinned && group == nil ? ArcImportID.uuid(prefix + "/pin/" + space.id + "/" + id) : nil
+                    let pinID = favorite && group == nil ? ArcImportID.uuid(prefix + "/pin/" + space.id + "/" + id) : nil
                     if let pinID { pins.append(.init(id: pinID, url: url, title: item.title ?? url.host() ?? url.absoluteString)) }
                     tabs.append(SessionSnapshot.Tab(url: url, title: item.title, groupID: group, customName: item.customName,
                                                      pinnedSiteID: pinID, lastActiveAt: item.lastActiveAt,
                                                      keepsInSidebar: pinned ? true : nil,
                                                      importedSourceID: prefix + "/tab/" + space.id + "/" + id))
                 }
-                for child in children(id) { walk(child, group: parent, pinned: pinned) }
+                for child in children(id) { walk(child, group: parent, pinned: pinned, favorite: favorite) }
             }
             if options.sidebar {
-                for (root, pinned) in [(sidebar.favoritesRoots[space.profile], true), (space.pinnedRoot, true), (space.unpinnedRoot, false)] {
-                    if let root { walk(root, group: nil, pinned: pinned, root: true) }
+                for (root, pinned, favorite) in [(sidebar.favoritesRoots[space.profile], true, true),
+                                                 (space.pinnedRoot, true, false), (space.unpinnedRoot, false, false)] {
+                    if let root { walk(root, group: nil, pinned: pinned, favorite: favorite, root: true) }
                 }
             }
             let archives = options.sidebar ? sidebar.archived.filter { $0.spaceID == space.id }.map { record in
