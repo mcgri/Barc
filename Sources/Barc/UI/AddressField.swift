@@ -13,10 +13,18 @@ final class AddressField: NSView {
     private var currentDisplay = ""
     /// The full URL, for the tooltip and the copy button.
     private var currentURL: URL?
+    private var textLeading: NSLayoutConstraint!
+    private var textTrailing: NSLayoutConstraint!
     private var highlight: RowHighlight?
     private var trackingArea: NSTrackingArea?
     private var isHovered = false {
-        didSet { if isHovered != oldValue { updateHighlight() } }
+        didSet {
+            if isHovered != oldValue {
+                updateHighlight()
+                copyButton.isHidden = !isHovered || currentURL == nil
+                textTrailing.constant = isHovered && currentURL != nil ? -36 : -12
+            }
+        }
     }
 
     /// The field's corner. A touch rounder than a toolbar button's, because
@@ -37,7 +45,7 @@ final class AddressField: NSView {
         field.target = self
         field.action = #selector(openAddress)
         field.focusRingType = .none
-        field.font = Style.Fonts.body
+        field.font = .systemFont(ofSize: 14)
         field.contentTintColor = Style.Colors.primaryText
         field.lineBreakMode = .byTruncatingTail
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -56,6 +64,9 @@ final class AddressField: NSView {
 
         copyButton.setClickHandler { [weak self] in self?.copyAddress() }
         addSubview(copyButton)
+        textLeading = field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12)
+        textTrailing = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
+        copyButton.isHidden = true
 
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 36),
@@ -63,9 +74,9 @@ final class AddressField: NSView {
             securityIcon.centerYAnchor.constraint(equalTo: centerYAnchor),
             securityIcon.widthAnchor.constraint(equalToConstant: 15),
             securityIcon.heightAnchor.constraint(equalToConstant: 15),
-            field.leadingAnchor.constraint(equalTo: securityIcon.trailingAnchor, constant: 6),
+            textLeading,
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            field.trailingAnchor.constraint(equalTo: copyButton.leadingAnchor, constant: -4),
+            textTrailing,
             copyButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             copyButton.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
@@ -85,9 +96,6 @@ final class AddressField: NSView {
         )
         Style.Colors.fieldFill.setFill()
         shape.fill()
-        shape.lineWidth = Style.Metrics.hairline
-        Style.Colors.fieldStroke.setStroke()
-        shape.stroke()
     }
 
     override func layout() {
@@ -126,7 +134,8 @@ final class AddressField: NSView {
         currentDisplay = display ?? ""
         currentURL = url
         field.toolTip = url?.absoluteString
-        copyButton.isHidden = (url == nil)
+        copyButton.isHidden = !isHovered || url == nil
+        textTrailing.constant = isHovered && url != nil ? -36 : -12
         showSecurity(of: url)
         field.title = currentDisplay.isEmpty ? "Search or enter address" : currentDisplay
     }
@@ -137,7 +146,7 @@ final class AddressField: NSView {
         let symbol: (name: String, tint: NSColor, help: String)?
         switch url?.scheme?.lowercased() {
         case "https":
-            symbol = ("lock.fill", Style.Colors.secondaryText, "Connection is secure (HTTPS)")
+            symbol = nil
         case "http":
             symbol = ("exclamationmark.triangle.fill", .systemOrange, "Connection is not secure (HTTP)")
         default:
@@ -145,8 +154,10 @@ final class AddressField: NSView {
         }
         guard let symbol else {
             securityIcon.isHidden = true
+            textLeading.constant = 12
             return
         }
+        textLeading.constant = 34
         securityIcon.isHidden = false
         let image = NSImage(systemSymbolName: symbol.name, accessibilityDescription: symbol.help)
         securityIcon.image = image

@@ -915,23 +915,23 @@ enum UITestSupport {
 
 @Suite("Pinned tile wrapping")
 struct TileGridTests {
-    @Test("Tiles share the row equally, up to their natural size")
+    @Test("Favorites share the whole row equally")
     func fillsTheRow() {
         // Narrow enough that four tiles are still under the ceiling: they then
         // divide the strip between them and leave no ragged gap.
         let spacing = Style.Metrics.tileSpacing
-        let width = TileGrid.maximumTileWidth * 4 + spacing * 3 - 40
+        let width = TileGrid.minimumTileWidth * 4 + spacing * 3 + 20
         let plan = TileGrid.plan(itemCount: 4, availableWidth: width)
         #expect(plan.columns == 4)
         #expect(abs(plan.tileWidth * 4 + spacing * 3 - width) < 0.01)
     }
 
-    @Test("A tile never grows past its natural size, however few there are")
+    @Test("The row fills the available width for every Favorite count")
     func neverAboveMaximum() {
         for count in 1...6 {
             let plan = TileGrid.plan(itemCount: count, availableWidth: 900)
-            #expect(plan.tileWidth <= TileGrid.maximumTileWidth,
-                    "\(count) tiles produced \(plan.tileWidth)")
+            #expect(abs(plan.tileWidth * CGFloat(plan.columns)
+                        + Style.Metrics.tileSpacing * CGFloat(plan.columns - 1) - 900) < 0.01)
         }
     }
 
@@ -975,11 +975,11 @@ struct TileGridTests {
         #expect(two.height > one.height)
     }
 
-    @Test("A single tile is never stretched across the whole strip")
+    @Test("A single Favorite fills the whole strip like Arc")
     func singleTile() {
         let plan = TileGrid.plan(itemCount: 1, availableWidth: 900)
         #expect(plan.columns == 1)
-        #expect(plan.tileWidth == TileGrid.maximumTileWidth)
+        #expect(plan.tileWidth == 900)
     }
 
     @Test("A zero width does not divide by zero or report a negative height")

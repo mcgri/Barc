@@ -907,6 +907,15 @@ final class SidebarViewController: NSViewController {
         }
         // One label, one concept: the space is the identity.
         let space = shownSpace
+        if space.theme == .custom, space.look.appearance == .system,
+           let rgb = space.color.usingColorSpace(.sRGB) {
+            let brightness = rgb.redComponent * 0.299 + rgb.greenComponent * 0.587 + rgb.blueComponent * 0.114
+            view.appearance = NSAppearance(named: brightness > 0.53 ? .aqua : .darkAqua)
+            material?.appearance = NSAppearance(named: .darkAqua)
+        } else {
+            view.appearance = space.look.appearance.appearance
+            material?.appearance = nil
+        }
         diaHeader.spaceButton.show(
             title: space.name,
             // Only what the user put there. The dot is not repeated in the
@@ -2454,7 +2463,8 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             emoji: group.emoji,
             name: group.name,
             isExpanded: !group.isCollapsed,
-            isLocked: group.isLocked
+            isLocked: group.isLocked,
+            symbolName: group.symbolName
         )
         header.onToggle = { [weak self] _ in self?.session.toggleCollapsed(group) }
         // The cross asks first, and by default keeps the tabs (they come back

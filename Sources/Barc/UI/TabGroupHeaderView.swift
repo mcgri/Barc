@@ -1,3 +1,4 @@
+// Modified for Barc: folder icons and flat Arc-style list headers, 2026-10-24.
 import AppKit
 
 /// The header of a collapsible tab group: emoji, name, disclosure chevron.
@@ -21,6 +22,7 @@ final class TabGroupHeaderView: NSView {
     }
 
     private let emojiLabel = NSTextField(labelWithString: "")
+    private let folderIcon = NSImageView()
     private lazy var removeButton = IconButton(symbolName: "xmark", label: "Remove Folder") { [weak self] in
         self?.onRemove?()
     }
@@ -75,7 +77,13 @@ final class TabGroupHeaderView: NSView {
         chevron.setContentHuggingPriority(.required, for: .horizontal)
         chevron.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = NSStackView(views: [emojiLabel, titleLabel, chevron])
+        folderIcon.translatesAutoresizingMaskIntoConstraints = false
+        folderIcon.imageScaling = .scaleProportionallyDown
+        folderIcon.contentTintColor = Style.Colors.primaryText
+        folderIcon.setAccessibilityElement(false)
+        NSLayoutConstraint.activate([folderIcon.widthAnchor.constraint(equalToConstant: 16),
+                                     folderIcon.heightAnchor.constraint(equalToConstant: 16)])
+        let stack = NSStackView(views: [folderIcon, emojiLabel, titleLabel, chevron])
         stack.orientation = .horizontal
         stack.spacing = 5
         stack.alignment = .centerY
@@ -148,9 +156,11 @@ final class TabGroupHeaderView: NSView {
 
     /// - Parameter emoji: omitted when the group has none; the name then starts
     ///   where the emoji would have been, rather than after a blank gap.
-    func show(emoji: String?, name: String, isExpanded: Bool, isLocked: Bool = false) {
+    func show(emoji: String?, name: String, isExpanded: Bool, isLocked: Bool = false, symbolName: String? = nil) {
         emojiLabel.stringValue = emoji ?? ""
         emojiLabel.isHidden = (emoji ?? "").isEmpty
+        folderIcon.isHidden = !emojiLabel.isHidden
+        folderIcon.image = NSImage(systemSymbolName: symbolName ?? "folder", accessibilityDescription: nil)
         titleLabel.stringValue = name
         self.isExpanded = isExpanded
         self.isLocked = isLocked

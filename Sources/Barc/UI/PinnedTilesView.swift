@@ -159,7 +159,7 @@ enum TileGrid {
 
     /// Below this a tile is too narrow to read as one, so the strip wraps
     /// instead of shrinking further.
-    static let minimumTileWidth: CGFloat = 45
+    static let minimumTileWidth: CGFloat = 64
 
     /// And above this a tile stops being a tile.
     ///
@@ -169,7 +169,6 @@ enum TileGrid {
     /// absurd with two, and the tiles changed size every time one was added.
     /// A shortcut is a fixed-size thing that there happen to be some number
     /// of, so the row fills up from the left and stops.
-    static let maximumTileWidth: CGFloat = Style.Metrics.tileWidth
 
     static func plan(itemCount: Int, availableWidth: CGFloat) -> Plan {
         let spacing = Style.Metrics.tileSpacing
@@ -185,7 +184,7 @@ enum TileGrid {
         // single tile across the whole strip.
         let columns = max(1, min(count, fitting))
         let even = (availableWidth - spacing * CGFloat(columns - 1)) / CGFloat(columns)
-        let width = min(even, maximumTileWidth)
+        let width = even
         let rows = Int(ceil(Double(count) / Double(columns)))
         let height = CGFloat(rows) * Style.Metrics.tileHeight
             + CGFloat(rows - 1) * spacing
@@ -280,14 +279,8 @@ private final class PinnedTileView: NSView {
     /// colour, and the strip reads as a row of icons rather than a row of
     /// frames.
     private func applyRing(for image: NSImage?) {
-        guard isActive else {
-            ring.isHidden = true
-            return
-        }
-        ring.isHidden = false
-        ring.colors = BrandPalette.ringColors(for: image).map(\.cgColor)
-        ring.opacity = 1
-        needsLayout = true
+        // Arc distinguishes the active Favorite with the plate, without a brand-colored outline.
+        ring.isHidden = true
     }
 
     private func updateHighlight() {

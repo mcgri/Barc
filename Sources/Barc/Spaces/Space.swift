@@ -1,3 +1,4 @@
+// Modified for Barc: saturated custom Space colors for Arc sidebar fidelity, 2026-10-24.
 import AppKit
 
 /// A named browsing workspace, and an identity.
@@ -104,6 +105,7 @@ final class Space: Identifiable {
         // Neutral with no gradient paints nothing; anything with a colour of
         // its own washes at the space's own strength.
         guard look.gradient != nil || theme.tintsChrome else { return nil }
+        if theme == .custom { return color.withAlphaComponent(CGFloat(look.washOpacity) * 0.75) }
         return SpaceTheme.wash(of: color, opacity: CGFloat(look.washOpacity))
     }
 

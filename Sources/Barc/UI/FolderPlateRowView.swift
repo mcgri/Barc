@@ -1,3 +1,4 @@
+// Modified for Barc: standard folders share the flat sidebar surface, 2026-10-24.
 import AppKit
 
 /// The row behind every sidebar cell, which draws the folder plates.
@@ -51,10 +52,8 @@ final class FolderPlateRowView: NSTableRowView {
             // The fill: the flat default sliced per row, or the group's colour
             // over the whole card. The rim, if any, goes on top of either.
             if slice.appearance.fill == .standard {
-                drawDefault(
-                    slice.segment, leading: leading, width: width,
-                    radius: radius, gap: gap, gapBelow: slice.gapBelow
-                )
+                // Ordinary folders share the sidebar surface, as in Arc.
+                // Explicit folder colors and outlines still belong to the user.
             } else {
                 drawGradient(slice, leading: leading, width: width, radius: radius, gap: gap)
             }
