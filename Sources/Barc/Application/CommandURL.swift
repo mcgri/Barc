@@ -91,7 +91,11 @@ enum CommandURL: Equatable {
             return window.runPaletteCommand(id)
         case .newTab:
             NSApplication.shared.activate(ignoringOtherApps: true)
-            _ = session.newTab()
+            if let window {
+                window.newTab(nil)
+            } else {
+                _ = session.newTab()
+            }
             return true
         }
     }

@@ -45,6 +45,8 @@ final class SidebarViewController: NSViewController {
     /// Table view displaying tabs and groups.
     var tabListTableView: NSTableView { tableView }
 
+    var onNewTab: (() -> Void)?
+
     /// Told which space is in front, so the window can wash the strip beside
     /// the page card with its colour and draw its border as well. The sidebar
     /// is the only thing watching the session for this, and duplicating that
@@ -1483,7 +1485,7 @@ final class SidebarViewController: NSViewController {
     // MARK: - Actions
 
     @objc private func newTab() {
-        session.newTab()
+        onNewTab?()
     }
 
     @objc private func goBack() { session.activeTab?.goBack() }

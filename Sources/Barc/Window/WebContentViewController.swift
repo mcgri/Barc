@@ -111,9 +111,11 @@ final class WebContentViewController: NSViewController {
         set { contentContainer.onPinchToOverview = newValue }
     }
 
+    var onNewTab: (() -> Void)?
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        container.onNewTab = { [weak self] in self?.session.newTab() }
+        container.onNewTab = { [weak self] in self?.onNewTab?() }
         find.install(in: container)
         session.showToast = { [weak self] toast in self?.toasts.show(toast) }
         SiteSettings.shared.addChangeObserver { [weak self] in self?.updateTopBar() }
@@ -147,7 +149,7 @@ final class WebContentViewController: NSViewController {
             guard let self, !tab.isLocked, TabClosing.confirm(closing: tab) else { return }
             _ = self.session.closeTab(tab)
         }
-        contentContainer.tabStrip.onNewTab = { [weak self] in _ = self?.session.newTab() }
+        contentContainer.tabStrip.onNewTab = { [weak self] in self?.onNewTab?() }
         contentContainer.tabStrip.onReorder = { [weak self] from, to in self?.session.moveTab(from: from, to: to) }
         for name in [Notification.Name.tabStripDidChange, .zenModeDidChange] {
             NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in

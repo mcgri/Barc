@@ -261,6 +261,66 @@ struct CommandBarViewTests {
         #expect(bar.selectedIndex == nil)
     }
 
+    @Test("The panel stays centered with suggestions and after resizing")
+    func panelIsCentered() throws {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 800))
+        let bar = CommandBar()
+        bar.install(in: host)
+        bar.open(openInNewTab: true)
+        for size in [NSSize(width: 1_200, height: 800), NSSize(width: 720, height: 460)] {
+            host.setFrameSize(size)
+            for count in [0, 8] {
+                bar.setResults(results(count))
+                host.layoutSubtreeIfNeeded()
+                let panel = try #require(bar.subviews.first)
+                #expect(abs(panel.frame.midX - bar.bounds.midX) < 1)
+                #expect(abs(panel.frame.midY - bar.bounds.midY) < 1)
+                #expect(bar.bounds.contains(panel.frame))
+            }
+        }
+    }
+
+    @Test("Opening a new-tab bar puts the keyboard in its empty address field")
+    func openingFocusesTheAddressField() {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1_200, height: 800),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let bar = CommandBar()
+        bar.install(in: window.contentView!)
+        bar.open(openInNewTab: true)
+        #expect(bar.fieldHasFocus)
+        #expect(bar.queryText.isEmpty)
+        (window.firstResponder as? NSTextView)?.insertText("example.com", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(bar.queryText == "example.com")
+        bar.close()
+    }
+
+    @Test("Typed addresses and selected suggestions retain new-tab intent")
+    func newTabIntentSurvivesSubmission() {
+        let bar = bar()
+        var destination: CommandAction?
+        var opensNewTab = false
+        bar.onRun = { action, newTab in
+            destination = action
+            opensNewTab = newTab
+        }
+        bar.open(text: "example.com", openInNewTab: true)
+        bar.submit()
+        #expect(opensNewTab)
+        #expect(destination == .openURL(URL(string: "https://example.com")!))
+
+        bar.open(text: "example", openInNewTab: true)
+        bar.setResults(results(2))
+        bar.select(0)
+        let expected = bar.visibleResults[0].action
+        bar.submit()
+        #expect(opensNewTab)
+        #expect(destination == expected)
+        #expect(!bar.isNewTabMode)
+    }
+
     @Test("Rows appear when there is something to show")
     func resultsPopulateTheList() {
         let bar = bar()
@@ -361,7 +421,7 @@ struct CommandBarViewTests {
     func returnWithoutSelectionNavigates() {
         let bar = bar()
         var performed: CommandAction?
-        bar.onRun = { performed = $0 }
+        bar.onRun = { action, _ in performed = action }
         bar.open(text: "example.com")
         bar.submit()
         #expect(performed == .openURL(URL(string: "https://example.com")!))
@@ -371,7 +431,7 @@ struct CommandBarViewTests {
     func returnWithSelectionRunsTheRow() {
         let bar = bar()
         var performed: CommandAction?
-        bar.onRun = { performed = $0 }
+        bar.onRun = { action, _ in performed = action }
         bar.open(text: "example.com")
         bar.setResults(results(3))
         bar.moveSelection(by: 1)
@@ -383,7 +443,7 @@ struct CommandBarViewTests {
     @Test("Running a row closes the bar, and closing clears what was typed")
     func runningClosesTheBar() {
         let bar = bar()
-        bar.onRun = { _ in }
+        bar.onRun = { _, _ in }
         bar.open(text: "example.com")
         #expect(bar.isOpen)
         bar.setResults(results(2))
@@ -396,7 +456,7 @@ struct CommandBarViewTests {
     func escapeDismisses() {
         let bar = bar()
         var performed: CommandAction?
-        bar.onRun = { performed = $0 }
+        bar.onRun = { action, _ in performed = action }
         bar.open(text: "example.com")
         bar.cancelOperation(nil)
         #expect(!bar.isOpen)
@@ -421,7 +481,7 @@ struct CommandBarViewTests {
     func emptyReturnDoesNothing() {
         let bar = bar()
         var ran = false
-        bar.onRun = { _ in ran = true }
+        bar.onRun = { _, _ in ran = true }
         bar.open()
         bar.submit()
         #expect(!ran)

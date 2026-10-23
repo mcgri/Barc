@@ -124,6 +124,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         buildSplitView()
         wireTopBar()
         wireCommandBar()
+        sidebar.onNewTab = { [weak self] in self?.newTab(nil) }
+        content.onNewTab = { [weak self] in self?.newTab(nil) }
         root.host(splitViewController)
         window.contentViewController = root
         // While the command bar or tab overview is open the page may not take the keyboard:
@@ -1162,7 +1164,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             )
         }
 
-        commandBar.onRun = { [weak self] action in
+        commandBar.onRun = { [weak self] action, openInNewTab in
             guard let self else { return }
             switch action {
             case .switchToTab(let id):
@@ -1182,7 +1184,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 // The same chord that peeks at a link peeks at a result.
                 if GlanceInvocation.isGlanceChord(NSEvent.modifierFlags) {
                     self.content.openGlance(url)
-                } else if self.commandBar.isNewTabMode {
+                } else if openInNewTab {
                     self.session.newTab(url: url)
                 } else if let tab = self.session.activeTab {
                     tab.load(url)
@@ -2054,7 +2056,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case "empty-caches":
             emptyCaches(nil)
         case "new-tab":
-            _ = session.newTab()
+            newTab(nil)
         case "close-tab":
             let multiSelected = sidebar.selectedTabs
             if multiSelected.count > 1 {

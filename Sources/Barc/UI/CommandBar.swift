@@ -13,9 +13,8 @@ enum CommandBarMetrics {
     static let panelWidth: CGFloat = 640
     /// Never let the panel touch the window edge, however narrow the window.
     static let minimumSideGap: CGFloat = 48
-    /// Distance from the top of the page area. Roughly the top sixth: high
-    /// enough to feel like an overlay, low enough that the eye finds it.
-    static let topInset: CGFloat = 96
+    /// Keep the centered panel clear of both vertical edges.
+    static let verticalGap: CGFloat = 72
     /// Breathing room kept below the panel when the results list is at its
     /// tallest, so a full list never runs into the bottom of the window.
     static let bottomGap: CGFloat = 24
@@ -77,7 +76,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// Performs a chosen row, or the address the user typed. The bar resolves
     /// text into a `URL` itself so that the caller has one case to handle
     /// rather than two, but it never navigates: it has no session to navigate.
-    var onRun: ((CommandAction) -> Void)?
+    var onRun: ((CommandAction, Bool) -> Void)?
 
     private let shadowHost = NSView()
     private let panel = NSVisualEffectView()
@@ -170,10 +169,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
         NSLayoutConstraint.activate([
             shadowHost.centerXAnchor.constraint(equalTo: centerXAnchor),
-            shadowHost.topAnchor.constraint(
-                equalTo: topAnchor,
-                constant: CommandBarMetrics.topInset
-            ),
+            shadowHost.centerYAnchor.constraint(equalTo: centerYAnchor),
             preferredWidth,
             shadowHost.widthAnchor.constraint(
                 lessThanOrEqualTo: widthAnchor,
@@ -383,12 +379,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         applySelectionToRows()
     }
 
-    /// How many rows fit between the panel's top inset and the bottom of the
-    /// window. A launcher whose list runs off the screen is worse than a
+    /// How many rows fit inside the centered panel's vertical margins.
+    /// A launcher whose list runs off the screen is worse than a
     /// shorter list, and this is cheaper and steadier than a scroll view for a
     /// list that is capped at eight rows anyway.
     static func maximumVisibleRows(inHeight height: CGFloat) -> Int {
-        let chrome = CommandBarMetrics.topInset
+        let chrome = CommandBarMetrics.verticalGap * 2
             + CommandBarMetrics.fieldHeight
             + CommandBarMetrics.dividerHeight
             + CommandBarMetrics.listInset * 2
@@ -448,8 +444,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func run(at index: Int) {
         guard visibleResults.indices.contains(index) else { return }
         let action = visibleResults[index].action
+        let openInNewTab = isNewTabMode
         close()
-        onRun?(action)
+        onRun?(action, openInNewTab)
     }
 
     /// Return. A selected row wins; otherwise the typed text is resolved the
@@ -468,9 +465,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         let openInNewTab = isNewTabMode
         close()
-        isNewTabMode = openInNewTab
-        onRun?(.openURL(url))
-        isNewTabMode = false
+        onRun?(.openURL(url), openInNewTab)
     }
 
     // MARK: - Querying
