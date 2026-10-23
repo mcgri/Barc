@@ -58,10 +58,23 @@ enum ArcSupplementReader {
             }
             // Payment-card tables are deliberately never queried.
         }
-        if let data = try? Data(contentsOf: profile.appending(path: "Preferences")),
-           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let provider = (json["default_search_provider_data"] as? [String: Any])?["template_url_data"] as? [String: Any],
-           let name = provider["short_name"] as? String {
+        var providerName: String?
+        var providerGUID: String?
+        for filename in ["Secure Preferences", "Preferences"] {
+            guard let data = try? Data(contentsOf: profile.appending(path: filename)),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            let provider = (json["default_search_provider_data"] as? [String: Any])?["template_url_data"] as? [String: Any]
+            if providerName == nil, let name = provider?["short_name"] as? String, !name.isEmpty { providerName = name }
+            if providerGUID == nil { providerGUID = (json["default_search_provider"] as? [String: Any])?["guid"] as? String }
+        }
+        if providerName == nil, let guid = providerGUID, !guid.isEmpty, FileManager.default.fileExists(atPath: web.path) {
+            let db = try SQLiteDatabase(readingOnly: web.path)
+            let columns = Set(try db.query("PRAGMA table_info(keywords);") { $0.text(1) ?? "" })
+            if columns.contains("sync_guid") {
+                providerName = try db.query("SELECT short_name FROM keywords WHERE sync_guid = ? LIMIT 1;", [.text(guid)]) { $0.text(0) }.first ?? nil
+            }
+        }
+        if let name = providerName {
             output.defaultSearchEngineID = (SearchEngine.all + output.searchEngines).first { $0.name.lowercased() == name.lowercased() }?.id
         }
         let history = profile.appending(path: "History")

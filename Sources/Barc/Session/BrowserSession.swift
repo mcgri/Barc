@@ -2337,6 +2337,7 @@ final class BrowserSession {
             let space: Space
             if let existing = spaces.first(where: { $0.id == id }) {
                 space = existing
+                if let engine = stored.searchEngineID { space.searchEngineID = engine }
                 for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }
                 for pin in built.pinnedSites where !space.pinnedSites.contains(where: { $0.id == pin.id }) { space.addPinnedSite(pin); addedFavorites += 1 }
             } else {

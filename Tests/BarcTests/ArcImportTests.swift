@@ -188,9 +188,19 @@ struct ArcWebsiteTransferTests {
         #expect(result.verified == 1)
         let absent: [HTTPCookie] = await withCheckedContinuation { c in right.httpCookieStore.getAllCookies { c.resume(returning: $0) } }
         #expect(absent.isEmpty)
+        let newer = try #require(ArcCookieTransfer.nativeCookie(.init(name: "session", value: "newer-destination", domain: "import.invalid", path: "/",
+            expires: Date().addingTimeInterval(7200), secure: true, httpOnly: true, sameSite: 1, partitioned: false)))
+        await withCheckedContinuation { continuation in
+            left.httpCookieStore.setCookie(newer) { continuation.resume() }
+        }
+        let seeded = await left.httpCookieStore.allCookies()
+        #expect(seeded.first { $0.name == "session" }?.value == "newer-destination")
         let again = await ArcCookieTransfer.transfer(.init(records: [source], source: 1), to: left)
         #expect(again.existing == 1)
         #expect(again.imported == 0)
+        #expect(again.verified == 0)
+        let retained = await left.httpCookieStore.allCookies()
+        #expect(retained.first { $0.name == "session" }?.value == "newer-destination")
     }
 
     @Test("Offline local storage writes use WebKit and do not overwrite existing values")
@@ -202,9 +212,14 @@ struct ArcWebsiteTransferTests {
         let first = await transfer.transfer(values)
         #expect(first.imported == 2)
         #expect(first.verified == 2)
-        let second = await transfer.transfer(values)
+        let changed = ArcLocalStorageReader.Contents(origins: ["https://barc-import.invalid": ["text": "older-source-conflict", "empty": ""]], source: 2)
+        let second = await transfer.transfer(changed)
         #expect(second.existing == 2)
         #expect(second.imported == 0)
+        #expect(second.verified == 1)
+        let preserved = await transfer.transfer(values)
+        #expect(preserved.existing == 2)
+        #expect(preserved.verified == 2)
     }
 }
 

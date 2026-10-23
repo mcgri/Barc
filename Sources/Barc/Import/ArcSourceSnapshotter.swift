@@ -58,7 +58,7 @@ enum ArcSourceSnapshotter {
                 var databases: [String] = []
                 for profile in profiles {
                     let prefix = "User Data/\(profile.folder)/"
-                    for name in ["Preferences", "Bookmarks"] { try copy(prefix + name) }
+                    for name in ["Preferences", "Secure Preferences", "Bookmarks"] { try copy(prefix + name) }
                     for name in ["History", "Login Data", "Web Data", "Cookies", "Network/Cookies"] {
                         let relative = prefix + name
                         if manager.fileExists(atPath: source.appending(path: relative).path) {

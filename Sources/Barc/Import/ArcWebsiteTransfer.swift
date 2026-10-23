@@ -231,8 +231,10 @@ final class ArcLocalStorageTransfer: NSObject, WKNavigationDelegate {
                 result.existing += counts["existing"] ?? 0
                 result.verified += counts["verified"] ?? 0
                 result.failed += counts["failed"] ?? 0
-                if let failed = counts["failed"], failed > 0 {
-                    result.failureReasons = (result.failureReasons ?? [:]).merging(["WebKit rejected storage writes": failed], uniquingKeysWith: +)
+                for (key, reason) in [("quota", "WebKit local-storage quota reached"), ("security", "WebKit blocked local-storage access"), ("mismatch", "WebKit did not retain the local-storage value exactly"), ("other", "WebKit rejected storage writes")] {
+                    if let failed = counts[key], failed > 0 {
+                        result.failureReasons = (result.failureReasons ?? [:]).merging([reason: failed], uniquingKeysWith: +)
+                    }
                 }
             } catch {
                 let failed = values.count + encoded.count
@@ -247,7 +249,7 @@ final class ArcLocalStorageTransfer: NSObject, WKNavigationDelegate {
 
     private static let script = """
     if (location.origin !== origin) throw new Error('The local document has the wrong origin');
-    const counts = {imported: 0, existing: 0, verified: 0, failed: 0};
+    const counts = {imported: 0, existing: 0, verified: 0, failed: 0, quota: 0, security: 0, mismatch: 0, other: 0};
     function decode(encoded) {
         const bytes = atob(encoded); let result = '';
         for (let start = 0; start < bytes.length; start += 4096) {
@@ -262,11 +264,20 @@ final class ArcLocalStorageTransfer: NSObject, WKNavigationDelegate {
     for (const [key, value] of entries) {
         try {
             const old = localStorage.getItem(key);
-            if (old !== null) { counts.existing++; continue; }
+            if (old !== null) {
+                counts.existing++;
+                if (old === value) counts.verified++;
+                continue;
+            }
             localStorage.setItem(key, value);
-            if (localStorage.getItem(key) !== value) { counts.failed++; continue; }
+            if (localStorage.getItem(key) !== value) { counts.failed++; counts.mismatch++; continue; }
             counts.imported++; counts.verified++;
-        } catch (_) { counts.failed++; }
+        } catch (error) {
+            counts.failed++;
+            if (error && error.name === 'QuotaExceededError') counts.quota++;
+            else if (error && error.name === 'SecurityError') counts.security++;
+            else counts.other++;
+        }
     }
     return counts;
     """

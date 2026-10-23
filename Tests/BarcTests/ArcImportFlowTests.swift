@@ -91,6 +91,48 @@ struct ArcSnapshotTests {
 @Suite("Arc import orchestration", .serialized)
 @MainActor
 struct ArcImportFlowTests {
+    @Test("Search choices in Secure Preferences and keyword GUIDs are restored on a repeated import")
+    func protectedSearchPreferences() async throws {
+        _ = NSApplication.shared
+        let root = try ArcImportBench.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let arc = root.appending(path: "Arc")
+        _ = try ArcFlowBench.source(in: arc)
+        let personal = arc.appending(path: "User Data/Default")
+        let work = arc.appending(path: "User Data/Profile 1")
+        try JSONSerialization.data(withJSONObject: ["default_search_provider_data": ["template_url_data": ["short_name": "Google"]]])
+            .write(to: personal.appending(path: "Secure Preferences"))
+        try JSONSerialization.data(withJSONObject: ["default_search_provider": ["guid": "fictional-selected-engine"]])
+            .write(to: work.appending(path: "Preferences"))
+        let web = try SQLiteDatabase(path: work.appending(path: "Web Data").path)
+        try web.execute("""
+            CREATE TABLE keywords(short_name TEXT, keyword TEXT, url TEXT, prepopulate_id INTEGER, safe_for_autoreplace INTEGER, sync_guid TEXT);
+            INSERT INTO keywords VALUES('Bing', 'bing', 'https://bing.invalid/?q={searchTerms}', 3, 1, 'fictional-selected-engine');
+            PRAGMA wal_checkpoint(TRUNCATE);
+            """)
+        let source = try ArcSourceSnapshotter.capture(arc, temporaryParent: root)
+        defer { source.remove() }
+        #expect(FileManager.default.fileExists(atPath: source.profileURL(source.profiles[0]).appending(path: "Secure Preferences").path))
+        let session = BrowserSession(database: nil, sessionStore: SessionStore(fileURL: root.appending(path: "session.json")))
+        let original = try #require(session.spaces.first)
+        original.searchEngineID = "duckduckgo"
+        let coordinator = ArcImportCoordinator(session: session,
+            downloads: DownloadManager(store: DownloadStore(fileURL: root.appending(path: "downloads.json"))), reportDirectory: root.appending(path: "reports"))
+        coordinator.autofillProvider = { AutofillStore(fileURL: root.appending(path: "autofill-" + ProfileDataPaths.key(for: $0) + ".json")) }
+        var options = ArcImportOptions(profileIDs: ["Default", "Profile 1"])
+        options.history = false; options.bookmarks = false; options.passwords = false
+        options.cookies = false; options.localStorage = false; options.supplementary = false
+        _ = try await coordinator.run(source, options: options)
+        options.supplementary = true
+        _ = try await coordinator.run(source, options: options)
+        let built = ArcSpaceBuilder.build(source, options: options)
+        for item in built {
+            let space = try #require(session.spaces.first { $0.id == item.snapshot.id })
+            #expect(space.searchEngineID == (item.profile == "Default" ? "google" : "bing"))
+        }
+        #expect(original.searchEngineID == "duckduckgo")
+    }
+
     @Test("Arc Space order survives profile-by-profile import without moving unrelated Spaces")
     func sidebarSpaceOrder() async throws {
         _ = NSApplication.shared
@@ -229,6 +271,15 @@ struct ArcImportFlowTests {
         #expect(memory.records.count == 2)
         for credentials in memory.records.values { #expect(credentials.count == 1) }
         #expect(Set(memory.records.values.flatMap { $0.map(\.password) }).count == 2)
+        let identity = try #require(memory.records.keys.first)
+        let original = try #require(memory.records[identity]?.first)
+        memory.records[identity] = [.init(host: original.host, username: original.username, password: "newer-native-password",
+            storagePath: original.storagePath, scheme: original.scheme, port: original.port)]
+        let repeated = try await coordinator.run(source, options: options)
+        #expect(repeated.profiles.reduce(0) { $0 + ($1.counts["Saved passwords"]?.imported ?? 0) } == 0)
+        #expect(repeated.profiles.reduce(0) { $0 + ($1.counts["Saved passwords"]?.existing ?? 0) } == 2)
+        #expect(repeated.profiles.reduce(0) { $0 + ($1.counts["Saved passwords"]?.verified ?? 0) } == 1)
+        #expect(memory.records[identity]?.first?.password == "newer-native-password")
     }
 
     @Test("The normal recent-download cap does not truncate an explicit Arc archive")

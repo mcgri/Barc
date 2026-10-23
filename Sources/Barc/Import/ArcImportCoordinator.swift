@@ -174,7 +174,10 @@ final class ArcImportCoordinator {
                         existing: read.downloads.count - addedDownloads, skipped: read.sourceDownloads - read.downloads.count, verified: read.downloads.count)
                     result.counts["Generic form suggestions"] = .init(source: read.genericFormValues, skipped: read.genericFormValues)
                     defaultSearch = read.defaultSearchEngineID
-                    if !read.searchEngines.isEmpty { result.notes.append("Search shortcuts use Barc's shared search-engine list; this Space's default search engine is restored separately.") }
+                    if !read.searchEngines.isEmpty { result.notes.append("Search shortcuts use Barc's shared search-engine list.") }
+                    result.notes.append(read.defaultSearchEngineID == nil
+                        ? "Arc's default search engine could not be identified; the current Barc choice was kept."
+                        : "The detected default search engine was restored for this profile's Spaces.")
                     if read.genericFormValues > 0 { result.notes.append("Barc supports saved addresses, but not Arc's arbitrary form-field suggestion history.") }
                 } catch { result.notes.append("Additional data: " + error.localizedDescription); result.counts["Additional data"] = .init(failed: 1) }
             }
@@ -219,12 +222,17 @@ final class ArcImportCoordinator {
 
     private func transferPasswords(_ input: ArcProfileReader.ReadResult<ArcProfileReader.Password>, identity: Space.Identity, sourceKey: String) -> ArcImportReport.Count {
         var result = ArcImportReport.Count(source: input.source, skipped: input.skipped, failed: input.failed)
-        let existing = Set(passwords.read(identity).compactMap(\.storagePath))
+        let existing = Dictionary(passwords.read(identity).compactMap { row in row.storagePath.map { ($0, row) } }, uniquingKeysWith: { first, _ in first })
         var expected: [(ArcProfileReader.Password, String)] = []
         for row in input.records {
             let id = sourceKey + "/login/" + String(row.id)
             let path = KeychainPasswordStore.path(for: identity, sourceID: id)
-            if existing.contains(path) { result.existing += 1; continue }
+            if let retained = existing[path] {
+                result.existing += 1
+                if retained.host == row.host, retained.username == row.username, retained.password == row.value,
+                   retained.scheme == row.scheme, retained.port == row.port { result.verified += 1 }
+                continue
+            }
             if passwords.save(row, identity, id) { expected.append((row, path)) }
             else { result.failed += 1 }
         }
