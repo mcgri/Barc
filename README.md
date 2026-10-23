@@ -5,7 +5,7 @@ I forked [Kylmora](https://github.com/kylmora/kylmora) to make a browser that fi
 
 Original browser: [Kylmora source code](https://github.com/kylmora/kylmora) and [kylmora.com](https://kylmora.com).
 
-The full upstream Git history is preserved. This fork began at Kylmora commit [`08059591cfc740d3f5f94622a3674ad360abb378`](https://github.com/kylmora/kylmora/commit/08059591cfc740d3f5f94622a3674ad360abb378). The original README is retained unchanged in [UPSTREAM.md](UPSTREAM.md) as historical documentation; its downloads, services and branding describe Kylmora.
+Barc started with Kylmora's source code and full Git history, preserving the original work and its recorded changes. Barc's changes continue from Kylmora commit [`08059591cfc740d3f5f94622a3674ad360abb378`](https://github.com/kylmora/kylmora/commit/08059591cfc740d3f5f94622a3674ad360abb378). The original README is retained unchanged in [UPSTREAM.md](UPSTREAM.md) as historical documentation; its downloads, services and branding describe Kylmora.
 
 ## Build and run
 
@@ -16,7 +16,7 @@ make bundle
 make run
 ```
 
-The app is built at `build/Barc.app`, using the approved B ribbon icon. To run tests:
+The app is built at `build/Barc.app` with Barc's B ribbon icon and its own application identity. To run tests:
 
 ```sh
 make test
@@ -51,7 +51,7 @@ The [implementation plan](docs/arc-import-plan.md) describes the supported forma
 - Command-line helper: `Tools/barc`, bundled as `Contents/Resources/barc-cli`
 - Keychain labels and services, sync folders, native-messaging identifiers and generated web-app identities use Barc's namespace.
 
-Barc uses its own data locations. Rebranding does not import or alter an existing Kylmora profile. Website passwords use Barc's own encrypted vault and do not change another browser's password items.
+Barc can run alongside Kylmora using separate settings and data locations. Rebranding does not import or alter an existing Kylmora profile. Website passwords use Barc's own encrypted vault and do not change another browser's password items.
 
 Website passwords are encrypted with AES-256-GCM in `Passwords/website-passwords.barc` inside Barc's application-data folder. One macOS login-Keychain item protects the random encryption key. A successful unlock is kept in memory for the app session, so an application update can require one vault approval rather than a separate approval for every password. Profile records stay separate. The vault does not use iCloud Keychain sync.
 
@@ -65,12 +65,16 @@ Barc has no automatic release feed configured yet. Automatic checks default to o
 
 Reports and feature requests open editable drafts in [Barc's GitHub issues](https://github.com/mcgri/Barc/issues). Nothing is published until the user submits it on GitHub. Reports do not go to Kylmora's contact service. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
-The local checkout has `origin` pointing to `https://github.com/mcgri/Barc.git` and `upstream` pointing to `https://github.com/kylmora/kylmora.git`. Other clones can add the upstream remote with:
+## Following Kylmora development
+
+`origin` refers to [this Barc repository](https://github.com/mcgri/Barc). `upstream` is a name for the [original Kylmora repository](https://github.com/kylmora/kylmora). After cloning Barc, you can add that address and download Kylmora's development history and release tags with:
 
 ```sh
 git remote add upstream https://github.com/kylmora/kylmora.git
 git fetch upstream --tags
 ```
+
+Run `git remote add` only once per clone. If `upstream` is already configured, use just `git fetch upstream --tags` to refresh it. Fetching does not change Barc's files or merge Kylmora updates. Bringing those changes into Barc is a separate step.
 
 ## License, attribution and trademarks
 
