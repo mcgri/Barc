@@ -1,6 +1,8 @@
 <!-- Modified for Barc: application identity, branding and legal documentation, 2026-10-23. -->
 # Barc
 
+My goal is to copy Arc's UI and UX because I'm too lazy, and maybe too old, to get used to a new browser.
+
 I forked [Kylmora](https://github.com/kylmora/kylmora) to make a browser that fits my needs and the way I work. You're welcome to use Barc, share feedback, contribute, or fork it and make it your own.
 
 Original browser: [Kylmora source code](https://github.com/kylmora/kylmora) and [kylmora.com](https://kylmora.com).
