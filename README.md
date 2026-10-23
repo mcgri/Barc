@@ -1,7 +1,7 @@
 <!-- Modified for Barc: application identity, branding and legal documentation, 2026-10-23. -->
 # Barc
 
-Barc is an independent fork of [Kylmora](https://github.com/kylmora/kylmora), a native macOS browser built with Swift, AppKit and the system WebKit engine. It provides one window with Spaces, each with its own website identity.
+I forked [Kylmora](https://github.com/kylmora/kylmora) to make a browser that fits my needs and the way I work. You're welcome to use Barc, share feedback, contribute, or fork it and make it your own.
 
 Original browser: [Kylmora source code](https://github.com/kylmora/kylmora) and [kylmora.com](https://kylmora.com).
 
