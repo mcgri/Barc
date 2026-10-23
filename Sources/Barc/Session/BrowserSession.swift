@@ -2375,10 +2375,11 @@ final class BrowserSession {
                 if let engine = stored.searchEngineID { space.searchEngineID = engine }
                 for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }
                 for group in built.groups {
-                    guard let current = space.group(withID: group.id), current.badgeIcon == nil, !current.hasUserChosenIcon,
+                    guard let current = space.group(withID: group.id), !current.hasUserChosenIcon,
                           current.emoji == nil, current.iconFileName == nil,
-                          current.symbolName == nil || current.symbolName == "folder" || current.symbolName == "arc.github.folder" else { continue }
-                    current.badgeIcon = group.badgeIcon
+                          current.symbolName == nil || current.symbolName == "folder" || current.symbolName == "arc.github.folder",
+                          let badge = group.badgeIcon else { continue }
+                    current.badgeIcon = badge
                 }
                 for pin in built.pinnedSites where !space.pinnedSites.contains(where: { $0.id == pin.id }) { space.addPinnedSite(pin); addedFavorites += 1 }
             } else {

@@ -9,10 +9,10 @@ enum SidebarFolderGlyph {
             let stroke = tint.blended(withFraction: 0.45, of: Style.Colors.primaryText) ?? tint
             let folder = NSBezierPath()
             folder.move(to: NSPoint(x: 3, y: 1))
-            folder.line(to: NSPoint(x: 15, y: 1))
-            folder.curve(to: NSPoint(x: 17, y: 3), controlPoint1: NSPoint(x: 16.2, y: 1), controlPoint2: NSPoint(x: 17, y: 1.8))
-            folder.line(to: NSPoint(x: 17, y: 12))
-            folder.curve(to: NSPoint(x: 15, y: 14), controlPoint1: NSPoint(x: 17, y: 13.2), controlPoint2: NSPoint(x: 16.2, y: 14))
+            folder.line(to: NSPoint(x: 15.5, y: 1))
+            folder.curve(to: NSPoint(x: 17.5, y: 3), controlPoint1: NSPoint(x: 16.7, y: 1), controlPoint2: NSPoint(x: 17.5, y: 1.8))
+            folder.line(to: NSPoint(x: 17.5, y: 12))
+            folder.curve(to: NSPoint(x: 15.5, y: 14), controlPoint1: NSPoint(x: 17.5, y: 13.2), controlPoint2: NSPoint(x: 16.7, y: 14))
             folder.line(to: NSPoint(x: 8, y: 14))
             folder.line(to: NSPoint(x: 6.5, y: 16))
             folder.line(to: NSPoint(x: 3, y: 16))
@@ -21,13 +21,13 @@ enum SidebarFolderGlyph {
             folder.curve(to: NSPoint(x: 3, y: 1), controlPoint1: NSPoint(x: 1, y: 1.8), controlPoint2: NSPoint(x: 1.8, y: 1))
             folder.close()
             NSColor.white.withAlphaComponent(0.94).setFill()
-            folder.fill()
+            NSBezierPath(roundedRect: NSRect(x: 1, y: 1, width: 16.5, height: 13), xRadius: 2, yRadius: 2).fill()
             stroke.setStroke()
             folder.lineWidth = 1.2
             folder.stroke()
             let seam = NSBezierPath()
-            seam.move(to: NSPoint(x: 1.6, y: 12.7))
-            seam.line(to: NSPoint(x: 16.4, y: 12.7))
+            seam.move(to: NSPoint(x: 1.6, y: 14))
+            seam.line(to: NSPoint(x: 15.5, y: 14))
             seam.lineWidth = 1
             seam.stroke()
             if let mark {

@@ -208,7 +208,7 @@ struct ArcFaviconReaderTests {
         let file = directory.appending(path: "Favicons")
         do {
             let db = try SQLiteDatabase(path: file.path)
-            try db.execute("CREATE TABLE icon_mapping (page_url TEXT, icon_id INTEGER); CREATE TABLE favicon_bitmaps (id INTEGER PRIMARY KEY, icon_id INTEGER, image_data BLOB, width INTEGER, height INTEGER); CREATE TABLE favicons (id INTEGER PRIMARY KEY, url TEXT); INSERT INTO favicons VALUES (1, 'https://github.com/favicon.ico');")
+            try db.execute("CREATE TABLE icon_mapping (page_url TEXT, icon_id INTEGER); CREATE TABLE favicon_bitmaps (id INTEGER PRIMARY KEY, icon_id INTEGER, image_data BLOB, width INTEGER, height INTEGER); CREATE TABLE favicons (id INTEGER PRIMARY KEY, url TEXT); INSERT INTO favicons VALUES (1, 'https://github.com/favicon.ico'); INSERT INTO favicons VALUES (2, 'https://github.githubassets.com/favicons/favicon-failure.svg');")
             try db.run("INSERT INTO icon_mapping VALUES (?, ?);", [.text("http://localhost:1000/"), .integer(1)])
             try db.run("INSERT INTO icon_mapping VALUES (?, ?);", [.text("http://localhost:3000/"), .integer(2)])
             try db.run("INSERT INTO icon_mapping VALUES (?, ?);", [.text("https://unrelated.invalid/"), .integer(3)])

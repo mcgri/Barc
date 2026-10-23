@@ -56,11 +56,15 @@ enum ArcFaviconReader {
         guard tables.contains("favicons") else { return nil }
         let candidates = try database.query("""
             SELECT b.image_data FROM favicon_bitmaps b JOIN favicons f ON f.id = b.icon_id
-            WHERE (f.url LIKE 'https://github.com/favicon.%' OR f.url LIKE 'https://github.githubassets.com/favicons/%')
+            WHERE f.url IN ('https://github.com/favicon.ico',
+                'https://github.githubassets.com/favicons/favicon.svg',
+                'https://github.githubassets.com/favicons/favicon-dark.svg',
+                'https://github.githubassets.com/favicons/favicon.png')
               AND length(b.image_data) BETWEEN 1 AND \(FaviconDecoder.maximumByteCount)
               AND b.width BETWEEN 1 AND \(FaviconDecoder.maximumSourcePixelSize)
               AND b.height BETWEEN 1 AND \(FaviconDecoder.maximumSourcePixelSize)
-            ORDER BY ABS(b.width - 32), b.id DESC LIMIT 16;
+            ORDER BY CASE f.url WHEN 'https://github.githubassets.com/favicons/favicon.svg' THEN 0 ELSE 1 END,
+                ABS(b.width - 32), b.id DESC LIMIT 16;
             """) { try? FaviconDecoder.normalize($0.blob(0)) }
         return candidates.compactMap { $0 }.first
     }
