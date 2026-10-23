@@ -1,12 +1,7 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: sidebar navigation with utility actions in one menu, 2026-10-24.
 import AppKit
 
-/// One trailing action in the top bar.
-///
-/// The trailing cluster is caller-supplied rather than hard-coded because
-/// other browsers' own buttons there are features Barc does not have.
-/// Inventing lookalikes would be fake UI; this way the bar shows exactly the
-/// commands Barc actually has.
+/// A caller-supplied action in the page utility menu.
 struct TopBarAction {
     let symbolName: String
     let label: String
@@ -26,16 +21,20 @@ final class ContentTopBar: NSView {
     let backButton = IconButton(symbolName: "chevron.left", label: "Back")
     let forwardButton = IconButton(symbolName: "chevron.right", label: "Forward")
     let reloadButton = IconButton(symbolName: "arrow.clockwise", label: "Reload")
+    let utilitiesButton = IconButton(symbolName: "ellipsis", label: "Page Utilities")
     let addressField = AddressField()
 
     private let navigation = WrappingControlsView()
-    private let actions = WrappingControlsView()
+    /// Retain each action's existing state and handler without putting its button in the sidebar.
+    private var utilityActions: [(label: String, button: IconButton)] = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        navigation.setButtons([sidebarToggle, backButton, forwardButton, reloadButton])
-        let stack = NSStackView(views: [navigation, addressField, actions])
+        navigation.setButtons([sidebarToggle, backButton, forwardButton, reloadButton, utilitiesButton])
+        utilitiesButton.isEnabled = false
+        utilitiesButton.setClickHandler { [weak self] in self?.showUtilitiesMenu() }
+        let stack = NSStackView(views: [navigation, addressField])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 6
@@ -47,8 +46,7 @@ final class ContentTopBar: NSView {
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
             navigation.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            addressField.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            actions.widthAnchor.constraint(equalTo: stack.widthAnchor)
+            addressField.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
         setAccessibilityRole(.toolbar)
         setAccessibilityLabel("Browser controls")
@@ -59,14 +57,39 @@ final class ContentTopBar: NSView {
     }
 
     func setActions(_ newActions: [TopBarAction]) {
-        actions.setButtons(newActions.map {
-            IconButton(symbolName: $0.symbolName, label: $0.label, onClick: $0.handler)
-        })
-        actions.isHidden = newActions.isEmpty
+        utilityActions = newActions.map {
+            ($0.label, IconButton(symbolName: $0.symbolName, label: $0.label, onClick: $0.handler))
+        }
+        utilitiesButton.isEnabled = !newActions.isEmpty
     }
 
     func actionButton(labelled label: String) -> NSView? {
-        actions.buttons.first { $0.accessibilityLabel() == label }
+        utilityActions.first { $0.label == label }?.button
+    }
+
+    /// Popovers from menu actions attach to the visible ellipsis, not to an undisplayed control.
+    func actionAnchor(labelled label: String) -> NSView? {
+        actionButton(labelled: label) == nil ? nil : utilitiesButton
+    }
+
+    func makeUtilitiesMenu() -> NSMenu {
+        let menu = NSMenu(title: "Page Utilities")
+        menu.autoenablesItems = false
+        for (_, button) in utilityActions {
+            let item = NSMenuItem(title: button.accessibilityLabel() ?? "", action: button.action, keyEquivalent: "")
+            item.target = button.target
+            item.image = button.symbolImage
+            item.isEnabled = button.isEnabled
+            item.state = button.isActive ? .on : .off
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    private func showUtilitiesMenu() {
+        makeUtilitiesMenu().popUp(positioning: nil,
+                                  at: NSPoint(x: 0, y: utilitiesButton.bounds.minY),
+                                  in: utilitiesButton)
     }
 
     func update(canGoBack: Bool, canGoForward: Bool, isLoading: Bool, hasPage: Bool) {

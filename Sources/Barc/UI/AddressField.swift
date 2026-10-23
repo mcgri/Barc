@@ -1,4 +1,4 @@
-// Modified for Barc: the sidebar address opens a transient URL editor, 2026-10-23.
+// Modified for Barc: a compact sidebar address with a transient URL editor, 2026-10-24.
 import AppKit
 
 /// A compact page address. Editing happens in the sidebar's floating URL popup.
@@ -40,6 +40,8 @@ final class AddressField: NSView {
         field.font = Style.Fonts.body
         field.contentTintColor = Style.Colors.primaryText
         field.lineBreakMode = .byTruncatingTail
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.cell?.wraps = false
         field.cell?.usesSingleLineMode = true
         field.setAccessibilityLabel("Address")

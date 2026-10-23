@@ -1,3 +1,4 @@
+// Modified for Barc: expose current action symbols to the utility menu, 2026-10-24.
 import AppKit
 
 /// A square, borderless SF Symbol button with a rounded hover highlight.
@@ -26,6 +27,8 @@ final class IconButton: NSButton {
     /// has a layer of its own, which stacks above the highlight's, so the two
     /// end up in the order the eye expects.
     private let glyph = NSImageView()
+    /// The current symbol, also used when this action is presented in a menu.
+    var symbolImage: NSImage? { glyph.image }
     /// The count in the button's top-trailing corner, hidden while it is zero.
     private let badge = CountBadgeView()
     /// What the button is, without its count. Kept so the tooltip and the

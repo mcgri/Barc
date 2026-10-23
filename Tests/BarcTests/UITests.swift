@@ -110,14 +110,14 @@ struct ContentTopBarTests {
         #expect(!bar.backButton.isEnabled)
     }
 
-    @Test("Trailing actions are the caller's, and an empty set is a valid one")
+    @Test("Utility menu actions are the caller's, and an empty set is a valid one")
     func trailingActionsAreReplaceable() {
         let bar = ContentTopBar()
         var shared = 0
         bar.setActions([
             TopBarAction(symbolName: "square.and.arrow.up", label: "Share") { shared += 1 }
         ])
-        let share = UITestSupport.buttons(in: bar).first { $0.accessibilityLabel() == "Share" }
+        let share = bar.makeUtilitiesMenu().items.first { $0.title == "Share" }
         #expect(share != nil)
         // Invoked directly rather than through `sendAction`, which routes via
         // `NSApplication`. Tests run in parallel, so whether the shared
@@ -129,7 +129,8 @@ struct ContentTopBarTests {
         #expect(shared == 1)
 
         bar.setActions([])
-        #expect(UITestSupport.buttons(in: bar).allSatisfy { $0.accessibilityLabel() != "Share" })
+        #expect(bar.makeUtilitiesMenu().items.isEmpty)
+        #expect(!bar.utilitiesButton.isEnabled)
     }
 
     @Test("Sidebar controls wrap at narrow widths without losing actions")

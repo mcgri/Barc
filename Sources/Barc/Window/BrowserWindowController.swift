@@ -603,7 +603,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             MainActor.assumeIsolated { self?.applyToolbarLayout() }
         }
         if #available(macOS 15.4, *) {
-            ExtensionManager.shared.popupAnchor = { [weak bar] in bar?.actionButton(labelled: "Extensions") }
+            ExtensionManager.shared.popupAnchor = { [weak bar] in bar?.actionAnchor(labelled: "Extensions") }
         }
     }
 
@@ -611,7 +611,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// actually has. Focus Mode and Translate are deliberately absent -- there
     /// is nothing behind them yet, and a dead menu item is worse than none.
     private func showPageMenu() {
-        guard let tab = session.activeTab, let anchor = content.topBar.actionButton(labelled: "Page Menu") else { return }
+        guard let tab = session.activeTab, let anchor = content.topBar.actionAnchor(labelled: "Page Menu") else { return }
         let url = tab.displayURL
         let menu = NSMenu()
 
@@ -751,7 +751,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             readingListPopover = nil
             return
         }
-        guard let anchor = content.topBar.actionButton(labelled: "Reading List") ?? content.topBar.actionButton(labelled: "Page Menu") else { return }
+        guard let anchor = content.topBar.actionAnchor(labelled: "Reading List") ?? content.topBar.actionAnchor(labelled: "Page Menu") else { return }
         let popover = ReadingListPopover(session: session)
         readingListPopover = popover
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
@@ -782,7 +782,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// The per-site settings for the current page, in a popover off the gear.
     private func showSiteSettings() {
         guard let url = session.activeTab?.displayURL, url.host() != nil,
-              let anchor = content.topBar.actionButton(labelled: "Site Settings") else { return }
+              let anchor = content.topBar.actionAnchor(labelled: "Site Settings") else { return }
         let controller = SiteSettingsPopover(url: url)
         controller.onApply = { [weak self] in self?.session.activeTab?.reload() }
         let popover = NSPopover()
@@ -795,7 +795,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     // MARK: - Content Blocking & Element Picker
 
     @objc func showShieldPopover() {
-        guard let tab = session.activeTab, let anchor = content.topBar.actionButton(labelled: "Shield") else { return }
+        guard let tab = session.activeTab, let anchor = content.topBar.actionAnchor(labelled: "Shield") else { return }
         let popover = NSPopover()
         popover.behavior = .transient
         let shieldVC = ShieldPopoverViewController(
@@ -824,7 +824,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             return
         }
         guard let tab = session.activeTab,
-              let anchor = content.topBar.actionButton(labelled: "Translate Page") ?? content.topBar.actionButton(labelled: "Page Menu") else {
+              let anchor = content.topBar.actionAnchor(labelled: "Translate Page") ?? content.topBar.actionAnchor(labelled: "Page Menu") else {
             return
         }
         showTranslationPopover(for: tab, relativeTo: anchor)
@@ -1003,7 +1003,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// The macOS share sheet for the current page, hung off the share button.
     private func shareCurrentPage() {
         guard let url = session.activeTab?.displayURL,
-              let anchor = content.topBar.actionButton(labelled: "Share") else { return }
+              let anchor = content.topBar.actionAnchor(labelled: "Share") else { return }
         let picker = NSSharingServicePicker(items: [url])
         picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
     }
@@ -1056,7 +1056,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         let settings = NSMenuItem(title: "Extension Settings\u{2026}", action: #selector(showExtensionSettings), keyEquivalent: "")
         settings.target = self
         menu.addItem(settings)
-        guard let anchor = content.topBar.actionButton(labelled: "Extensions") else { return }
+        guard let anchor = content.topBar.actionAnchor(labelled: "Extensions") else { return }
         menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchor.bounds.maxY + 4), in: anchor)
     }
 
@@ -2423,7 +2423,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             bookmarkManagerPopover = nil
             return
         }
-        guard let anchor = bookmarkButton ?? content.topBar.actionButton(labelled: "Page Menu") ?? content.topBar.actionButton(labelled: "Site Settings") else { return }
+        guard let anchor = content.topBar.actionAnchor(labelled: "Add Bookmark") ?? content.topBar.actionAnchor(labelled: "Page Menu") ?? content.topBar.actionAnchor(labelled: "Site Settings") else { return }
         let popover = BookmarkManagerPopover(session: session, initialMode: .bookmarks)
         bookmarkManagerPopover = popover
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
@@ -2435,7 +2435,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             bookmarkManagerPopover = nil
             return
         }
-        guard let anchor = content.topBar.actionButton(labelled: "Find in Page") ?? content.topBar.actionButton(labelled: "Page Menu") else { return }
+        guard let anchor = content.topBar.actionAnchor(labelled: "Find in Page") ?? content.topBar.actionAnchor(labelled: "Page Menu") else { return }
         let popover = BookmarkManagerPopover(session: session, initialMode: .historyFTS)
         bookmarkManagerPopover = popover
         popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)

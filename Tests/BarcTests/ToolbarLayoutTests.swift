@@ -67,6 +67,40 @@ struct ToolbarLayoutTests {
         #expect(bar.actionButton(labelled: "Reader Mode") != nil)
     }
 
+    @Test("Utilities live in one menu beside navigation, with working actions and visible popup anchors")
+    func utilitiesMenu() throws {
+        let bar = ContentTopBar()
+        var selected: String?
+        bar.setActions(names.map { name in
+            TopBarAction(symbolName: "circle", label: name) { selected = name }
+        })
+        let host = UITestSupport.host(bar, width: 237, height: 200)
+        host.layoutSubtreeIfNeeded()
+        let controls = [bar.backButton, bar.forwardButton, bar.reloadButton, bar.utilitiesButton]
+        let frames = controls.map { $0.convert($0.bounds, to: bar) }
+        #expect(frames.allSatisfy { abs($0.midY - frames[0].midY) < 1 })
+        #expect(bar.frame.height <= 70)
+        let visibleLabels = UITestSupport.buttons(in: bar).compactMap { $0.accessibilityLabel() }
+        #expect(visibleLabels.contains("Page Utilities"))
+        #expect(!visibleLabels.contains(where: names.contains))
+        #expect(names.allSatisfy { bar.actionAnchor(labelled: $0) === bar.utilitiesButton })
+
+        let reader = try #require(bar.actionButton(labelled: "Reader Mode") as? IconButton)
+        reader.isEnabled = false
+        let shield = try #require(bar.actionButton(labelled: "Shield") as? IconButton)
+        shield.isActive = true
+        shield.setSymbol("checkmark.shield.fill", label: "Shield Enabled")
+        let menu = bar.makeUtilitiesMenu()
+        #expect(menu.items.map(\.title) == ["Shield Enabled", "Translate Page", "Reader Mode", "Share", "Page Menu"])
+        #expect(menu.items[0].state == .on)
+        #expect(!menu.items[2].isEnabled)
+        #expect(menu.items.allSatisfy { $0.image != nil })
+        let share = menu.items[3]
+        _ = share.target?.perform(try #require(share.action), with: share)
+        #expect(selected == "Share")
+        #expect(bar.utilitiesButton.accessibilityLabel() == "Page Utilities")
+    }
+
     @Test("Dragging a button several places takes it there, keeping the rest in order")
     func moveToAnAbsolutePlace() {
         // A swap would have been enough while the arrows were the only way to
