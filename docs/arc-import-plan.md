@@ -1,6 +1,6 @@
 # Arc import update
 
-Status: built-in import implemented; final owner-data verification in progress.
+Status: implemented and verified through native Settings using private snapshots of the owner's six Arc profiles.
 
 ## Goal
 
@@ -39,7 +39,7 @@ The previous manual migration is reference material for Arc's actual file format
 - The product flow works through native Settings, not just a test-only entry point. The imported session survives relaunch. Arc source files remain unchanged by the importer.
 - Existing tests and the release app build pass. Legal notices remain included in the bundle.
 
-## Verification in progress
+## Verification completed
 
 All 1,881 tests pass. A focused run of 20 tests also passes with real synthetic Keychain reads and writes, one vault key for 148 encrypted credentials, legacy conversion that preserves newer values, empty and named usernames, custom ports, profile separation and nameless-cookie reporting. The vault release builds and its signature verifies. Its bundled LICENSE and NOTICE match the source files.
 
@@ -51,10 +51,12 @@ The native Settings flow has been exercised against private snapshots of the own
 - 28,814 retained local-storage values matched the repeated source snapshot. One different existing value was preserved. Three writes hit WebKit's quota, and 2,249 partitioned or unsupported values were skipped and reported.
 - Relaunch preserved all imported tabs, archives, identities, folders, favourites, appearance, search choices and Space order. The original unrelated Space was retained.
 
-The first protected native pass verified 131 password contents and 7,745 supported cookie contents through the destination APIs. All 148 password records independently match the source's host, username, protocol, port and scoped Keychain path. The remaining 17 password readbacks exposed macOS omitting the account attribute for an empty username. A failing native regression test reproduced this, and the corrected reader passes it without confusing empty and named accounts.
+The final protected native import saved and verified all 148 real password contents, including their host, username, protocol, port and scoped record identifiers, with zero password failures. One Arc Safe Storage approval covered all six profiles. Repeating the import in the same window requested no additional approval and imported zero passwords or cookies. All 148 passwords verified again, and the encrypted vault's bytes were unchanged.
 
-After a normal quit, all 5,256 persistent cookies remained on disk with matching source names, domains, paths, Secure/HttpOnly flags and expiry dates. The 2,489 session-only cookies were not written to disk. The importer preserves that lifecycle rather than extending it. Ten nameless source cookies cannot be represented by WebKit's public cookie API; the report now identifies this specific limit.
+After a normal quit and reopening, the native password manager showed the expected counts in all six profiles: 4, 69, 22, 13, 39 and 1. The original unrelated Space showed zero imported passwords. Switching among profiles used the same browser process without a restart. The encrypted file was unchanged across the repeat, quit, reopening and all manager views. An independent metadata check found exactly one vault-key Keychain item. All 148 earlier per-login Keychain entries remain unchanged.
 
-The corrected per-login reader verified the first four profiles, but macOS's per-item application access controls produced repeated prompts after the executable changed. That run was stopped. Password storage now uses one Keychain-protected encryption key and an authenticated encrypted local file, with profile-scoped records. Tests cover 148 records with one key lookup, restart, cross-instance updates, empty usernames, encryption, tampering, denied access and retained data. Legacy reads use macOS's legacy noninteractive API and restore its prior interaction state afterward; an independent check of a protected older item returned an authentication error in 0.023 seconds without a prompt. The final release is now waiting for one source-key approval. Native verification of all 148 password values, the repeated import and reopening with this vault remains required before owner-data acceptance is complete.
+The initial cookie snapshot verified 7,745 supported cookie contents through WebKit's APIs. A later snapshot and native repeat retained 7,747 supported cookies, with 7,719 exact source matches and 28 existing destination cookies preserved where their values or attributes differed from the newer Arc snapshot. The repeat added zero cookies. After the final normal quit, 5,258 persistent cookies remained on disk. Session-only cookies retain their original lifecycle and are not persisted across quitting. Ten nameless source cookies cannot be represented by WebKit's public cookie API and are reported as unavailable. Expired and partitioned cookies have separate skip counts.
+
+Password storage uses one Keychain-protected random encryption key and an authenticated encrypted local file, with profile-scoped records. The real vault file has mode 0600 in a 0700 directory. Tests cover 148 records with one key lookup, restart, cross-instance updates, empty usernames, encryption, tampering, denied access and retained data. Legacy reads use macOS's legacy noninteractive API and restore its prior interaction state afterward; an independent check of a protected older item returned an authentication error in 0.023 seconds without a prompt.
 
 Additional regression coverage includes consistent WAL snapshots, source immutability, cookie domain hashes and unsupported encryption, conflicting same-host credentials, shared profile Spaces, unpaired UTF-16 strings, LevelDB manifest replay and tombstones, empty selection, concurrent imports and interrupted writes. Bookmark recovery checks nested folders and exact creation times. Arc's extended-sRGB colours are mapped into the destination gamut, and selected source Space order is preserved across profile-by-profile transfer.
