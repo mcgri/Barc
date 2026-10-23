@@ -158,6 +158,15 @@ enum KeychainCardStore {
 @MainActor
 final class AutofillStore {
     static let shared = AutofillStore()
+    private static var profileStores: [Space.Identity: AutofillStore] = [:]
+
+    static func forIdentity(_ identity: Space.Identity) -> AutofillStore {
+        if identity == .standard { return .shared }
+        if let cached = profileStores[identity] { return cached }
+        let created = AutofillStore(fileURL: ProfileDataPaths.directory(for: identity).appending(path: "autofill.json"))
+        profileStores[identity] = created
+        return created
+    }
 
     struct Contents: Codable, Equatable {
         var identities: [AutofillIdentity] = []
@@ -175,6 +184,19 @@ final class AutofillStore {
 
     var identities: [AutofillIdentity] { contents.identities }
     var cards: [AutofillCard] { contents.cards }
+
+    /// Explicit import writes atomically and reports persistence failures.
+    func importIdentities(_ identities: [AutofillIdentity]) throws -> Int {
+        let known = Set(contents.identities.map(\.id))
+        let incoming = identities.filter { !known.contains($0.id) }
+        var next = contents
+        next.identities += incoming
+        try file.save(next)
+        guard file.load() == next else { throw ArcImportFailure.unreadable("saved addresses") }
+        contents = next
+        onChange?()
+        return incoming.count
+    }
 
     func save(_ identity: AutofillIdentity) {
         if let index = contents.identities.firstIndex(where: { $0.id == identity.id }) {
@@ -236,14 +258,18 @@ final class FormAutofill: NSObject {
 
     /// What the page gets for an identity field: the first identity's
     /// values, or nothing when autofill is off or nothing is stored.
-    func identityValues() -> [String: String]? {
-        guard settings.formAutofillEnabled, let identity = store.identities.first else { return nil }
+    func identityValues(in scope: Space.Identity = .standard) -> [String: String]? {
+        guard !scope.isPrivate else { return nil }
+        let data = scope == .standard ? store : AutofillStore.forIdentity(scope)
+        guard settings.formAutofillEnabled, let identity = data.identities.first else { return nil }
         return identity.fields
     }
 
     /// The first card, number included, after Touch ID when that is on.
-    func cardValues() async -> [String: String]? {
-        guard settings.cardAutofillEnabled, let card = store.cards.first else { return nil }
+    func cardValues(in scope: Space.Identity = .standard) async -> [String: String]? {
+        guard !scope.isPrivate else { return nil }
+        let data = scope == .standard ? store : AutofillStore.forIdentity(scope)
+        guard settings.cardAutofillEnabled, let card = data.cards.first else { return nil }
         guard await authorize() else { return nil }
         guard let number = KeychainCardStore.number(for: card.id) else { return nil }
         return [
@@ -272,14 +298,16 @@ final class FormAutofill: NSObject {
 extension FormAutofill: WKScriptMessageHandlerWithReply {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) async -> (Any?, String?) {
         guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return (nil, nil) }
+        guard let webView = message.webView,
+              let identity = WebEnvironment.shared.identity(for: webView.configuration.websiteDataStore), !identity.isPrivate else { return (nil, nil) }
         // Cards only go to pages the user can trust the address of.
         let scheme = message.frameInfo.request.url?.scheme?.lowercased() ?? ""
         switch action {
         case "identity":
-            return (identityValues(), nil)
+            return (identityValues(in: identity), nil)
         case "card":
             guard scheme == "https" || scheme == "file" else { return (nil, nil) }
-            return (await cardValues(), nil)
+            return (await cardValues(in: identity), nil)
         default:
             return (nil, nil)
         }

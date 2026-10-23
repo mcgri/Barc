@@ -40,7 +40,9 @@ final class SQLiteDatabase {
 
         func text(_ index: Int32) -> String? {
             guard let cString = sqlite3_column_text(statement, index) else { return nil }
-            return String(cString: cString)
+            // SQLite text has an explicit byte count and may contain NULs.
+            // C-string decoding would silently truncate imported titles/fields.
+            return String(bytes: UnsafeBufferPointer(start: cString, count: Int(sqlite3_column_bytes(statement, index))), encoding: .utf8)
         }
 
         func integer(_ index: Int32) -> Int64 { sqlite3_column_int64(statement, index) }
@@ -150,7 +152,7 @@ final class SQLiteDatabase {
             let index = Int32(offset + 1)
             switch value {
             case .text(let string):
-                sqlite3_bind_text(statement, index, string, -1, Self.transient)
+                sqlite3_bind_text(statement, index, string, Int32(string.utf8.count), Self.transient)
             case .double(let number):
                 sqlite3_bind_double(statement, index, number)
             case .integer(let number):

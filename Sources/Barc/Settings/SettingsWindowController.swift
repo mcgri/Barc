@@ -122,7 +122,7 @@ final class SettingsWindowController: NSWindowController {
             case .passwords: return ["logins", "autofill", "keychain", "touch id"]
             case .websites: return ["permissions", "camera", "microphone", "location", "notifications", "sound"]
             case .extensions: return ["add-ons", "plugins", "webextension"]
-            case .importData: return ["safari", "chrome", "firefox", "bookmarks", "migrate"]
+            case .importData: return ["arc", "profiles", "spaces", "passwords", "safari", "chrome", "firefox", "bookmarks", "migrate"]
             case .sync: return ["icloud", "devices", "backup"]
             case .advanced: return ["developer", "inspector", "json", "experimental"]
             case .taskManager: return ["memory", "ram", "cpu", "processor", "gpu", "graphics", "activity", "performance", "usage", "slow", "hog"]

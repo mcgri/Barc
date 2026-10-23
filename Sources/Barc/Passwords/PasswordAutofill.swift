@@ -24,9 +24,9 @@ final class PasswordAutofill: NSObject {
 
     // MARK: - Backing the script
 
-    private func credential(for host: String) -> PasswordCredential? {
+    private func credential(for host: String, identity: Space.Identity, scheme: String, port: Int) -> PasswordCredential? {
         guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill, !host.isEmpty else { return nil }
-        return KeychainPasswordStore.credentials(host: host).first
+        return KeychainPasswordStore.credentials(host: host, identity: identity, scheme: scheme, port: port).first
     }
 
     /// Touch ID (or the login password) before a saved password is revealed to a
@@ -45,9 +45,9 @@ final class PasswordAutofill: NSObject {
         }
     }
 
-    private func offerToSave(host: String, username: String, password: String) {
+    private func offerToSave(host: String, username: String, password: String, identity: Space.Identity, scheme: String, port: Int) {
         guard settings.passwordProvider == .keychain, settings.passwordOfferSave, !host.isEmpty, !password.isEmpty else { return }
-        let existing = KeychainPasswordStore.credentials(host: host)
+        let existing = KeychainPasswordStore.credentials(host: host, identity: identity, scheme: scheme, port: port)
         // Nothing to do if this exact login is already stored.
         if existing.contains(where: { $0.username == username && $0.password == password }) { return }
         let updating = existing.contains { $0.username == username }
@@ -57,7 +57,8 @@ final class PasswordAutofill: NSObject {
         alert.addButton(withTitle: updating ? "Update" : "Save Password")
         alert.addButton(withTitle: "Not Now")
         if alert.runModal() == .alertFirstButtonReturn {
-            KeychainPasswordStore.save(host: host, username: username, password: password)
+            KeychainPasswordStore.save(host: host, username: username, password: password, identity: identity, scheme: scheme, port: port,
+                                       storagePath: existing.first { $0.username == username }?.storagePath)
         }
     }
 }
@@ -68,10 +69,14 @@ extension PasswordAutofill: WKScriptMessageHandlerWithReply {
         didReceive message: WKScriptMessage
     ) async -> (Any?, String?) {
         guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return (nil, nil) }
-        let host = message.frameInfo.request.url?.host() ?? message.webView?.url?.host() ?? ""
+        guard let webView = message.webView,
+              let identity = WebEnvironment.shared.identity(for: webView.configuration.websiteDataStore), !identity.isPrivate,
+              let frameURL = message.frameInfo.request.url ?? webView.url,
+              let host = frameURL.host(), let scheme = frameURL.scheme, ["http", "https"].contains(scheme) else { return (nil, nil) }
+        let port = KeychainPasswordStore.port(for: frameURL)
         switch action {
         case "lookup":
-            guard let credential = credential(for: host), await authorize() else { return (nil, nil) }
+            guard let credential = credential(for: host, identity: identity, scheme: scheme, port: port), await authorize() else { return (nil, nil) }
             return ([
                 "username": credential.username,
                 "password": credential.password,
@@ -82,7 +87,7 @@ extension PasswordAutofill: WKScriptMessageHandlerWithReply {
             // handler with a modal while the page is navigating away on submit.
             let username = body["username"] as? String ?? ""
             let password = body["password"] as? String ?? ""
-            Task { self.offerToSave(host: host, username: username, password: password) }
+            Task { self.offerToSave(host: host, username: username, password: password, identity: identity, scheme: scheme, port: port) }
             return (nil, nil)
         default:
             return (nil, nil)

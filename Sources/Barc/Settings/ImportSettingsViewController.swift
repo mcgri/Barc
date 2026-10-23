@@ -14,6 +14,7 @@ import UniformTypeIdentifiers
 @MainActor
 final class ImportSettingsViewController: NSViewController {
     private let session: BrowserSession
+    private var arcImport: ArcImportWindowController?
     private let sourcePopUp = NSPopUpButton()
 
     private let bookmarksButton = NSButton(title: "Choose File\u{2026}", target: nil, action: nil)
@@ -56,6 +57,11 @@ final class ImportSettingsViewController: NSViewController {
     }
 
     private func build(in form: SettingsForm) {
+        let arcButton = NSButton(title: "Import from Arc…", target: self, action: #selector(importArc))
+        arcButton.bezelStyle = .rounded
+        form.addRow("Arc profiles and Spaces", arcButton)
+        form.addNote("Bring Arc's profiles, sidebar, history, saved passwords and supported website sessions into separate Barc Spaces. Preview everything before importing.")
+        form.addSeparator()
         form.addNote("Bring your bookmarks and history over from another browser so you can pick up where you left off. Barc reads a file you choose \u{2014} it never opens another browser\u{2019}s data on its own.")
         form.addSeparator()
 
@@ -98,6 +104,13 @@ final class ImportSettingsViewController: NSViewController {
     }
 
     @objc private func sourceChanged() { sync() }
+
+    @objc private func importArc() {
+        let controller = arcImport ?? ArcImportWindowController(session: session)
+        arcImport = controller
+        controller.showWindow(self)
+        controller.window?.makeKeyAndOrderFront(self)
+    }
 
     /// Reflects the chosen browser onto both rows: its guidance, and whether the
     /// import is possible from it at all. A fresh browser clears last time's

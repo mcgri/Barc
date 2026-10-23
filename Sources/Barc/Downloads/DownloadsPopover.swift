@@ -189,7 +189,7 @@ final class DownloadsPopover: NSViewController {
     /// Re-reads the manager's list and resizes to it. Called by the manager as
     /// well as here, because a row can finish while the list is closed.
     func reload() {
-        downloads = manager.downloads
+        downloads = manager.visibleDownloads
         tableView.reloadData()
         emptyStack.isHidden = !downloads.isEmpty
         clearButton.isEnabled = downloads.contains { $0.state != .running }

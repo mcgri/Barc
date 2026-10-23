@@ -31,6 +31,25 @@ final class DownloadManager {
     /// Newest first, which is the order the list shows and the order the cap
     /// trims from the wrong end of.
     private(set) var downloads: [Download] = []
+    var visibleProfile: (() -> Space.Identity)?
+    var visibleDownloads: [Download] {
+        guard let identity = visibleProfile?() else { return downloads }
+        let key = ProfileDataPaths.key(for: identity)
+        return downloads.filter { $0.sourceProfileKey == nil || $0.sourceProfileKey == key }
+    }
+
+    @discardableResult
+    func importArcRecords(_ records: [DownloadRecord]) throws -> Int {
+        let known = Set(downloads.map(\.id))
+        let added = records.filter { !known.contains($0.id) }.map(Download.init(record:))
+        let merged = (downloads + added).sorted { $0.startedAt > $1.startedAt }
+        try store.save(merged.map { $0.record() })
+        let saved = Dictionary(store.load().map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard added.allSatisfy({ saved[$0.id] == $0.record() }) else { throw ArcImportFailure.unreadable("saved download history") }
+        downloads = merged
+        changes.send(.list)
+        return added.count
+    }
 
     /// True while anything is transferring. The list view polls only then.
     var hasActiveDownloads: Bool { downloads.contains { $0.state == .running } }
@@ -154,7 +173,8 @@ final class DownloadManager {
     /// Clears finished, failed and cancelled rows; anything still transferring
     /// stays, because removing it would be a silent cancel.
     func clearCompleted() {
-        downloads.removeAll { $0.state != .running }
+        let visible = Set(visibleDownloads.map(\.id))
+        downloads.removeAll { visible.contains($0.id) && $0.state != .running }
         changes.send(.list)
         scheduleSave()
     }
@@ -303,7 +323,7 @@ final class DownloadManager {
     func pruneCompleted(atLaunch: Bool) {
         let policy = Settings.shared.downloadRemoval
         let before = downloads.count
-        downloads.removeAll { $0.state != .running && policy.removes(finishedAt: $0.finishedAt, atLaunch: atLaunch) }
+        downloads.removeAll { !$0.importedFromArc && $0.state != .running && policy.removes(finishedAt: $0.finishedAt, atLaunch: atLaunch) }
         if downloads.count != before {
             changes.send(.list)
             scheduleSave()
@@ -374,8 +394,12 @@ final class DownloadManager {
     }
 
     private func insert(_ download: Download) {
+        if let webView = download.host, let identity = WebEnvironment.shared.identity(for: webView.configuration.websiteDataStore) {
+            download.sourceProfileKey = ProfileDataPaths.key(for: identity)
+        }
         downloads.insert(download, at: 0)
-        downloads = Array(downloads.prefix(DownloadStore.limit))
+        let retained = Set(DownloadStore.retained(downloads.map { $0.record() }).map(\.id))
+        downloads.removeAll { !retained.contains($0.id) }
         changes.send(.list)
         scheduleSave()
 

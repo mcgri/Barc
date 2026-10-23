@@ -24,6 +24,9 @@ enum DownloadState: Equatable, Sendable {
 /// has never had one.
 @MainActor
 final class Download: Identifiable {
+    var importedFromArc = false
+    var sourceProfileKey: String?
+    var sourceProfileName: String?
     let id: UUID
 
     /// Where the bytes come from. Kept so a failed download can be retried even
@@ -95,6 +98,9 @@ final class Download: Identifiable {
     /// Rebuilds a row from the persisted list. Nothing is in flight, so there
     /// is no `WKDownload` and no progress to show.
     init(record: DownloadRecord) {
+        importedFromArc = record.importedFromArc ?? false
+        sourceProfileKey = record.sourceProfileKey
+        sourceProfileName = record.sourceProfileName
         id = record.id
         sourceURL = record.sourceURL
         destination = record.destination
@@ -163,7 +169,10 @@ final class Download: Identifiable {
             state: state,
             startedAt: startedAt,
             finishedAt: finishedAt,
-            byteCount: finalByteCount
+            byteCount: finalByteCount,
+            importedFromArc: importedFromArc ? true : nil,
+            sourceProfileKey: sourceProfileKey,
+            sourceProfileName: sourceProfileName
         )
     }
 }
@@ -181,6 +190,9 @@ struct DownloadRecord: Codable, Sendable, Equatable {
     let startedAt: Date
     let finishedAt: Date?
     let byteCount: Int64?
+    var importedFromArc: Bool? = nil
+    var sourceProfileKey: String? = nil
+    var sourceProfileName: String? = nil
 }
 
 /// Hand-written so the stored form is a stable string rather than whatever the

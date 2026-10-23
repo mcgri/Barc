@@ -7,6 +7,12 @@ import WebKit
 @Suite("Screenshots and Page Capture (F-18)")
 @MainActor
 struct ScreenshotTests {
+    private final class LoadWaiter: NSObject, WKNavigationDelegate {
+        var completion: CheckedContinuation<Void, Error>?
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { completion?.resume(); completion = nil }
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { completion?.resume(throwing: error); completion = nil }
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { completion?.resume(throwing: error); completion = nil }
+    }
 
     @Test("Filename generation sanitizes page titles and generates clean names")
     func testFilenameGeneration() {
@@ -166,10 +172,14 @@ struct ScreenshotTests {
     func testLiveWebViewSnapshot() async throws {
         let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200))
         let html = "<html><body style='background-color: blue;'><h1>Barc</h1></body></html>"
-        webView.loadHTMLString(html, baseURL: nil)
-
-        // Allow runloop a cycle for view setup
-        try? await Task.sleep(nanoseconds: 150_000_000)
+        let waiter = LoadWaiter()
+        webView.navigationDelegate = waiter
+        // Wait for the page, rather than assuming a loaded WebKit process
+        // after a fixed delay while the rest of the UI suite is running.
+        try await withCheckedThrowingContinuation { continuation in
+            waiter.completion = continuation
+            webView.loadHTMLString(html, baseURL: nil)
+        }
 
         let image = try await ScreenshotService.capture(webView: webView, scope: .visible)
         #expect(image.size.width > 0)

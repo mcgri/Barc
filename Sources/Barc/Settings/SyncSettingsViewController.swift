@@ -10,6 +10,7 @@ final class SyncSettingsViewController: NSViewController, NSTextFieldDelegate {
     private let coordinator: SyncCoordinator?
     private let settings: Settings
     private var statusSubscription: AnyCancellable?
+    private var arcImportWindow: ArcImportWindowController?
 
     // Status & controls
     private let statusLabel = NSTextField(labelWithString: "Ready")
@@ -32,7 +33,7 @@ final class SyncSettingsViewController: NSViewController, NSTextFieldDelegate {
     // Backup & Arc Migration
     private let exportButton = NSButton(title: "Export JSON Backup\u{2026}", target: nil, action: nil)
     private let importButton = NSButton(title: "Import JSON Backup\u{2026}", target: nil, action: nil)
-    private let importArcButton = NSButton(title: "Import Arc Sidebar\u{2026}", target: nil, action: nil)
+    private let importArcButton = NSButton(title: "Import from Arc\u{2026}", target: nil, action: nil)
 
     // iPhone & iPad Companion (F-35)
     private let enableInboxCheckbox = NSButton(checkboxWithTitle: "Monitor iCloud Inbox for links from iPhone & iPad", target: nil, action: nil)
@@ -162,7 +163,7 @@ final class SyncSettingsViewController: NSViewController, NSTextFieldDelegate {
         backupStack.spacing = 8
         backupStack.alignment = .centerY
         form.addRow("Backup & Migration", backupStack)
-        form.addNote("Export or restore the entire sidebar as a standalone JSON file, or migrate Spaces and pins directly from Arc's StorableSidebar.json.")
+        form.addNote("Export or restore the sidebar as a JSON file, or open the profile-aware Arc importer to preview and migrate Arc data.")
 
         form.addSeparator()
 
@@ -413,30 +414,11 @@ final class SyncSettingsViewController: NSViewController, NSTextFieldDelegate {
     }
 
     @objc private func importArcClicked() {
-        guard let window = view.window else { return }
-        let panel = NSOpenPanel()
-        panel.title = "Import Arc Sidebar (StorableSidebar.json)"
-        panel.allowedContentTypes = [.json]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-
-        let defaultArcDir = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: "Library/Application Support/Arc", directoryHint: .isDirectory)
-        if FileManager.default.fileExists(atPath: defaultArcDir.path(percentEncoded: false)) {
-            panel.directoryURL = defaultArcDir
-        }
-
-        panel.beginSheetModal(for: window) { [weak self] response in
-            guard response == .OK, let url = panel.url, let coordinator = self?.coordinator else { return }
-            Task { @MainActor in
-                do {
-                    try await coordinator.importArcSidebar(from: url)
-                } catch {
-                    let errorAlert = NSAlert(error: error)
-                    _ = await errorAlert.beginSheetModal(for: window)
-                }
-            }
-        }
+        guard let session = coordinator?.session else { return }
+        let controller = arcImportWindow ?? ArcImportWindowController(session: session)
+        arcImportWindow = controller
+        controller.showWindow(self)
+        controller.window?.makeKeyAndOrderFront(self)
     }
 
     // MARK: - iPhone Companion Actions (F-35)

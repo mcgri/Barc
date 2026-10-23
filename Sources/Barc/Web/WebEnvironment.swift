@@ -44,6 +44,10 @@ final class WebEnvironment {
         return store
     }
 
+    func identity(for store: WKWebsiteDataStore) -> Space.Identity? {
+        stores.first(where: { $0.value === store })?.key
+    }
+
     /// Drops the cached store so WebKit can release it. Required before the
     /// on-disk data can be removed: `remove(forIdentifier:)` fails while a store
     /// is still in use.

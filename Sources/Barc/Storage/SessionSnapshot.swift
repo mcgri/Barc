@@ -46,6 +46,8 @@ struct SessionSnapshot: Codable, Equatable {
         var autoReloadSeconds: Int?
         /// An emoji in place of the favicon. Absent when there is none.
         var emoji: String?
+        /// Stable source identifier for repeatable imports. Never a page URL or secret.
+        var importedSourceID: String? = nil
     }
 
     struct Space: Codable, Equatable {

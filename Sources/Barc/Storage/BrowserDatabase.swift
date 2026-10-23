@@ -48,8 +48,10 @@ struct FullTextHistoryResult: Sendable, Equatable, Identifiable {
 /// thread while it is written.
 actor BrowserDatabase {
     private let database: SQLiteDatabase
+    nonisolated let fileURL: URL
 
     init(path: URL) throws {
+        fileURL = path
         database = try SQLiteDatabase(path: path.path(percentEncoded: false))
         try Self.migrate(database)
     }
@@ -134,6 +136,55 @@ actor BrowserDatabase {
     }
 
     /// The newest visits, one row each, for sync.
+    /// Arc's visit IDs are preserved in a separate import ledger. Deduplicating
+    /// by URL/time would discard legitimate repeated visits in the same second.
+    func importArcVisits(_ visits: [ArcProfileReader.Visit], source: String) throws -> Int {
+        try database.execute("CREATE TABLE IF NOT EXISTS arc_imported_visits (source TEXT NOT NULL, source_id INTEGER NOT NULL, visit_id INTEGER, PRIMARY KEY(source, source_id));")
+        if try !Self.columnExists("visit_id", in: "arc_imported_visits", database) {
+            try database.execute("ALTER TABLE arc_imported_visits ADD COLUMN visit_id INTEGER;")
+        }
+        var added = 0
+        try database.execute("BEGIN;")
+        do {
+            try database.run("DELETE FROM arc_imported_visits WHERE source = ? AND (visit_id IS NULL OR visit_id NOT IN (SELECT id FROM visits));", [.text(source)])
+            var indexedURLs = Set(try database.query("SELECT url FROM history_fts;") { $0.text(0) ?? "" })
+            for visit in visits {
+                try database.run("INSERT OR IGNORE INTO arc_imported_visits(source, source_id) VALUES(?, ?);", [.text(source), .integer(visit.id)])
+                let changed = try database.query("SELECT changes();") { $0.integer(0) }.first ?? 0
+                guard changed == 1 else { continue }
+                let destinationID = try database.run("INSERT INTO visits(url, key, title, visited_at) VALUES(?, ?, ?, ?);", [
+                    .text(visit.url.absoluteString), .text(AddressFormatter.display(visit.url).lowercased()),
+                    .text(visit.title), .double(visit.date.timeIntervalSince1970)
+                ])
+                try database.run("UPDATE arc_imported_visits SET visit_id = ? WHERE source = ? AND source_id = ?;", [.integer(destinationID), .text(source), .integer(visit.id)])
+                if indexedURLs.insert(visit.url.absoluteString).inserted {
+                    try database.run("INSERT INTO history_fts(url, title, content) VALUES(?, ?, ?);", [.text(visit.url.absoluteString), .text(visit.title), .text(visit.url.absoluteString)])
+                }
+                added += 1
+            }
+            try database.execute("COMMIT;")
+        } catch {
+            try? database.execute("ROLLBACK;")
+            throw error
+        }
+        return added
+    }
+
+    func arcVisitCount(source: String) throws -> Int {
+        Int(try database.query("SELECT COUNT(*) FROM arc_imported_visits m JOIN visits v ON v.id = m.visit_id WHERE m.source = ?;", [.text(source)]) { $0.integer(0) }.first ?? 0)
+    }
+
+    func verifyArcVisits(_ sourceVisits: [ArcProfileReader.Visit], source: String) throws -> Int {
+        let actual = try database.query("SELECT m.source_id, v.url, v.title, v.visited_at FROM arc_imported_visits m JOIN visits v ON v.id = m.visit_id WHERE m.source = ?;", [.text(source)]) {
+            (id: $0.integer(0), url: $0.text(1) ?? "", title: $0.text(2) ?? "", date: $0.double(3))
+        }
+        let byID = Dictionary(actual.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return sourceVisits.filter { visit in
+            guard let row = byID[visit.id] else { return false }
+            return row.url == visit.url.absoluteString && row.title == visit.title && abs(row.date - visit.date.timeIntervalSince1970) < 0.000001
+        }.count
+    }
+
     func recentVisits(limit: Int) throws -> [SyncVisit] {
         try database.query(
             "SELECT url, title, visited_at FROM visits ORDER BY visited_at DESC LIMIT ?;",

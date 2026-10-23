@@ -22,6 +22,10 @@ command-line helper, build and release configuration, support routes,
 update configuration, and documentation. Modified text files carry notices
 identifying these changes. The original Git history is preserved.
 
+Additional local modifications on 2026-10-23 add Arc import and separate
+profile histories, passwords, autofill and download records. These changes
+are also distributed under the Apache License, Version 2.0.
+
 Barc is an independent fork, not an official Kylmora release. References to
 Kylmora identify the origin of the inherited software. The Barc B icon is
 separate artwork inspired by Arc's visual style. Arc's original icon is not

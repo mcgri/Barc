@@ -1,3 +1,4 @@
+// Modified for Barc: Arc import, session restoration and profile isolation, 2026-10-23.
 import AppKit
 import Combine
 import WebKit
@@ -51,7 +52,27 @@ final class BrowserSession {
     private(set) var activeSpaceID: Space.ID
     private(set) var bookmarks: [Bookmark] = []
 
-    private let database: BrowserDatabase?
+    private let mainDatabase: BrowserDatabase?
+    private var identityDatabases: [Space.Identity: BrowserDatabase] = [:]
+    private var database: BrowserDatabase? { database(for: activeSpace.identity) }
+
+    /// Profiles have separate history and bookmarks as well as website stores.
+    /// A failed profile database must never fall back to another identity's data.
+    func database(for identity: Space.Identity) -> BrowserDatabase? {
+        guard let mainDatabase, !identity.isPrivate else { return nil }
+        if identity == .standard { return mainDatabase }
+        if let cached = identityDatabases[identity] { return cached }
+        guard case .isolated(let id) = identity else { return nil }
+        let directory = mainDatabase.fileURL.deletingLastPathComponent().appending(path: "Profiles/" + id.uuidString.lowercased())
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            let created = try BrowserDatabase(path: directory.appending(path: "browser.sqlite"))
+            identityDatabases[identity] = created
+            return created
+        } catch {
+            return nil
+        }
+    }
     private let sessionStore: SessionStore
     private let settings: Settings
     private var tabSubscriptions: [Tab.ID: AnyCancellable] = [:]
@@ -75,7 +96,7 @@ final class BrowserSession {
     private static let saveDelay = Duration.seconds(1)
 
     init(database: BrowserDatabase?, sessionStore: SessionStore = SessionStore(), settings: Settings = .shared) {
-        self.database = database
+        self.mainDatabase = database
         self.sessionStore = sessionStore
         self.settings = settings
 
@@ -358,9 +379,11 @@ final class BrowserSession {
         // WebKit refuses to delete a store that is still in use. Forgetting
         // the tabs above already tore down their web views; dropping the
         // cached store releases the last reference we hold.
-        WebEnvironment.shared.releaseDataStore(for: space.identity)
-        let identity = space.identity
-        Task { await WebEnvironment.removeStoredData(for: identity) }
+        if !spaces.contains(where: { $0.identity == space.identity }) {
+            WebEnvironment.shared.releaseDataStore(for: space.identity)
+            let identity = space.identity
+            Task { await WebEnvironment.removeStoredData(for: identity) }
+        }
 
         changes.send(.spaces)
         changes.send(.tabs)
@@ -378,7 +401,10 @@ final class BrowserSession {
                 nextTab.exitPictureInPicture()
             }
         }
+        let previousIdentity = activeSpace.identity
         activeSpaceID = space.id
+        if previousIdentity != space.identity { bookmarks = []; changes.send(.bookmarks) }
+        loadBookmarks()
         changes.send(.spaces)
         changes.send(.tabs)
         changes.send(.activeTab)
@@ -1216,7 +1242,7 @@ final class BrowserSession {
     /// every sweep to prove that is work for nothing.
     private func trimArchives(of spaceIDs: Set<Space.ID>) {
         for spaceID in spaceIDs {
-            let theirs = archivedTabs.filter { $0.spaceID == spaceID }
+            let theirs = archivedTabs.filter { $0.spaceID == spaceID && $0.snapshot.importedSourceID == nil }
             guard theirs.count > Self.archiveLimit else { continue }
             let dropped = Set(theirs.prefix(theirs.count - Self.archiveLimit).map(\.id))
             archivedTabs.removeAll { dropped.contains($0.id) }
@@ -1744,18 +1770,24 @@ final class BrowserSession {
     // MARK: - History
 
     func historySuggestions(matching prefix: String, limit: Int = 8) async -> [HistoryEntry] {
+        let identity = activeSpace.identity
         guard let database else { return [] }
-        return (try? await database.suggestions(matching: prefix, limit: limit)) ?? []
+        let result = (try? await database.suggestions(matching: prefix, limit: limit)) ?? []
+        return activeSpace.identity == identity ? result : []
     }
 
     func topSites(limit: Int = 8) async -> [HistoryEntry] {
+        let identity = activeSpace.identity
         guard let database else { return [] }
-        return (try? await database.topSites(limit: limit)) ?? []
+        let result = (try? await database.topSites(limit: limit)) ?? []
+        return activeSpace.identity == identity ? result : []
     }
 
     func recentHistory(limit: Int = 100) async -> [HistoryEntry] {
+        let identity = activeSpace.identity
         guard let database else { return [] }
-        return (try? await database.recentHistory(limit: limit)) ?? []
+        let result = (try? await database.recentHistory(limit: limit)) ?? []
+        return activeSpace.identity == identity ? result : []
     }
 
     /// Forgets every visit. Asked for from the menu, so a failure is said out
@@ -1852,7 +1884,8 @@ final class BrowserSession {
     /// work, not the web's residue.
     func resetBrowsingData() async {
         closedTabs.removeAll()
-        if let database {
+        for identity in Set(spaces.map(\.identity)) {
+            guard let database = database(for: identity) else { continue }
             do {
                 try await database.clearHistory()
             } catch {
@@ -2016,9 +2049,11 @@ final class BrowserSession {
     }
 
     private func loadBookmarks() {
-        guard let database else { return }
+        let identity = activeSpace.identity
+        guard let database else { bookmarks = []; changes.send(.bookmarks); return }
         Task {
             let loaded = (try? await database.bookmarks()) ?? []
+            guard activeSpace.identity == identity else { return }
             guard loaded != bookmarks else { return }
             bookmarks = loaded
             changes.send(.bookmarks)
@@ -2284,6 +2319,64 @@ final class BrowserSession {
     }
 
     /// Replaces the session completely with the snapshot.
+    /// Arc imports merge by stable source IDs, never by display name or URL.
+    /// Repeated URLs are legitimate separate tabs and must survive the import.
+    @discardableResult
+    func applyArcSpaces(_ incoming: [SessionSnapshot.Space]) throws -> (tabs: Int, archived: Int, spaces: Int, folders: Int, favorites: Int) {
+        var addedTabs = 0
+        var addedArchived = 0
+        var addedSpaces = 0
+        var addedFolders = 0
+        var addedFavorites = 0
+        for stored in incoming {
+            guard let id = stored.id, let identity = stored.identity else { continue }
+            if let existing = spaces.first(where: { $0.id == id }), existing.identity != identity {
+                throw ArcImportFailure.invalidSidebar
+            }
+            guard let built = Self.spaces(from: SessionSnapshot(spaces: [stored], activeSpaceIndex: 0))?.first else { continue }
+            let space: Space
+            if let existing = spaces.first(where: { $0.id == id }) {
+                space = existing
+                for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }
+                for pin in built.pinnedSites where !space.pinnedSites.contains(where: { $0.id == pin.id }) { space.addPinnedSite(pin); addedFavorites += 1 }
+            } else {
+                space = built
+                for tab in space.tabs { adopt(tab) }
+                addedTabs += space.tabs.count
+                addedFolders += space.groups.count
+                addedFavorites += space.pinnedSites.count
+                spaces.append(space)
+                addedSpaces += 1
+            }
+            let known = Set(space.tabs.compactMap(\.importedSourceID))
+                .union(archivedTabs.filter { $0.spaceID == id }.compactMap { $0.snapshot.importedSourceID })
+            for tab in stored.tabs where tab.importedSourceID.map({ !known.contains($0) }) ?? false {
+                let restored = Tab(restoring: tab, identity: identity)
+                adopt(restored)
+                space.insert(restored, at: space.tabs.count)
+                addedTabs += 1
+            }
+            if space.activeTabID == nil { space.setActiveTabID(space.tabs.first?.id) }
+            if space.tabs.isEmpty {
+                let start = Tab(url: settings.newTabURL(isPrivate: false), identity: identity)
+                adopt(start); space.insert(start, at: 0); space.setActiveTabID(start.id)
+            }
+            let knownArchive = Set(archivedTabs.filter { $0.spaceID == id }.compactMap { $0.snapshot.importedSourceID })
+                .union(space.tabs.compactMap(\.importedSourceID))
+            for record in stored.archivedTabs ?? [] where record.tab.importedSourceID.map({ !knownArchive.contains($0) }) ?? false {
+                archivedTabs.append(ArchivedTab(snapshot: record.tab, spaceID: id, archivedAt: record.archivedAt))
+                addedArchived += 1
+            }
+        }
+        changes.send(.spaces)
+        changes.send(.tabs)
+        changes.send(.structure)
+        changes.send(.bookmarks)
+        // A reported success must represent a durable session, not a debounced save.
+        try sessionStore.save(snapshot())
+        return (addedTabs, addedArchived, addedSpaces, addedFolders, addedFavorites)
+    }
+
     func replaceWithSnapshot(_ snapshot: SessionSnapshot) {
         guard let newSpaces = Self.spaces(from: snapshot), !newSpaces.isEmpty else { return }
 
@@ -2387,13 +2480,13 @@ extension BrowserSession: TabDelegate {
 
     func tab(_ tab: Tab, didVisit url: URL, title: String) {
         onVisit?(tab, url)
-        guard let database, !settings.historyDisabled, !tab.isPrivate else { return }
+        guard let database = database(for: tab.identity), !settings.historyDisabled, !tab.isPrivate else { return }
         let key = AddressFormatter.display(url)
         Task { try? await database.recordVisit(url: url, title: title, key: key) }
     }
 
     func tab(_ tab: Tab, didRetitle url: URL, to title: String) {
-        guard let database, !settings.historyDisabled, !tab.isPrivate else { return }
+        guard let database = database(for: tab.identity), !settings.historyDisabled, !tab.isPrivate else { return }
         Task { try? await database.updateLatestVisitTitle(url: url, title: title) }
     }
 
@@ -2402,7 +2495,7 @@ extension BrowserSession: TabDelegate {
     }
 
     func tab(_ tab: Tab, didExtractContent content: String, for url: URL, title: String) {
-        guard let database, !settings.historyDisabled, !tab.isPrivate else { return }
+        guard let database = database(for: tab.identity), !settings.historyDisabled, !tab.isPrivate else { return }
         // Indexing is never in the way of the page: background priority.
         Task(priority: .utility) { try? await database.indexVisitContent(url: url, title: title, content: content) }
     }

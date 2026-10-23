@@ -18,6 +18,7 @@ final class PasswordsSettingsViewController: NSViewController {
     private let identityAutofill = NSButton(checkboxWithTitle: "AutoFill names, addresses and contact details", target: nil, action: nil)
     private let cardAutofill = NSButton(checkboxWithTitle: "AutoFill payment cards", target: nil, action: nil)
     private var autofillManager: AutofillManagerWindowController?
+    private var autofillManagerIdentity: Space.Identity?
     /// The rows only Keychain AutoFill uses, and the rows only "Others" uses,
     /// so the pane can swap one set for the other when the provider changes.
     private var autofillRows: [SettingsFormRow] = []
@@ -132,14 +133,18 @@ final class PasswordsSettingsViewController: NSViewController {
     }
 
     @objc private func manageAutofill() {
-        let controller = autofillManager ?? AutofillManagerWindowController()
+        let identity = session.activeSpace.identity
+        let controller = autofillManagerIdentity == identity ? (autofillManager ?? AutofillManagerWindowController(store: .forIdentity(identity)))
+            : AutofillManagerWindowController(store: .forIdentity(identity))
         autofillManager = controller
+        autofillManagerIdentity = identity
         controller.showWindow(self)
         controller.window?.makeKeyAndOrderFront(self)
     }
 
     @objc private func managePasswords() {
-        let controller = manager ?? PasswordsManagerWindowController()
+        let controller = manager.flatMap { $0.identity == session.activeSpace.identity ? $0 : nil }
+            ?? PasswordsManagerWindowController(identity: session.activeSpace.identity, spaceName: session.activeSpace.name)
         manager = controller
         controller.showWindow(self)
         controller.window?.makeKeyAndOrderFront(self)
@@ -163,17 +168,19 @@ final class PasswordsSettingsViewController: NSViewController {
 @MainActor
 final class PasswordsManagerWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
     private var credentials: [PasswordCredential] = []
+    let identity: Space.Identity
     private let tableView = NSTableView()
     private let empty = NSTextField(labelWithString: "No saved passwords yet.")
 
-    init() {
+    init(identity: Space.Identity = .standard, spaceName: String? = nil) {
+        self.identity = identity
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 480, height: 320),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "Passwords"
+        window.title = spaceName.map { "Passwords · " + $0 } ?? "Passwords"
         super.init(window: window)
         window.center()
         window.isReleasedWhenClosed = false
@@ -241,7 +248,7 @@ final class PasswordsManagerWindowController: NSWindowController, NSTableViewDat
     }
 
     private func reload() {
-        credentials = KeychainPasswordStore.all()
+        credentials = KeychainPasswordStore.all(identity: identity)
         empty.isHidden = !credentials.isEmpty
         tableView.reloadData()
     }
@@ -251,7 +258,9 @@ final class PasswordsManagerWindowController: NSWindowController, NSTableViewDat
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard credentials.indices.contains(row) else { return nil }
         let credential = credentials[row]
-        let text = tableColumn?.identifier.rawValue == "host" ? credential.host : credential.username
+        let host = credential.host.contains(":") ? "[\(credential.host)]" : credential.host
+        let endpoint = host + (credential.port == 0 ? "" : ":\(credential.port)")
+        let text = tableColumn?.identifier.rawValue == "host" ? endpoint : credential.username
         let field = NSTextField(labelWithString: text)
         field.lineBreakMode = .byTruncatingTail
         return field
@@ -261,7 +270,8 @@ final class PasswordsManagerWindowController: NSWindowController, NSTableViewDat
         let row = tableView.selectedRow
         guard credentials.indices.contains(row) else { return }
         let credential = credentials[row]
-        KeychainPasswordStore.delete(host: credential.host, username: credential.username)
+        KeychainPasswordStore.delete(host: credential.host, username: credential.username, identity: identity,
+                                     storagePath: credential.storagePath, scheme: credential.scheme, port: credential.port)
         reload()
     }
 

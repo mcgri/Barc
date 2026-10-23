@@ -136,6 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
             return session.activeSpace
         }
+        DownloadManager.shared.visibleProfile = { [weak session] in session?.activeSpace.identity ?? .standard }
         installEscapeGuard(session: session)
         // Extensions need the window to exist: the engine asks for it first.
         if #available(macOS 15.4, *) {

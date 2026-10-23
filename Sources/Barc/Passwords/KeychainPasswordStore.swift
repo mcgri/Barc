@@ -7,8 +7,11 @@ struct PasswordCredential: Equatable, Sendable, Identifiable {
     let host: String
     let username: String
     let password: String
+    var storagePath: String? = nil
+    var scheme: String? = nil
+    var port: Int = 0
 
-    var id: String { "\(host)\u{0000}\(username)" }
+    var id: String { "\(host)\u{0000}\(username)\u{0000}\(storagePath ?? "")\u{0000}\(scheme ?? "")\u{0000}\(port)" }
 }
 
 /// Saves and reads website logins in the macOS login Keychain -- the system's
@@ -27,74 +30,150 @@ enum KeychainPasswordStore {
     // A dedicated path keeps Barc from updating or deleting another app's login.
     static let itemPath = "/__barc/website-login"
 
-    private static func query(host: String? = nil, account: String? = nil) -> [String: Any] {
+    static func port(for url: URL) -> Int {
+        let port = url.port ?? 0
+        return port == (url.scheme == "http" ? 80 : 443) ? 0 : port
+    }
+
+    static func label(for identity: Space.Identity) -> String {
+        identity == .standard ? label : label + " · " + ProfileDataPaths.key(for: identity)
+    }
+
+    static func path(for identity: Space.Identity, sourceID: String? = nil) -> String {
+        let base = identity == .standard ? itemPath : itemPath + "/" + ProfileDataPaths.key(for: identity)
+        return sourceID.map { base + "/arc/" + ArcImportID.uuid($0).uuidString.lowercased() } ?? base
+    }
+
+    private static func query(host: String? = nil, account: String? = nil, identity: Space.Identity = .standard,
+                              storagePath: String? = nil, scheme: String? = nil, port: Int? = nil) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrSynchronizable as String: kSecAttrSynchronizableAny,
-            kSecAttrPath as String: itemPath,
-            kSecAttrLabel as String: label
+            kSecAttrLabel as String: label(for: identity)
         ]
+        if let storagePath { query[kSecAttrPath as String] = storagePath }
         if let host { query[kSecAttrServer as String] = host }
         if let account { query[kSecAttrAccount as String] = account }
+        // Earlier Barc builds saved default-profile items without a protocol.
+        // Keep that query compatible; imported isolated profiles record it.
+        if let scheme, identity != .standard { query[kSecAttrProtocol as String] = scheme == "http" ? kSecAttrProtocolHTTP : kSecAttrProtocolHTTPS }
+        if let port { query[kSecAttrPort as String] = port }
         return query
     }
 
     /// Saves a login, updating the password if the host and username already
     /// exist. Returns whether it was stored.
     @discardableResult
-    static func save(host: String, username: String, password: String) -> Bool {
+    static func save(host: String, username: String, password: String, identity: Space.Identity = .standard,
+                     scheme: String = "https", port: Int = 0, storagePath: String? = nil, sourceID: String? = nil, overwrite: Bool = true) -> Bool {
+        guard !identity.isPrivate else { return false }
+        let itemQuery = query(host: host, account: username, identity: identity,
+                              storagePath: storagePath ?? path(for: identity, sourceID: sourceID), scheme: scheme, port: port)
+        if !overwrite {
+            // Check attributes without reading a protected value. A denied read
+            // must never look like absence and lead to overwriting an item.
+            var existence = itemQuery
+            existence[kSecReturnAttributes as String] = true
+            existence[kSecMatchLimit as String] = kSecMatchLimitOne
+            let status = SecItemCopyMatching(existence as CFDictionary, nil)
+            if status == errSecSuccess { return true }
+            guard status == errSecItemNotFound else { return false }
+            var attributes = itemQuery
+            attributes[kSecValueData as String] = Data(password.utf8)
+            attributes[kSecAttrSynchronizable as String] = kCFBooleanTrue
+            // Add directly, so an item created since the check is preserved.
+            return add(attributes)
+        }
         let data = Data(password.utf8)
         let update = SecItemUpdate(
-            query(host: host, account: username) as CFDictionary,
+            itemQuery as CFDictionary,
             [kSecValueData as String: data] as CFDictionary
         )
         if update == errSecSuccess { return true }
         guard update == errSecItemNotFound else { return false }
 
-        var attributes = query(host: host, account: username)
+        var attributes = itemQuery
         attributes[kSecValueData as String] = data
-        attributes[kSecAttrLabel as String] = label
+        attributes[kSecAttrLabel as String] = label(for: identity)
         attributes[kSecAttrSynchronizable as String] = kCFBooleanTrue
-        return SecItemAdd(attributes as CFDictionary, nil) == errSecSuccess
+        return add(attributes)
     }
 
     /// Every login stored for a host -- what autofill offers on that site.
-    static func credentials(host: String) -> [PasswordCredential] {
-        items(matching: query(host: host)).compactMap { item in
+    static func credentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0) -> [PasswordCredential] {
+        guard !identity.isPrivate else { return [] }
+        return items(matching: query(host: host, identity: identity, scheme: scheme, port: port)).compactMap { item in
             guard let account = item[kSecAttrAccount as String] as? String,
                   let password = password(in: item) else { return nil }
-            return PasswordCredential(host: host, username: account, password: password)
+            return credential(host: host, account: account, password: password, item: item)
         }
     }
 
     /// Every login Barc has saved, for the Manage Passwords list.
-    static func all() -> [PasswordCredential] {
-        var q = query()
-        q[kSecAttrLabel as String] = label
-        return items(matching: q).compactMap { item in
+    static func all(identity: Space.Identity = .standard) -> [PasswordCredential] {
+        guard !identity.isPrivate else { return [] }
+        return items(matching: query(identity: identity)).compactMap { item in
             guard let host = item[kSecAttrServer as String] as? String,
                   let account = item[kSecAttrAccount as String] as? String,
                   let password = password(in: item) else { return nil }
-            return PasswordCredential(host: host, username: account, password: password)
+            return credential(host: host, account: account, password: password, item: item)
         }.sorted { $0.host == $1.host ? $0.username < $1.username : $0.host < $1.host }
     }
 
     @discardableResult
-    static func delete(host: String, username: String) -> Bool {
-        SecItemDelete(query(host: host, account: username) as CFDictionary) == errSecSuccess
+    static func delete(host: String, username: String, identity: Space.Identity = .standard,
+                       storagePath: String? = nil, scheme: String? = nil, port: Int = 0) -> Bool {
+        SecItemDelete(query(host: host, account: username, identity: identity,
+                            storagePath: storagePath ?? path(for: identity), scheme: scheme, port: port) as CFDictionary) == errSecSuccess
+    }
+
+    private static func credential(host: String, account: String, password: String, item: [String: Any]) -> PasswordCredential {
+        let proto = item[kSecAttrProtocol as String] as? String
+        return PasswordCredential(host: host, username: account, password: password,
+                                  storagePath: item[kSecAttrPath as String] as? String,
+                                  scheme: proto == (kSecAttrProtocolHTTP as String) ? "http" : "https",
+                                  port: (item[kSecAttrPort as String] as? NSNumber)?.intValue ?? 0)
     }
 
     // MARK: - Helpers
 
+    private static func add(_ attributes: [String: Any]) -> Bool {
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        if status == errSecSuccess { return true }
+        // Local, ad-hoc builds cannot use Apple's synchronizable Keychain
+        // without the signing entitlement. Keep the password in the login
+        // Keychain instead, with the same native access control and namespace.
+        guard status == errSecMissingEntitlement else { return false }
+        var local = attributes
+        local[kSecAttrSynchronizable as String] = false
+        return SecItemAdd(local as CFDictionary, nil) == errSecSuccess
+    }
+
     private static func items(matching query: [String: Any]) -> [[String: Any]] {
-        var query = query
-        query[kSecReturnAttributes as String] = true
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitAll
+        var listing = query
+        listing[kSecReturnAttributes as String] = true
+        listing[kSecMatchLimit as String] = kSecMatchLimitAll
         var result: AnyObject?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+        guard SecItemCopyMatching(listing as CFDictionary, &result) == errSecSuccess,
               let items = result as? [[String: Any]] else { return [] }
-        return items
+        // The macOS login Keychain rejects returning password data together
+        // with kSecMatchLimitAll. List attributes first, then read each exact
+        // item individually through its normal native access control.
+        return items.compactMap { attributes in
+            var exact = query
+            for key in [kSecAttrServer, kSecAttrAccount, kSecAttrPath, kSecAttrPort,
+                        kSecAttrProtocol, kSecAttrSecurityDomain, kSecAttrAuthenticationType] {
+                if let value = attributes[key as String] { exact[key as String] = value }
+            }
+            exact[kSecReturnData as String] = true
+            exact[kSecMatchLimit as String] = kSecMatchLimitOne
+            var value: AnyObject?
+            guard SecItemCopyMatching(exact as CFDictionary, &value) == errSecSuccess,
+                  let data = value as? Data else { return nil }
+            var item = attributes
+            item[kSecValueData as String] = data
+            return item
+        }
     }
 
     private static func password(in item: [String: Any]) -> String? {
