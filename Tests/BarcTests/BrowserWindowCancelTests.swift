@@ -49,6 +49,12 @@ struct BrowserWindowCancelTests {
         #expect(keptRow < newTab)
         #expect(newTab < ordinaryRow)
         #expect(session.activeTab === ordinary)
+        let footer = try #require(descendants.compactMap { $0 as? SidebarFooterView }.first)
+        let addMenu = try #require(footer.addMenuProvider?())
+        for title in ["New Tab", "New Boost", "New Split"] {
+            let item = try #require(addMenu.items.first { $0.title == title })
+            #expect(item.target === controller)
+        }
     }
 
     @Test("Sidebar click and Cmd-L open the same full-URL popup without creating tabs")

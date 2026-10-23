@@ -1608,6 +1608,9 @@ final class SidebarViewController: NSViewController {
         menu.addItem(NSMenuItem(title: "New Split", action: #selector(BrowserWindowController.splitSideBySide(_:)), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "New Tab", action: #selector(BrowserWindowController.newTab(_:)), keyEquivalent: "t"))
+        for item in menu.items where item.action != nil && item.target == nil {
+            item.target = view.window?.windowController
+        }
         return menu
     }
 
