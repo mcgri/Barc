@@ -63,6 +63,18 @@ final class WebsitePasswordVault: @unchecked Sendable {
         try transaction { try readEntries() }
     }
 
+    /// Preserve accessible records from the earlier per-login store, without
+    /// replacing a credential already saved in the vault.
+    func retainLegacy(_ credentials: [PasswordCredential], scope: String) throws {
+        guard !credentials.isEmpty else { return }
+        try mutate { entries in
+            var known = Set(entries.filter { $0.scope == scope }.map { $0.credential.id })
+            let fresh = credentials.filter { known.insert($0.id).inserted }
+            entries += fresh.map { Entry(scope: scope, credential: $0) }
+            return !fresh.isEmpty
+        }
+    }
+
     @discardableResult
     func mutate(_ change: (inout [Entry]) -> Bool) throws -> Bool {
         try transaction {

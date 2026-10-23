@@ -178,7 +178,7 @@ struct ArcNativeStorageSafetyTests {
             storagePath: standardPath) }
         #expect(LegacyKeychainPasswordStore.save(host: "barc-keychain-fixture.invalid", username: "standard-fixture",
             password: "fictional-standard", sourceID: standardSource, overwrite: false))
-        let standard = KeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid")
+        let standard = LegacyKeychainPasswordStore.credentials(host: "barc-keychain-fixture.invalid")
         #expect(standard.count == 1)
         #expect(standard.first?.scheme == nil)
         #expect(standard.first?.password == "fictional-standard")

@@ -55,7 +55,7 @@ Barc uses its own data locations. Rebranding does not import or alter an existin
 
 Website passwords are encrypted with AES-256-GCM in `Passwords/website-passwords.barc` inside Barc's application-data folder. One macOS login-Keychain item protects the random encryption key. A successful unlock is kept in memory for the app session, so an application update can require one vault approval rather than a separate approval for every password. Profile records stay separate. The vault does not use iCloud Keychain sync.
 
-Earlier per-login Keychain entries remain untouched and are read only when macOS already permits access without a prompt. Reimporting from Arc can restore those source credentials into the vault without approving each older entry. Arc's approved source key is held only in memory for the current import window and cleared when it closes or a different folder is chosen. Repeating an import in that window does not request the source key again.
+Earlier per-login Keychain entries remain untouched. Records that macOS already permits reading without a prompt are copied into the vault without replacing newer vault values. Reimporting from Arc can restore those source credentials into the vault without approving each older entry. Arc's approved source key is held only in memory for the current import window and cleared when it closes or a different folder is chosen. Repeating an import in that window does not request the source key again.
 
 The icon source is [Resources/Icon/barc-icon.png](Resources/Icon/barc-icon.png). `make icon` packages it into [Resources/Barc.icns](Resources/Barc.icns).
 

@@ -99,6 +99,26 @@ struct WebsitePasswordVaultTests {
         #expect(try first.entries() == [entry(1), entry(2), entry(3)])
     }
 
+    @Test("Legacy conversion preserves newer values, scope boundaries and repeated imports")
+    func legacyConversion() throws {
+        let root = try ArcImportBench.directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let key = VaultFixtureKey()
+        let vault = WebsitePasswordVault(file: root.appending(path: "vault.barc"), access: key.access)
+        var newer = entry(1)
+        newer.credential = .init(host: newer.credential.host, username: newer.credential.username,
+            password: "fictional-newer", storagePath: newer.credential.storagePath, scheme: "https", port: 8443)
+        try vault.mutate { $0.append(newer); return true }
+        try vault.retainLegacy([entry(1).credential, entry(2).credential], scope: "personal")
+        try vault.retainLegacy([entry(1).credential], scope: "work")
+        try vault.retainLegacy([entry(1).credential, entry(2).credential], scope: "personal")
+        let saved = try vault.entries()
+        #expect(saved.count == 3)
+        #expect(saved.first(where: { $0.scope == "personal" && $0.credential.username == "user-1" })?.credential.password == "fictional-newer")
+        #expect(saved.first(where: { $0.scope == "work" })?.credential.password == "fictional-password-1")
+        #expect(key.reads == 1)
+    }
+
     @Test("One real Keychain key unlocks all 148 synthetic credentials",
           .enabled(if: ProcessInfo.processInfo.environment["BARC_TEST_SYNTHETIC_KEYCHAIN"] == "1"))
     func nativeSingleItem() throws {

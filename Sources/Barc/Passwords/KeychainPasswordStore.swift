@@ -227,7 +227,9 @@ enum KeychainPasswordStore {
         guard let entries = try? vault.entries() else { return [] }
         var records = Dictionary(entries.filter { $0.scope == scope }.map { ($0.credential.id, $0.credential) },
             uniquingKeysWith: { first, _ in first })
-        for credential in LegacyKeychainPasswordStore.all(identity: identity, allowInteraction: false)
+        let legacy = LegacyKeychainPasswordStore.all(identity: identity, allowInteraction: false)
+        try? vault.retainLegacy(legacy, scope: scope)
+        for credential in legacy
             where records[credential.id] == nil { records[credential.id] = credential }
         return records.values.sorted { $0.host == $1.host ? $0.username < $1.username : $0.host < $1.host }
     }
@@ -240,8 +242,10 @@ enum KeychainPasswordStore {
                 && (identity == .standard || scheme == nil || $0.credential.scheme == scheme)
         }.map(\.credential)
         var records = Dictionary(matching.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        for credential in LegacyKeychainPasswordStore.credentials(host: host, identity: identity, scheme: scheme, port: port,
-            allowInteraction: false) where records[credential.id] == nil { records[credential.id] = credential }
+        let legacy = LegacyKeychainPasswordStore.credentials(host: host, identity: identity, scheme: scheme, port: port,
+            allowInteraction: false)
+        try? vault.retainLegacy(legacy, scope: scope)
+        for credential in legacy where records[credential.id] == nil { records[credential.id] = credential }
         return records.values.sorted { $0.username < $1.username }
     }
 
