@@ -114,6 +114,9 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
     /// The menu shown on click. `nil` makes the button inert but still legible,
     /// which is right for a build that has no spaces to choose between.
     var menuProvider: (() -> NSMenu?)?
+    var onPress: (() -> Void)?
+    var isSectionCollapsed = false { didSet { refreshIcon() } }
+    private var restingIcon: NSImage?
     var onRenameStateChange: ((Bool) -> Void)?
     private(set) var isRenaming = false
     private var originalName = ""
@@ -136,9 +139,10 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         didSet {
             guard isHovered != oldValue else { return }
             highlight?.apply(
-                isHovered && menuProvider != nil ? .hover : .rest,
+                isHovered && (menuProvider != nil || onPress != nil) ? .hover : .rest,
                 appearance: effectiveAppearance
             )
+            refreshIcon()
         }
     }
 
@@ -226,13 +230,24 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         if isRenaming, identity != representedID { finishRenaming(commit: false) }
         representedID = identity
         if !isRenaming { label.stringValue = title }
-        icon.image = image
-        icon.isHidden = image == nil
-        labelLeadingToEdge?.isActive = image == nil
-        labelLeadingToIcon?.isActive = image != nil
+        restingIcon = image
+        refreshIcon()
         setAccessibilityLabel(accessibilityLabel)
         setAccessibilityValue(title)
         toolTip = tooltip
+    }
+
+    private func refreshIcon() {
+        let disclosure = onPress != nil && !isRenaming && (isSectionCollapsed || isHovered)
+        let image = disclosure
+            ? NSImage(systemSymbolName: isSectionCollapsed ? "chevron.right" : "chevron.down", accessibilityDescription: nil)?
+                .withSymbolConfiguration(.init(pointSize: 12, weight: .semibold))
+            : restingIcon
+        icon.image = image
+        icon.contentTintColor = disclosure ? Style.Colors.secondaryText : nil
+        icon.isHidden = image == nil
+        labelLeadingToEdge?.isActive = image == nil
+        labelLeadingToIcon?.isActive = image != nil
     }
 
     /// The field occupies exactly the name's resting position. Return and a
@@ -245,10 +260,13 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         label.isEditable = true
         label.isSelectable = true
         label.setAccessibilityElement(true)
+        label.setAccessibilityRole(.textField)
         label.setAccessibilityLabel("Space name")
         label.formatter = LimitedLengthFormatter(limit: Space.maximumNameLength)
         onRenameStateChange?(true)
-        window?.makeFirstResponder(label)
+        refreshIcon()
+        // selectText installs and selects the field editor itself. Asking the
+        // window first ends that editor when selectText installs it again.
         label.selectText(nil)
     }
 
@@ -261,9 +279,11 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         label.isEditable = false
         label.isSelectable = false
         label.setAccessibilityElement(false)
+        label.setAccessibilityRole(.staticText)
         label.formatter = nil
         if !commit || name.isEmpty { label.stringValue = originalName }
         onRenameStateChange?(false)
+        refreshIcon()
         if commit, !name.isEmpty { action?(name) }
     }
 
@@ -306,13 +326,13 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         // runs its own event loop, so a held press would stay squeezed for as
         // long as the menu is on screen.
         if acceptsSpringPress { press.flick() }
-        presentMenu()
+        if let onPress { onPress() } else { presentMenu() }
     }
 
     override func menu(for event: NSEvent) -> NSMenu? { menuProvider?() }
 
     override func accessibilityPerformPress() -> Bool {
-        presentMenu()
+        if let onPress { onPress() } else { presentMenu() }
         return true
     }
 

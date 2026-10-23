@@ -49,6 +49,8 @@ struct SpaceLook: Codable, Hashable, Sendable {
     /// before the setting existed, and for a new one -- a fresh space starts at
     /// whatever width the window is already showing rather than snapping.
     var sidebarWidth: Double?
+    /// The Space heading folds the retained folders and tabs above New Tab.
+    var pinnedSectionCollapsed = false
 
     init() {}
 
@@ -64,7 +66,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case appearance, customColorHex, importedChrome, importedChromeWasCustomized, gradient, washOpacity, allowsWebsiteThemeColor
         case alwaysShowsToolbarInFullScreen, autoShowsSidebarInFullScreen, isOpaqueInFullScreen
-        case showsBookmarksBar, bookmarksBarStyle, fonts, sidebarWidth
+        case showsBookmarksBar, bookmarksBarStyle, fonts, sidebarWidth, pinnedSectionCollapsed
     }
 
     init(from decoder: Decoder) throws {
@@ -84,6 +86,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         bookmarksBarStyle = (try? container.decodeIfPresent(String.self, forKey: .bookmarksBarStyle)).flatMap { $0 }.flatMap(BookmarksBarStyle.init(rawValue:)) ?? fallback.bookmarksBarStyle
         fonts = (try? container.decodeIfPresent(WebFonts.self, forKey: .fonts)) ?? fallback.fonts
         sidebarWidth = try? container.decodeIfPresent(Double.self, forKey: .sidebarWidth)
+        pinnedSectionCollapsed = (try? container.decodeIfPresent(Bool.self, forKey: .pinnedSectionCollapsed)) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -104,6 +107,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         // Absent rather than zero when a space has never been sized, so "no
         // width of its own" survives the round trip as itself.
         try container.encodeIfPresent(sidebarWidth, forKey: .sidebarWidth)
+        if pinnedSectionCollapsed { try container.encode(true, forKey: .pinnedSectionCollapsed) }
     }
 }
 

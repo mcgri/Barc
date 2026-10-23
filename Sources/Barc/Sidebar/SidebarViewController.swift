@@ -249,6 +249,14 @@ final class SidebarViewController: NSViewController {
             guard let self else { return nil }
             return makeSpaceOptionsMenu(for: shownSpace, anchor: spaceIdentity.moreButton)
         }
+        diaHeader.spaceButton.setAccessibilityRole(.button)
+        diaHeader.spaceButton.onPress = { [weak self] in
+            guard let self else { return }
+            let space = shownSpace
+            var look = space.look
+            look.pinnedSectionCollapsed.toggle()
+            session.setLook(look, for: space)
+        }
 
         pinnedTiles.onAdd = { [weak self] in self?.session.pinActiveTab() }
         pinnedTiles.onSelect = { [weak self] id in
@@ -914,6 +922,8 @@ final class SidebarViewController: NSViewController {
         }
         // One label, one concept: the space is the identity.
         let space = shownSpace
+        diaHeader.spaceButton.isSectionCollapsed = space.look.pinnedSectionCollapsed
+        diaHeader.spaceButton.setAccessibilityExpanded(!space.look.pinnedSectionCollapsed)
         applyChromeAppearance(for: space)
         diaHeader.spaceButton.show(
             title: space.name,
@@ -1199,10 +1209,14 @@ final class SidebarViewController: NSViewController {
                 flattened.append(.tab(tab, depth: depth, isEscaping: isEscaping))
             }
         }
-        let firstOrdinaryTab = flattened.firstIndex {
+        var firstOrdinaryTab = flattened.firstIndex {
             if case .tab(let tab, let depth, _) = $0 { return depth == 0 && !tab.keepsInSidebar }
             return false
         } ?? flattened.count
+        if space.look.pinnedSectionCollapsed {
+            flattened.removeFirst(firstOrdinaryTab)
+            firstOrdinaryTab = 0
+        }
         flattened.insert(.newTab, at: firstOrdinaryTab)
         rows = flattened
         plates = FolderPlatePlan.pieces(for: dropRows)

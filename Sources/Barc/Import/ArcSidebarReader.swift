@@ -55,6 +55,7 @@ enum ArcSidebarReader {
         let frontWindow = savedWindows.first { ($0["focusedSpaceID"] as? String) == (windowState?["lastFocusedSpaceID"] as? String) }
             ?? savedWindows.first
         let expandedFolders = (frontWindow?["expandedItems"] as? [String]).map(Set.init)
+        let foldedSpaces = (frontWindow?["spacesWithCollapsedPinnedSections"] as? [String]).map(Set.init)
         var items: [String: ArcSidebar.Item] = [:]
         var orderedIDs: [String] = []
         var skipped = 0
@@ -115,7 +116,7 @@ enum ArcSidebarReader {
             let icon = info["iconType"] as? [String: Any]
             let emoji = icon?["emoji_v2"] as? String ?? (icon?["emoji"] as? Int).flatMap(UnicodeScalar.init).map(String.init)
             spaces.append(.init(id: key, name: name, profile: folder, pinnedRoot: roots["pinned"], unpinnedRoot: roots["unpinned"], color: hex, emoji: emoji,
-                                chrome: ImportedChrome.read(theme)))
+                                chrome: ImportedChrome.read(theme), pinnedSectionCollapsed: foldedSpaces.map { $0.contains(key) }))
         }
         let sync = root["firebaseSyncState"] as? [String: Any]
         let syncData = sync?["syncData"] as? [String: Any]

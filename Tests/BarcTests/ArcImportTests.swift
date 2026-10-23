@@ -57,7 +57,7 @@ struct ArcSidebarReaderTests {
         let original = try ArcImportBench.snapshot()
         defer { original.remove() }
         let windows = try JSONSerialization.data(withJSONObject: ["lastFocusedSpaceID": "personal-space", "windows": [
-            ["focusedSpaceID": "personal-space", "expandedItems": ["folder"]]
+            ["focusedSpaceID": "personal-space", "expandedItems": ["folder"], "spacesWithCollapsedPinnedSections": ["personal-space"]]
         ]])
         let sidebar = try ArcSidebarReader.read(sidebar: ArcImportBench.sidebar(), archive: nil,
                                                 profiles: original.profiles, windows: windows)
@@ -67,6 +67,7 @@ struct ArcSidebarReaderTests {
         let groups = try #require(built.groups)
         #expect(groups.first { $0.name == "Folder" && $0.parentID == nil }?.isCollapsed == false)
         #expect(groups.first { $0.parentID != nil }?.isCollapsed == true)
+        #expect(built.look?.pinnedSectionCollapsed == true, "The section and its folders have separate fold states")
         let nested = try #require(groups.first { $0.parentID != nil }?.sidebarPosition)
         let nestedTab = try #require(built.tabs.first { $0.importedSourceID?.hasSuffix("/nested-pin") == true }?.sidebarPosition)
         let sibling = try #require(built.tabs.first { $0.importedSourceID?.hasSuffix("/pin") == true }?.sidebarPosition)
