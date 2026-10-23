@@ -121,7 +121,7 @@ final class GeneralSettingsViewController: NSViewController {
         form.addRow("Put inactive tabs to sleep after", SettingsForm.fill(suspensionPopUp))
         form.addNote("""
             A sleeping tab gives its memory back and reopens where you left it. \
-            It stays in the sidebar, dimmed, with a moon beside it. Tabs you have \
+            It stays in the sidebar and reloads when you select it. Tabs you have \
             set to Keep Awake are left alone, unless macOS itself runs critically \
             short of memory.
             """)
@@ -142,8 +142,8 @@ final class GeneralSettingsViewController: NSViewController {
         idleBadgePopUp.addItems(withTitles: TabIdleBadgeMode.allCases.map(\.title))
         idleBadgePopUp.target = self
         idleBadgePopUp.action = #selector(idleBadgeChanged)
-        form.addRow("Show time since last use", SettingsForm.fill(idleBadgePopUp))
-        form.addNote("A small timer on the tab row, such as 10m or 2h. The tab you are reading never shows one.")
+        form.addRow("Announce time since last use", SettingsForm.fill(idleBadgePopUp))
+        form.addNote("VoiceOver includes the idle time when reading a tab. The tab you are reading never announces an idle time.")
 
         form.addSeparator()
 

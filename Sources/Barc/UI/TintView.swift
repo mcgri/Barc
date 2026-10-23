@@ -32,6 +32,11 @@ struct WashGradient: Equatable {
 /// would need its own timer.
 @MainActor
 final class TintView: NSView {
+    private let grain = ChromeGrainView()
+    var grainAmount: Double {
+        get { grain.amount }
+        set { grain.amount = newValue }
+    }
     /// The colour to paint, already at wash strength (`SpaceTheme.wash(of:)`).
     /// `nil` paints nothing at all, which is the `neutral` space theme: the
     /// window goes back to plain material rather than to a grey wash.
@@ -66,6 +71,7 @@ final class TintView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         setAccessibilityElement(false)
         wantsLayer = true
+        addSubview(grain)
     }
 
     required init?(coder: NSCoder) {
@@ -124,6 +130,7 @@ final class TintView: NSView {
     /// animate, or a window resize drags the gradient after the content.
     override func layout() {
         super.layout()
+        grain.frame = bounds
         guard let gradientLayer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)

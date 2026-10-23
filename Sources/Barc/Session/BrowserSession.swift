@@ -214,11 +214,13 @@ final class BrowserSession {
         // Picking a solid swatch clears a gradient: they are the same setting,
         // and the swatch is the later word.
         let clearsGradient = space.look.gradient != nil
-        guard theme != space.theme || clearsGradient else { return }
+        guard theme != space.theme || clearsGradient || space.look.importedChrome != nil else { return }
         space.theme = theme
-        if clearsGradient {
+        if clearsGradient || space.look.importedChrome != nil {
             var look = space.look
             look.gradient = nil
+            look.importedChrome = nil
+            look.importedChromeWasCustomized = true
             space.look = look
         }
         changes.send(.spaces)
@@ -238,6 +240,12 @@ final class BrowserSession {
     /// space's open pages at once, and every page made for it from now on.
     func setLook(_ look: SpaceLook, for space: Space) {
         guard look != space.look else { return }
+        var look = look
+        if look.importedChrome == space.look.importedChrome,
+           look.customColorHex != space.look.customColorHex || look.gradient != space.look.gradient {
+            look.importedChrome = nil
+            look.importedChromeWasCustomized = true
+        }
         let fontsChanged = look.fonts != space.look.fonts
         space.look = look
         if fontsChanged {
@@ -254,6 +262,8 @@ final class BrowserSession {
         guard space.look.gradient != gradient else { return }
         var look = space.look
         look.gradient = gradient
+        look.importedChrome = nil
+        look.importedChromeWasCustomized = true
         space.look = look
         changes.send(.spaces)
         scheduleSave()
@@ -266,6 +276,8 @@ final class BrowserSession {
         var look = space.look
         look.customColor = color
         look.gradient = nil
+        look.importedChrome = nil
+        look.importedChromeWasCustomized = true
         space.look = look
         space.theme = .custom
         changes.send(.spaces)
@@ -2372,6 +2384,14 @@ final class BrowserSession {
             let space: Space
             if let existing = spaces.first(where: { $0.id == id }) {
                 space = existing
+                // Enrich an older import only while its original accent is
+                // unchanged. User colour/gradient edits always win.
+                if space.theme == .custom, space.look.gradient == nil,
+                   !space.look.importedChromeWasCustomized, space.look.importedChrome == nil,
+                   space.look.customColorHex?.lowercased() == built.look.customColorHex?.lowercased(),
+                   let chrome = built.look.importedChrome {
+                    space.look.importedChrome = chrome
+                }
                 if let engine = stored.searchEngineID { space.searchEngineID = engine }
                 for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }
                 for group in built.groups {

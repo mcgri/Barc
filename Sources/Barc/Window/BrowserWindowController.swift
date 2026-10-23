@@ -225,6 +225,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
         sidebar.onWashChange = { [weak self] wash in
             self?.content.spaceWash = wash
+            if let space = self?.sidebar.shownSpaceForLook {
+                self?.content.showImportedChrome(space.activeImportedChrome, grain: space.chromeGrain)
+            }
             self?.setPanelWash(wash)
         }
         sidebar.onGradientChange = { [weak self] gradient in
@@ -1602,6 +1605,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     private func applyLook(of space: Space) {
+        content.showImportedChrome(space.activeImportedChrome, grain: space.chromeGrain)
         // Light or dark for this window only. The Settings window and the
         // panels keep following the General pane; nil here means "as the app".
         window?.appearance = space.look.appearance.appearance

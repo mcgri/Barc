@@ -64,6 +64,7 @@ struct ArcSidebar: Sendable {
         let unpinnedRoot: String?
         let color: String?
         let emoji: String?
+        var chrome: ImportedChrome? = nil
     }
     struct Archived: Sendable {
         let id: String

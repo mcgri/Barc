@@ -66,6 +66,7 @@ enum ArcSpaceBuilder {
             } : []
             var look = SpaceLook()
             look.customColorHex = space.color
+            look.importedChrome = space.chrome
             let selected = sidebar.selectedItems[space.id].flatMap { selected in
                 tabs.firstIndex { $0.importedSourceID == prefix + "/tab/" + space.id + "/" + selected }
             }

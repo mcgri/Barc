@@ -105,9 +105,20 @@ final class Space: Identifiable {
         // Neutral with no gradient paints nothing; anything with a colour of
         // its own washes at the space's own strength.
         guard look.gradient != nil || theme.tintsChrome else { return nil }
+        if let chrome = activeImportedChrome {
+            return chrome.color.nsColor.withAlphaComponent(CGFloat(chrome.color.alpha * chrome.intensity * look.washOpacity) * 0.8)
+        }
         if theme == .custom { return color.withAlphaComponent(CGFloat(look.washOpacity) * 0.75) }
         return SpaceTheme.wash(of: color, opacity: CGFloat(look.washOpacity))
     }
+
+    var activeImportedChrome: ImportedChrome? {
+        guard theme == .custom, look.gradient == nil,
+              !(look.allowsWebsiteThemeColor && activeTab?.themeColor != nil) else { return nil }
+        return look.importedChrome
+    }
+
+    var chromeGrain: Double { (activeImportedChrome?.noise ?? 0) * look.washOpacity }
 
     /// The solid wash while this tab is in front: the page's own colour if the
     /// space lets pages do that and this one declares one, else the space's.

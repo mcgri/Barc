@@ -70,6 +70,7 @@ final class SidebarViewController: NSViewController {
     /// view, so it is only nil before `loadView`.
     private var tint: TintView?
     private var material: NSVisualEffectView?
+    private let materialShade = ChromeMaterialShadeView()
 
     /// The space whose look the window should wear: the one in front, or
     /// the one being previewed by a drag.
@@ -222,7 +223,15 @@ final class SidebarViewController: NSViewController {
 
         // The profile's colour goes on above the material so the sidebar says
         // which identity is in front before a single word is read.
-        tint = TintView.install(over: material, in: view)
+        materialShade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(materialShade)
+        NSLayoutConstraint.activate([
+            materialShade.topAnchor.constraint(equalTo: material.topAnchor),
+            materialShade.bottomAnchor.constraint(equalTo: material.bottomAnchor),
+            materialShade.leadingAnchor.constraint(equalTo: material.leadingAnchor),
+            materialShade.trailingAnchor.constraint(equalTo: material.trailingAnchor)
+        ])
+        tint = TintView.install(over: materialShade, in: view)
 
         // Stands in for the titlebar the window does not have: drag to move,
         // double-click to zoom. It sits behind everything else in the strip so
@@ -679,6 +688,7 @@ final class SidebarViewController: NSViewController {
         guard let tint else { return }
         tint.transitionDuration = duration
         tint.gradientWash = space.washGradient(for: space.activeTab)
+        tint.grainAmount = space.chromeGrain
         tint.transitionDuration = 0
     }
 
@@ -907,15 +917,7 @@ final class SidebarViewController: NSViewController {
         }
         // One label, one concept: the space is the identity.
         let space = shownSpace
-        if space.theme == .custom, space.look.appearance == .system,
-           let rgb = space.color.usingColorSpace(.sRGB) {
-            let brightness = rgb.redComponent * 0.299 + rgb.greenComponent * 0.587 + rgb.blueComponent * 0.114
-            view.appearance = NSAppearance(named: brightness > 0.53 ? .aqua : .darkAqua)
-            material?.appearance = NSAppearance(named: .darkAqua)
-        } else {
-            view.appearance = space.look.appearance.appearance
-            material?.appearance = nil
-        }
+        applyChromeAppearance(for: space)
         diaHeader.spaceButton.show(
             title: space.name,
             // Only what the user put there. The dot is not repeated in the
@@ -939,6 +941,23 @@ final class SidebarViewController: NSViewController {
             onShownSpaceChange?(space, themeTransitionDuration)
         }
         refreshPinnedTiles()
+    }
+
+    private func applyChromeAppearance(for space: Space) {
+        materialShade.isHidden = space.activeImportedChrome?.usesLightMaterial != true
+        if let chrome = space.activeImportedChrome {
+            view.appearance = space.look.appearance == .system
+                ? NSAppearance(named: chrome.usesDarkText ? .aqua : .darkAqua) : space.look.appearance.appearance
+            material?.appearance = NSAppearance(named: chrome.usesLightMaterial ? .aqua : .darkAqua)
+        } else if space.theme == .custom, space.look.appearance == .system,
+           let rgb = space.color.usingColorSpace(.sRGB) {
+            let brightness = rgb.redComponent * 0.299 + rgb.greenComponent * 0.587 + rgb.blueComponent * 0.114
+            view.appearance = NSAppearance(named: brightness > 0.53 ? .aqua : .darkAqua)
+            material?.appearance = NSAppearance(named: .darkAqua)
+        } else {
+            view.appearance = space.look.appearance.appearance
+            material?.appearance = nil
+        }
     }
 
     /// Rebuilt whenever the space or the visible page changes, because which
@@ -1280,6 +1299,8 @@ final class SidebarViewController: NSViewController {
         let space = shownSpace
         let wash = space.wash(for: space.activeTab)
         let gradient = space.washGradient(for: space.activeTab)
+        applyChromeAppearance(for: space)
+        tint?.grainAmount = space.chromeGrain
         guard tint?.wash != wash || tint?.gradientWash != gradient else { return }
         tint?.wash = wash
         tint?.gradientWash = gradient

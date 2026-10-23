@@ -76,6 +76,10 @@ final class WebContentViewController: NSViewController {
         set { contentContainer.spaceWash = newValue }
     }
 
+    func showImportedChrome(_ chrome: ImportedChrome?, grain: Double) {
+        contentContainer.showImportedChrome(chrome, grain: grain)
+    }
+
     /// The gradient wash on the strip, for a space washed with two colours.
     var spaceGradient: WashGradient? {
         get { contentContainer.spaceGradient }

@@ -114,7 +114,8 @@ enum ArcSidebarReader {
             }
             let icon = info["iconType"] as? [String: Any]
             let emoji = icon?["emoji_v2"] as? String ?? (icon?["emoji"] as? Int).flatMap(UnicodeScalar.init).map(String.init)
-            spaces.append(.init(id: key, name: name, profile: folder, pinnedRoot: roots["pinned"], unpinnedRoot: roots["unpinned"], color: hex, emoji: emoji))
+            spaces.append(.init(id: key, name: name, profile: folder, pinnedRoot: roots["pinned"], unpinnedRoot: roots["unpinned"], color: hex, emoji: emoji,
+                                chrome: ImportedChrome.read(theme)))
         }
         let sync = root["firebaseSyncState"] as? [String: Any]
         let syncData = sync?["syncData"] as? [String: Any]

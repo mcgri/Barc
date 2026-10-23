@@ -60,6 +60,12 @@ final class ContentContainerView: NSView {
 
     private let underlay = NSVisualEffectView()
     private let tint = TintView()
+    private let materialShade = ChromeMaterialShadeView()
+    func showImportedChrome(_ chrome: ImportedChrome?, grain: Double) {
+        underlay.appearance = chrome.map { NSAppearance(named: $0.usesLightMaterial ? .aqua : .darkAqua) } ?? nil
+        materialShade.isHidden = chrome?.usesLightMaterial != true
+        tint.grainAmount = grain
+    }
     private var page: NSView?
 
     /// What the page card casts onto the sidebar material beside it.
@@ -128,6 +134,14 @@ final class ContentContainerView: NSView {
         underlay.state = .followsWindowActiveState
         underlay.translatesAutoresizingMaskIntoConstraints = false
         addSubview(underlay)
+        materialShade.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(materialShade)
+        NSLayoutConstraint.activate([
+            materialShade.topAnchor.constraint(equalTo: underlay.topAnchor),
+            materialShade.bottomAnchor.constraint(equalTo: underlay.bottomAnchor),
+            materialShade.leadingAnchor.constraint(equalTo: underlay.leadingAnchor),
+            materialShade.trailingAnchor.constraint(equalTo: underlay.trailingAnchor)
+        ])
         addSubview(tint)
 
         wantsLayer = true
