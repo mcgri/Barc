@@ -1,3 +1,4 @@
+// Modified for Barc: retain mixed root folder and tab order, 2026-10-24.
 import AppKit
 
 /// Turning a Space's folders and tabs into the flat list of rows the sidebar
@@ -32,47 +33,41 @@ enum FolderRowPlan {
         }
     }
 
-    /// The rows for one space, folders first in tree order and then everything
-    /// filed nowhere.
-    ///
-    /// - Parameter tabs: the space's tabs in their own order; membership is read
-    ///   from each tab's `groupID`, so nothing here reorders anything.
+    /// Folders and tabs share their saved sibling order. Older sessions keep
+    /// their original order until an item is moved.
     static func rows(
         groups: [TabGroup],
         tabs: [Tab],
         activeTabID: Tab.ID?
     ) -> [Row] {
-        var byGroup: [TabGroup.ID: [Tab]] = [:]
-        var ungrouped: [Tab] = []
-        for tab in tabs {
-            if let id = tab.groupID { byGroup[id, default: []].append(tab) } else { ungrouped.append(tab) }
-        }
-
         let activeTab = activeTabID.flatMap { id in tabs.first { $0.id == id } }
         var result: [Row] = []
+        var visited: Set<TabGroup.ID> = []
 
-        for (folder, depth) in FolderTree.ordered(groups) {
-            // A folder inside a collapsed one is not drawn at all; the walk
-            // below already emitted whatever its ancestor had to show.
-            guard FolderTree.isVisible(folder, in: groups) else { continue }
-
-            if folder.isCollapsed {
-                let escaping = escapedTab(activeTab, under: folder, in: groups)
-                result.append(.folder(folder, depth: depth, showsEscapedTab: escaping != nil))
-                if let escaping {
-                    let tabDepth = escaping.groupID
-                        .flatMap { FolderTree.folder(withID: $0, in: groups) }
-                        .map { FolderTree.depth(of: $0, in: groups) + 1 } ?? depth + 1
-                    result.append(.tab(escaping, depth: tabDepth, isEscaping: true))
+        func append(_ item: SidebarItem, depth: Int) {
+            switch item {
+            case .tab(let tab):
+                result.append(.tab(tab, depth: depth, isEscaping: false))
+            case .folder(let folder):
+                guard visited.insert(folder.id).inserted else { return }
+                if folder.isCollapsed {
+                    let escaping = escapedTab(activeTab, under: folder, in: groups)
+                    result.append(.folder(folder, depth: depth, showsEscapedTab: escaping != nil))
+                    if let escaping {
+                        let tabDepth = escaping.groupID
+                            .flatMap { FolderTree.folder(withID: $0, in: groups) }
+                            .map { FolderTree.depth(of: $0, in: groups) + 1 } ?? depth + 1
+                        result.append(.tab(escaping, depth: tabDepth, isEscaping: true))
+                    }
+                } else {
+                    result.append(.folder(folder, depth: depth, showsEscapedTab: false))
+                    for child in SidebarOrder.items(groups: groups, tabs: tabs, parentID: folder.id) {
+                        append(child, depth: depth + 1)
+                    }
                 }
-            } else {
-                result.append(.folder(folder, depth: depth, showsEscapedTab: false))
-                let children = byGroup[folder.id] ?? []
-                result.append(contentsOf: children.map { .tab($0, depth: depth + 1, isEscaping: false) })
             }
         }
-
-        result.append(contentsOf: ungrouped.map { .tab($0, depth: 0, isEscaping: false) })
+        for item in SidebarOrder.items(groups: groups, tabs: tabs) { append(item, depth: 0) }
         return result
     }
 

@@ -1,3 +1,4 @@
+// Modified for Barc: persistent ordering among folders and retained tabs, 2026-10-24.
 import AppKit
 
 /// A named, collapsible set of tabs inside a Space.
@@ -63,6 +64,7 @@ final class TabGroup: Identifiable {
     /// which carry their own locks. Deleting a folder is one keystroke away
     /// from a fortnight of filing, and there is no undo for it.
     var isLocked: Bool
+    var sidebarPosition: Int?
 
     init(
         id: UUID = UUID(),
@@ -75,7 +77,8 @@ final class TabGroup: Identifiable {
         symbolName: String? = nil,
         iconFileName: String? = nil,
         isLive: Bool = false,
-        isLocked: Bool = false
+        isLocked: Bool = false,
+        sidebarPosition: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -88,6 +91,7 @@ final class TabGroup: Identifiable {
         self.iconFileName = iconFileName
         self.isLive = isLive
         self.isLocked = isLocked
+        self.sidebarPosition = sidebarPosition
     }
 
     var displayName: String {

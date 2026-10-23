@@ -48,6 +48,7 @@ struct SessionSnapshot: Codable, Equatable {
         var emoji: String?
         /// Stable source identifier for repeatable imports. Never a page URL or secret.
         var importedSourceID: String? = nil
+        var sidebarPosition: Int? = nil
     }
 
     struct Space: Codable, Equatable {
@@ -187,6 +188,7 @@ struct SessionSnapshot: Codable, Equatable {
         /// The folder refuses to be deleted. Absent for the ordinary folder and
         /// for sessions written before the lock existed.
         var isLocked: Bool?
+        var sidebarPosition: Int? = nil
     }
 
     struct Pinned: Codable, Equatable {

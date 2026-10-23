@@ -2652,7 +2652,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     /// group, or nil to send it past the last one. The first root header at or
     /// below the drop row that is not the dragged group itself.
     private func groupReorderTarget(dropRow: Int, dragged: TabGroup) -> TabGroup? {
-        for index in max(0, dropRow)..<rows.count {
+        for index in min(max(0, dropRow), rows.count)..<rows.count {
             if case .group(let candidate, 0, _) = rows[index], candidate.id != dragged.id {
                 return candidate
             }
@@ -2679,12 +2679,24 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     /// what the drop does. A folder header is the one place the pointer's
     /// position within the row matters (`FolderDropZone`); everywhere else the
     /// drop is between rows, and a drop *on* a tab is treated as above it.
+    private struct SidebarDropDestination {
+        let plan: TabDropPlan.Destination
+        let before: SidebarItem?
+        let retained: Bool
+    }
+
+    private func dropLanding(_ plan: TabDropPlan.Destination?, at row: Int) -> SidebarDropDestination? {
+        guard let plan else { return nil }
+        let divider = rows.firstIndex { if case .newTab = $0 { return true }; return false } ?? rows.count
+        return SidebarDropDestination(plan: plan, before: sidebarSiblingTarget(at: row, parentID: plan.groupID), retained: row <= divider)
+    }
+
     private func dropDestination(
         _ info: any NSDraggingInfo,
         payload: DropPayload,
         row: Int,
         operation: NSTableView.DropOperation
-    ) -> TabDropPlan.Destination? {
+    ) -> SidebarDropDestination? {
         let space = session.activeSpace
         if rows.indices.contains(row), case .group(let folder, _, _) = rows[row],
            let header = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) {
@@ -2708,15 +2720,22 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             if case .afterFolder = target {
                 let after = TabDropPlan.rowAfterBlock(of: row, rows: dropRows)
                 tableView.setDropRow(after, dropOperation: .above)
-                return TabDropPlan.onto(folder: folder, target: target, tabs: space.tabs, groups: space.groups)
+                return dropLanding(TabDropPlan.onto(folder: folder, target: target, tabs: space.tabs, groups: space.groups), at: after)
             }
             guard target.highlightsFolder else { return nil }
             tableView.setDropRow(row, dropOperation: .on)
-            return TabDropPlan.onto(folder: folder, target: target, tabs: space.tabs, groups: space.groups)
+            guard let plan = TabDropPlan.onto(folder: folder, target: target, tabs: space.tabs, groups: space.groups) else { return nil }
+            let before: SidebarItem?
+            if case .intoFolderAtStart = target {
+                before = SidebarOrder.items(groups: space.groups, tabs: space.listedTabs, parentID: folder.id).first
+            } else {
+                before = nil
+            }
+            return SidebarDropDestination(plan: plan, before: before, retained: true)
         }
 
         tableView.setDropRow(row, dropOperation: .above)
-        return TabDropPlan.between(rows: dropRows, row: row, tabs: space.tabs, groups: space.groups)
+        return dropLanding(TabDropPlan.between(rows: dropRows, row: row, tabs: space.tabs, groups: space.groups), at: row)
     }
 
     private func isTabSplitDrop(row: Int, payload: DropPayload, operation: NSTableView.DropOperation) -> Bool {
@@ -2729,6 +2748,25 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         case .group:
             return false
         }
+    }
+
+    /// Resolve before mutating the session: its notifications rebuild the table synchronously.
+    private func sidebarRootTarget(at row: Int) -> SidebarItem? {
+        sidebarSiblingTarget(at: row, parentID: nil)
+    }
+
+    private func sidebarSiblingTarget(at row: Int, parentID: UUID?) -> SidebarItem? {
+        guard rows.indices.contains(row) else { return nil }
+        for index in row..<rows.count {
+            switch rows[index] {
+            case .group(let folder, _, _):
+                if folder.parentID == parentID { return .folder(folder) }
+            case .tab(let tab, _, _):
+                if tab.groupID == parentID { return .tab(tab) }
+            default: continue
+            }
+        }
+        return nil
     }
 
     func tableView(
@@ -2763,7 +2801,11 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let payload = dropPayload(from: info) else { return false }
         // A group drag reorders the top-level groups rather than moving a tab.
         if case .group(let dragged) = payload {
-            session.moveGroup(dragged, before: groupReorderTarget(dropRow: row, dragged: dragged))
+            if dragged.parentID == nil {
+                session.positionSidebarItem(.folder(dragged), before: sidebarRootTarget(at: row))
+            } else {
+                session.moveGroup(dragged, before: groupReorderTarget(dropRow: row, dragged: dragged))
+            }
             return true
         }
         if dropOperation == .on, rows.indices.contains(row), case .tab(let targetTab, _, _) = rows[row] {
@@ -2783,20 +2825,22 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let destination = dropDestination(info, payload: payload, row: row, operation: dropOperation)
         else { return false }
         let space = session.activeSpace
-        let group = destination.groupID.flatMap { space.group(withID: $0) }
+        let group = destination.plan.groupID.flatMap { space.group(withID: $0) }
 
         switch payload {
         case .tab(let tab, let index):
-            session.moveTab(from: index, to: destination.tabIndex)
+            session.moveTab(from: index, to: destination.plan.tabIndex)
             session.move(tab, to: group)
+            session.positionSidebarItem(.tab(tab), before: destination.before, retained: destination.retained)
         case .link(let url):
             // Made at the end and then moved, which is the one path every
             // new tab already takes, rather than a second way to insert one.
             let tab = session.newTab(url: url, select: false)
             if let index = space.index(of: tab) {
-                session.moveTab(from: index, to: destination.tabIndex)
+                session.moveTab(from: index, to: destination.plan.tabIndex)
             }
             session.move(tab, to: group)
+            session.positionSidebarItem(.tab(tab), before: destination.before, retained: destination.retained)
         case .group:
             // Handled above, before the tab destination is resolved.
             return true

@@ -50,6 +50,7 @@ final class Tab: Identifiable {
     private(set) var url: URL
     private(set) var pageTitle: String?
     private(set) var importedSourceID: String?
+    var sidebarPosition: Int?
 
     /// The identity this tab's pages load under: its space's. Fixed, because
     /// WebKit binds a web view to its data store at creation and there is no
@@ -685,6 +686,7 @@ final class Tab: Identifiable {
         self.url = snapshot.url
         self.pageTitle = snapshot.title
         self.importedSourceID = snapshot.importedSourceID
+        self.sidebarPosition = snapshot.sidebarPosition
         self.identity = identity
         self.groupID = snapshot.groupID
         self.pinnedSiteID = snapshot.pinnedSiteID
@@ -726,7 +728,8 @@ final class Tab: Identifiable {
             note: note,
             autoReloadSeconds: autoReloadInterval.map { Int($0) },
             emoji: emoji,
-            importedSourceID: importedSourceID
+            importedSourceID: importedSourceID,
+            sidebarPosition: sidebarPosition
         )
     }
 

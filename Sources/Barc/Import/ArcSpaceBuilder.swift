@@ -25,17 +25,21 @@ enum ArcSpaceBuilder {
             var groups: [SessionSnapshot.Group] = []
             var pins: [SessionSnapshot.Pinned] = []
             var visited: Set<String> = []
+            var sidebarPosition = 0
             func children(_ id: String) -> [String] {
                 let named = sidebar.items[id]?.children ?? []
                 return named + sidebar.orderedItemIDs.filter { sidebar.items[$0]?.parentID == id && !named.contains($0) }
             }
             func walk(_ id: String, group: UUID?, pinned: Bool, favorite: Bool, root: Bool = false) {
                 guard visited.insert(id).inserted, let item = sidebar.items[id] else { return }
+                let position = sidebarPosition
+                sidebarPosition += 1
                 var parent = group
                 if item.isFolder, !root {
                     let groupID = ArcImportID.uuid(prefix + "/group/" + space.id + "/" + id)
                     groups.append(.init(id: groupID, name: item.title ?? "Folder", emoji: nil, tint: space.color ?? "#007aff",
-                                        appearance: nil, isCollapsed: false, parentID: group, symbolName: "folder", isLive: nil))
+                                        appearance: nil, isCollapsed: false, parentID: group, symbolName: "folder", isLive: nil,
+                                        sidebarPosition: position))
                     parent = groupID
                 }
                 if let url = item.url {
@@ -44,7 +48,8 @@ enum ArcSpaceBuilder {
                     tabs.append(SessionSnapshot.Tab(url: url, title: item.title, groupID: group, customName: item.customName,
                                                      pinnedSiteID: pinID, lastActiveAt: item.lastActiveAt,
                                                      keepsInSidebar: pinned ? true : nil,
-                                                     importedSourceID: prefix + "/tab/" + space.id + "/" + id))
+                                                     importedSourceID: prefix + "/tab/" + space.id + "/" + id,
+                                                     sidebarPosition: position))
                 }
                 for child in children(id) { walk(child, group: parent, pinned: pinned, favorite: favorite) }
             }

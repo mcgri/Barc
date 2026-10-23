@@ -1351,7 +1351,36 @@ final class BrowserSession {
     /// moves it. `before` is the group it should sit ahead of, or nil to send
     /// it past the last one.
     func moveGroup(_ group: TabGroup, before other: TabGroup?) {
+        guard activeSpace.groups.contains(where: { $0 === group }), other?.id != group.id else { return }
+        guard other == nil || other?.parentID == group.parentID else { return }
         activeSpace.moveGroup(group, before: other)
+        SidebarOrder.place(.folder(group), before: other.map(SidebarItem.folder),
+                           in: SidebarOrder.items(groups: activeSpace.groups, tabs: activeSpace.listedTabs, parentID: group.parentID),
+                           separatesOrdinaryTabs: group.parentID == nil)
+        changes.send(.structure)
+        scheduleSave()
+    }
+
+    func positionSidebarItem(_ item: SidebarItem, before target: SidebarItem?, retained: Bool? = nil) {
+        guard target?.id != item.id else { return }
+        let parentID: UUID?
+        switch item {
+        case .folder(let folder):
+            guard activeSpace.groups.contains(where: { $0 === folder }) else { return }
+            parentID = folder.parentID
+        case .tab(let tab):
+            guard activeSpace.tabs.contains(where: { $0 === tab }), tab.pinnedSiteID == nil else { return }
+            parentID = tab.groupID
+            if parentID == nil, let retained { tab.setKeepsInSidebar(retained) }
+        }
+        if let target {
+            let targetParent: UUID?
+            switch target { case .folder(let folder): targetParent = folder.parentID; case .tab(let tab): targetParent = tab.groupID }
+            guard parentID == targetParent else { return }
+        }
+        SidebarOrder.place(item, before: target,
+                           in: SidebarOrder.items(groups: activeSpace.groups, tabs: activeSpace.listedTabs, parentID: parentID),
+                           separatesOrdinaryTabs: parentID == nil)
         changes.send(.structure)
         scheduleSave()
     }
@@ -2154,7 +2183,8 @@ final class BrowserSession {
                             symbolName: $0.symbolName,
                             iconFileName: $0.iconFileName,
                             isLive: $0.isLive ? true : nil,
-                            isLocked: $0.isLocked ? true : nil
+                            isLocked: $0.isLocked ? true : nil,
+                            sidebarPosition: $0.sidebarPosition
                         )
                     },
                     pinnedSites: space.pinnedSites.map {
@@ -2240,7 +2270,8 @@ final class BrowserSession {
                     symbolName: $0.symbolName,
                     iconFileName: $0.iconFileName,
                     isLive: $0.isLive ?? false,
-                    isLocked: $0.isLocked ?? false
+                    isLocked: $0.isLocked ?? false,
+                    sidebarPosition: $0.sidebarPosition
                 )
             }
             space.restore(
