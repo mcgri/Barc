@@ -32,9 +32,15 @@ separate artwork inspired by Arc's visual style. Arc's original icon is not
 included as Barc's application icon. Kylmora and Arc names and marks belong
 to their respective owners; no trademark rights or endorsement are granted.
 
-The folder icon palette includes SVG artwork from Ionicons:
+The folder and Space icon palettes include SVG artwork from Ionicons:
 https://github.com/ionic-team/ionicons
 Copyright (c) 2015-present Ionic (http://ionic.io/)
 The Ionicons artwork is distributed under the MIT License. Its complete
 license is in LICENSES/Ionicons.txt and is included with the application.
 The remaining Barc source retains its existing Apache-2.0 license.
+
+The Space emoji picker includes names and ordering derived from Unicode 15.1:
+https://unicode.org/Public/emoji/15.1/emoji-test.txt
+Copyright © 2023 Unicode, Inc. The data is distributed under the Unicode
+License V3. Its complete license is in LICENSES/Unicode.txt and is included
+with the application. Emoji artwork is rendered by the macOS system font.

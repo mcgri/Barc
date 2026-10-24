@@ -1,20 +1,10 @@
 import AppKit
 import UniformTypeIdentifiers
 
-/// Choosing what a space or a folder wears.
-///
-/// A menu rather than a panel of its own, for two reasons. The choice has
-/// exactly four shapes -- an emoji, one of a dozen symbols, a picture, or
-/// nothing -- and a menu says all four in one glance where a panel would need
-/// tabs. And the same choice is offered from places that look nothing alike:
-/// the New Space sheet, the Spaces pane in Settings, and the right-click menu
-/// on a folder in the sidebar. A menu is the one control all of them can show
-/// without agreeing on a layout.
-///
-/// It deals in `Choice` rather than in `SpaceIcon` or `FolderIcon` because the
-/// two icons draw their "nothing chosen" case differently -- a coloured dot
-/// for a space, a folder squircle for a folder -- and that is the only way
-/// they differ. The caller maps the choice back onto its own type.
+// Modified for Barc: keep image and legacy symbol choices available in Settings, 2026-10-24.
+/// Extended icon choices for Settings and creation sheets. The sidebar uses
+/// CompactSpaceIconPicker for Arc's Emoji/Icon panel. Both return choices
+/// through the same SpaceIcon/FolderIcon models and local image store.
 @MainActor
 enum IconMenu {
     /// What the menu hands back.

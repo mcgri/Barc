@@ -1,3 +1,4 @@
+// Modified for Barc: import Arc Space icon aliases, 2026-10-24.
 import Foundation
 
 /// Reads the current local sidebar, not the stale cloud-sync replicas beside it.
@@ -115,10 +116,7 @@ enum ArcSidebarReader {
             }
             let icon = info["iconType"] as? [String: Any]
             let emoji = icon?["emoji_v2"] as? String ?? (icon?["emoji"] as? Int).flatMap(UnicodeScalar.init).map(String.init)
-            let symbol = (icon?["icon"] as? String).flatMap { name -> String? in
-                guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "-") }) else { return nil }
-                return "ionicon." + name
-            }
+            let symbol = (icon?["icon"] as? String).flatMap(SpaceSymbols.storedName(forArcName:))
             spaces.append(.init(id: key, name: name, profile: folder, pinnedRoot: roots["pinned"], unpinnedRoot: roots["unpinned"], color: hex, emoji: emoji,
                                 symbolName: symbol, chrome: ImportedChrome.read(theme), pinnedSectionCollapsed: foldedSpaces.map { $0.contains(key) }))
         }

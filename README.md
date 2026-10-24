@@ -86,7 +86,7 @@ Barc is distributed under the [Apache License 2.0](LICENSE). The original licens
 
 When redistributing Barc, include `LICENSE` and `NOTICE`, retain applicable upstream notices, and mark any files you change. These requirements come from [section 4 of the Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). Any additional third-party components must retain their own required licences and notices.
 
-The folder icon palette uses artwork from [Ionicons](https://github.com/ionic-team/ionicons), copyright Ionic, under the [MIT License](LICENSES/Ionicons.txt). Its license is also included in the app's resources.
+The folder and Space icon palettes use artwork from [Ionicons](https://github.com/ionic-team/ionicons), copyright Ionic, under the [MIT License](LICENSES/Ionicons.txt). Its license is also included in the app's resources. The Space emoji picker uses names and ordering from [Unicode 15.1](https://unicode.org/Public/emoji/15.1/emoji-test.txt), copyright Unicode, under the [Unicode License V3](LICENSES/Unicode.txt). That license is bundled too. Emoji artwork comes from the macOS system font.
 
 Original browser copyright notice: © 2026 Kylmora · kylmora.com. Barc-specific modifications: © 2026 Barc contributors.
 

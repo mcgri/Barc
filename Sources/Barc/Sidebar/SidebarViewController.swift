@@ -48,6 +48,7 @@ final class SidebarViewController: NSViewController {
     private let tableView = SidebarTableView()
     private let scrollView = NSScrollView()
     private var spaceColorPopover: NSPopover?
+    private var spaceIconPopover: NSPopover?
     private var normalStack: NSStackView?
     private var normalStackConstraints: [NSLayoutConstraint] = []
     private lazy var library = SidebarLibraryView(session: session)
@@ -1126,13 +1127,7 @@ final class SidebarViewController: NSViewController {
                         session.rename(space, to: name)
                     }
                 case .icon:
-                    let origin = anchor ?? spaceIdentity.moreButton
-                    let menu = IconMenu.menu(current: space.icon.asMenuChoice, color: space.color, anchor: origin) {
-                        [weak self, weak space] choice in
-                        guard let self, let space else { return }
-                        session.setIcon(SpaceIcon(choice), for: space)
-                    }
-                    menu.popUp(positioning: nil, at: NSPoint(x: 0, y: origin.bounds.maxY), in: origin)
+                    showSpaceIconPicker(for: space, anchor: anchor ?? spaceIdentity.moreButton)
                 case .theme: showSpaceColorEditor(for: space, anchor: anchor ?? spaceIdentity.moreButton)
                 case .exportInto(let id):
                     guard let target = session.spaces.first(where: { $0.id == id }) else { return }
@@ -1155,6 +1150,19 @@ final class SidebarViewController: NSViewController {
                 }
             }
         }
+    }
+
+    private func showSpaceIconPicker(for space: Space, anchor: NSView) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = CompactSpaceIconPicker(selected: space.icon) { [weak self, weak space, weak popover] icon in
+            guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
+            session.setIcon(icon, for: space)
+            popover?.close()
+        }
+        spaceIconPopover?.close()
+        spaceIconPopover = popover
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
     }
 
     private func showSpaceColorEditor(for space: Space, anchor: NSView) {
