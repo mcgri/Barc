@@ -42,8 +42,8 @@ final class LibrarySpacesView: NSView {
             document.widthAnchor.constraint(greaterThanOrEqualTo: scroll.contentView.widthAnchor),
             strip.leadingAnchor.constraint(equalTo: document.leadingAnchor, constant: 24),
             strip.trailingAnchor.constraint(equalTo: document.trailingAnchor, constant: -24),
-            strip.topAnchor.constraint(equalTo: document.topAnchor, constant: 24),
-            strip.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -16)
+            strip.topAnchor.constraint(equalTo: document.topAnchor, constant: 48),
+            strip.bottomAnchor.constraint(equalTo: document.bottomAnchor, constant: -48)
         ])
         subscription = session.changes.sink { [weak self] change in
             switch change { case .spaces, .structure, .tabs: self?.reload(); default: break }
@@ -107,7 +107,7 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
         grain.translatesAutoresizingMaskIntoConstraints = false; addSubview(grain)
         icon.translatesAutoresizingMaskIntoConstraints = false; icon.imageScaling = .scaleProportionallyDown
         name.translatesAutoresizingMaskIntoConstraints = false
-        name.font = .systemFont(ofSize: 13, weight: .semibold); name.isBezeled = false; name.drawsBackground = false
+        name.font = .systemFont(ofSize: 14, weight: .semibold); name.isBezeled = false; name.drawsBackground = false
         name.delegate = self; name.lineBreakMode = .byTruncatingTail
         name.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         name.setAccessibilityLabel("Space name")
@@ -125,12 +125,12 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
         NSLayoutConstraint.activate([
             grain.leadingAnchor.constraint(equalTo: leadingAnchor), grain.trailingAnchor.constraint(equalTo: trailingAnchor),
             grain.topAnchor.constraint(equalTo: topAnchor), grain.bottomAnchor.constraint(equalTo: bottomAnchor),
-            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12), icon.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16),
-            name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 6), name.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18), icon.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            icon.widthAnchor.constraint(equalToConstant: 18), icon.heightAnchor.constraint(equalToConstant: 18),
+            name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8), name.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
             name.trailingAnchor.constraint(equalTo: more.leadingAnchor, constant: -4),
             more.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8), more.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
-            scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6), scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             scroll.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 10), scroll.bottomAnchor.constraint(equalTo: add.topAnchor, constant: -6),
             rows.widthAnchor.constraint(equalTo: scroll.contentView.widthAnchor),
             add.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8), add.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8)
@@ -140,10 +140,10 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("LibrarySpaceCard is created in code only") }
     func reload() {
         if name.currentEditor() == nil { name.stringValue = space.name }
-        icon.image = space.dotImage(side: 16)
+        icon.image = space.dotImage(side: 18)
         let dark = space.activeImportedChrome.map { !$0.usesDarkText } ?? (space.look.appearance == .dark)
         appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        let ground = NSColor(srgbRed: 0.72, green: 0.72, blue: 0.72, alpha: 1)
+        let ground = NSColor.white
         let wash = space.wash?.usingColorSpace(.sRGB)
         layer?.backgroundColor = wash.map { ground.blended(withFraction: $0.alphaComponent, of: $0.withAlphaComponent(1))?.cgColor ?? ground.cgColor } ?? ground.cgColor
         grain.amount = space.chromeGrain
@@ -181,12 +181,12 @@ private final class LibrarySpaceRow: NSButton {
         glyph.image = image ?? FaviconImageView.placeholder
         if image == nil { glyph.contentTintColor = .tertiaryLabelColor }
         let label = NSTextField(labelWithString: title); label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = .systemFont(ofSize: 13); label.lineBreakMode = .byTruncatingTail
+        label.font = .systemFont(ofSize: 14); label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.init(1), for: .horizontal)
         addSubview(glyph); addSubview(label)
-        NSLayoutConstraint.activate([heightAnchor.constraint(equalToConstant: 38),
-            glyph.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 7 + CGFloat(depth) * 12), glyph.centerYAnchor.constraint(equalTo: centerYAnchor),
-            glyph.widthAnchor.constraint(equalToConstant: 16), glyph.heightAnchor.constraint(equalToConstant: 16),
+        NSLayoutConstraint.activate([heightAnchor.constraint(equalToConstant: 41),
+            glyph.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8 + CGFloat(depth) * 12), glyph.centerYAnchor.constraint(equalTo: centerYAnchor),
+            glyph.widthAnchor.constraint(equalToConstant: 18), glyph.heightAnchor.constraint(equalToConstant: 18),
             label.leadingAnchor.constraint(equalTo: glyph.trailingAnchor, constant: 8), label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -5), label.centerYAnchor.constraint(equalTo: centerYAnchor)])
         setAccessibilityLabel(title); toolTip = title
     }

@@ -321,23 +321,43 @@ private final class LibraryMediaIntro: NSView {
 
 @MainActor
 private final class LibraryCategoryButton: NSButton {
-    var isChosen = false { didSet { needsDisplay = true } }
+    var isChosen = false { didSet { updateInk(); needsDisplay = true } }
+    private let glyph = NSImageView()
+    private let caption = NSTextField(labelWithString: "")
     private let invoke: () -> Void
     init(category: LibraryCategory, invoke: @escaping () -> Void) {
         self.invoke = invoke
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        title = category.title; image = NSImage(systemSymbolName: category.symbol, accessibilityDescription: nil)
-        imagePosition = .imageAbove; image?.size = NSSize(width: 25, height: 25)
-        font = .systemFont(ofSize: 11, weight: .semibold)
+        title = ""
+        glyph.translatesAutoresizingMaskIntoConstraints = false
+        glyph.image = NSImage(systemSymbolName: category.symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: 24, weight: .regular))
+        glyph.imageScaling = .scaleProportionallyUpOrDown
+        caption.translatesAutoresizingMaskIntoConstraints = false
+        caption.stringValue = category.title
+        caption.font = .systemFont(ofSize: 11, weight: .semibold)
+        caption.alignment = .center
+        for view in [glyph, caption] { addSubview(view); view.setAccessibilityElement(false) }
+        NSLayoutConstraint.activate([
+            glyph.centerXAnchor.constraint(equalTo: centerXAnchor), glyph.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -9),
+            glyph.widthAnchor.constraint(equalToConstant: 25), glyph.heightAnchor.constraint(equalToConstant: 25),
+            caption.centerXAnchor.constraint(equalTo: centerXAnchor), caption.centerYAnchor.constraint(equalTo: centerYAnchor, constant: 17),
+            caption.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, constant: -4)
+        ])
         isBordered = false; target = self; action = #selector(choose)
         setAccessibilityLabel(category.title)
         let height = heightAnchor.constraint(equalToConstant: 80); height.priority = .defaultHigh; height.isActive = true
         heightAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
         widthAnchor.constraint(equalToConstant: 96).isActive = true
+        updateInk()
     }
     required init?(coder: NSCoder) { fatalError("Created in code only") }
     @objc private func choose() { invoke() }
+    private func updateInk() {
+        glyph.contentTintColor = isChosen ? .labelColor : .secondaryLabelColor
+        caption.textColor = isChosen ? .labelColor : .secondaryLabelColor
+    }
     override func draw(_ dirtyRect: NSRect) {
         if isChosen { NSColor.black.withAlphaComponent(0.10).setFill(); NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill() }
         super.draw(dirtyRect)
