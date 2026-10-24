@@ -17,6 +17,10 @@ final class FolderNameEditor: NSTextField, NSTextFieldDelegate {
         drawsBackground = false
         focusRingType = .none
         usesSingleLineMode = true
+        maximumNumberOfLines = 1
+        lineBreakMode = .byClipping
+        cell?.wraps = false
+        cell?.isScrollable = true
         cell?.sendsActionOnEndEditing = false
         delegate = self
         setAccessibilityElement(true)

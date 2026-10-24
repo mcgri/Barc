@@ -55,6 +55,22 @@ struct InlineTabNamingTests {
         type("", into: clearing); clearing.commit()
         #expect(tab.customName == nil)
     }
+    @Test("A long tab name stays in one horizontally scrolling line")
+    func longTitle() async throws {
+        let session = TestSession.make().0
+        let tab = session.newTab(url: URL(string: "https://tab-fixture.invalid/long")!)
+        session.rename(tab, to: String(repeating: "A long repository title ", count: 10))
+        let (sidebar, window) = host(session); defer { window.close() }
+        let field = try await rename(tab, in: sidebar)
+        let editor = try #require(field.currentEditor() as? NSTextView)
+        let manager = try #require(editor.layoutManager)
+        let container = try #require(editor.textContainer)
+        manager.ensureLayout(for: container)
+        var lines = 0
+        manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in lines += 1 }
+        #expect(lines == 1)
+        field.cancel()
+    }
     @Test("Leaving a Space commits its tab's editor and removing the tab rejects a late save")
     func ownerAndRemoval() async throws {
         let session = TestSession.make().0
