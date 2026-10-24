@@ -686,25 +686,29 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         previewSelection()
     }
 
-    private func previewSelection() {
+    private func previewSelection(automatically: Bool = false) {
         guard let selectedIndex, visibleResults.indices.contains(selectedIndex) else { return }
         let result = visibleResults[selectedIndex]
         guard result.completionText != nil || !typedQuery.isEmpty else { return }
         let value = result.completionText ?? typedQuery
-        field.stringValue = value
-        if let editor = field.currentEditor() as? NSTextView {
-            editor.string = value
-            let length = (value as NSString).length
-            let prefix = (value as NSString).range(of: typedQuery, options: [.anchored, .caseInsensitive])
-            let range: NSRange
-            if (typedQuery.isEmpty || !hasEditedQuery) && (isLocationMode || isAddressMode) {
-                range = NSRange(location: 0, length: length)
-            } else if prefix.location == 0 {
-                range = NSRange(location: prefix.length, length: length - prefix.length)
-            } else {
-                range = NSRange(location: length, length: 0)
+        let prefix = (value as NSString).range(of: typedQuery, options: [.anchored, .caseInsensitive])
+        // A selected title match is useful without replacing the user's search
+        // with an unrelated-looking URL. Explicit navigation still previews it.
+        if !automatically || prefix.location == 0 {
+            field.stringValue = value
+            if let editor = field.currentEditor() as? NSTextView {
+                editor.string = value
+                let length = (value as NSString).length
+                let range: NSRange
+                if (typedQuery.isEmpty || !hasEditedQuery) && (isLocationMode || isAddressMode) {
+                    range = NSRange(location: 0, length: length)
+                } else if prefix.location == 0 {
+                    range = NSRange(location: prefix.length, length: length - prefix.length)
+                } else {
+                    range = NSRange(location: length, length: 0)
+                }
+                editor.setSelectedRange(range)
             }
-            editor.setSelectedRange(range)
         }
         if usesLauncherRows || isAddressMode {
             let image = resultImageProvider?(result)
@@ -784,7 +788,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             else { return }
             self.setResults(found)
             self.select(0)
-            self.previewSelection()
+            self.previewSelection(automatically:true)
         }
     }
 

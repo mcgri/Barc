@@ -101,6 +101,44 @@ struct LauncherKeyboardTests {
         #expect(calls == ["portal"], "Closing cancels the pending request for the new text")
     }
 
+    @Test("Automatic title matches keep the query; explicit navigation previews the URL", .timeLimit(.minutes(1)),
+          arguments:["new", "location", "address", "split"])
+    func titleOnlyPreview(mode:String) async throws {
+        let window = window();defer { window.close() }
+        let root = try #require(window.contentView)
+        let bar = CommandBar();bar.install(in:root)
+        let query = "Project Notes"
+        let url = URL(string:"https://docs.invalid/document/123")!
+        let rows = [CommandResult(id:"document",kind:.history,title:query,subtitle:"docs.invalid/document/123",symbolName:"globe",
+                        action:.openURL(url),score:100,completionText:"docs.invalid/document/123"),
+                    CommandResult(id:"search",kind:.search,title:query,subtitle:"",symbolName:"magnifyingglass",
+                        action:.openURL(URL(string:"https://search.invalid/?q=notes")!),score:0,completionText:query)]
+        let (arrivals,continuation) = AsyncStream<Void>.makeStream();defer { continuation.finish() }
+        var iterator = arrivals.makeAsyncIterator(), calls = [String]()
+        bar.resultsProvider = { text in calls.append(text);continuation.yield(());return rows }
+        let anchor = NSView(frame:NSRect(x:8,y:800,width:220,height:36));root.addSubview(anchor)
+        switch mode {
+        case "location":bar.openLocation(text:"https://current.invalid/",suggestions:[])
+        case "address":bar.openAddress(text:"https://current.invalid/",anchor:anchor)
+        case "split":bar.openSplit(recentResults:[])
+        default:bar.openNewTab(recentResults:[])
+        }
+        let editor = try #require(window.firstResponder as? NSTextView)
+        editor.insertText(query,replacementRange:NSRange(location:NSNotFound,length:0));try publishEdit(bar,editor:editor)
+        _ = await iterator.next();await Task.yield()
+        try #require(bar.visibleResults == rows)
+        #expect(bar.selectedIndex == 0 && bar.queryText == query)
+        #expect(editor.selectedRange() == NSRange(location:(query as NSString).length,length:0))
+        bar.moveSelection(by:1);bar.moveSelection(by:-1)
+        #expect(bar.queryText == "docs.invalid/document/123")
+        #expect(editor.selectedRange() == NSRange(location:25,length:0))
+        bar.moveSelection(by:1)
+        #expect(bar.queryText == query && calls == [query])
+        editor.insertText(" updated",replacementRange:NSRange(location:NSNotFound,length:0));try publishEdit(bar,editor:editor)
+        #expect(bar.queryText == "Project Notes updated" && bar.selectedIndex == nil && bar.visibleResults.isEmpty)
+        bar.close()
+    }
+
     @Test("A prefilled URL previews the complete chosen address and selects it for replacement")
     func urlEditorPreview() throws {
         let window = window(); defer { window.close() }
@@ -162,6 +200,8 @@ struct LauncherKeyboardTests {
         let session = TestSession.make().0
         let personal = session.activeSpace
         let personalTab = session.newTab(url:URL(string:"https://recents.invalid/personal")!)
+        let sibling = session.addSpace(named:"Same profile",profile:personal.profile)
+        let siblingTab = session.newTab(url:URL(string:"https://recents.invalid/sibling")!)
         let work = session.addSpace(named:"Other profile")
         let workTabs = (0..<6).map { session.newTab(url:URL(string:"https://recents.invalid/work\($0)")!) }
         let secret = session.addSpace(named:"Private",isPrivate:true)
@@ -179,10 +219,15 @@ struct LauncherKeyboardTests {
         #expect(!bar.results.contains { $0.action == .switchToTab(secretTab.id) || $0.action == .switchToTab(privateOther.id) })
         let provider = try #require(bar.resultsProvider)
         let ordinaryResults = await provider("recents.invalid")
+        #expect(ordinaryResults.contains { $0.action == .switchToTab(siblingTab.id) })
+        #expect(!ordinaryResults.contains { row in workTabs.contains { row.action == .switchToTab($0.id) } })
         #expect(!ordinaryResults.contains { $0.action == .switchToTab(secretTab.id) || $0.action == .switchToTab(privateOther.id) })
         bar.submit()
         #expect(session.activeSpace === work && workTabs.contains { $0 === session.activeTab })
-        #expect(session.allTabs.count == count && personal.activeTab === personalTab)
+        #expect(session.allTabs.count == count && personal.activeTab === personalTab && sibling.activeTab === siblingTab)
+        let workResults = await provider("recents.invalid")
+        #expect(!workResults.contains { $0.action == .switchToTab(personalTab.id) || $0.action == .switchToTab(siblingTab.id) })
+        #expect(workResults.contains { row in workTabs.contains { $0 !== session.activeTab && row.action == .switchToTab($0.id) } })
         session.selectSpace(secret)
         controller.newTab(nil)
         #expect(bar.results.map(\.action) == [.switchToTab(secretTab.id)])

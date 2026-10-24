@@ -1226,15 +1226,19 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
         commandBar.resultsProvider = { [weak self] query in
             guard let self else { return [] }
+            let space = self.session.activeSpace, profile = self.session.activeSpace.profile
             let settings = Settings.shared
             let sources = settings.suggestionSources
             let history = sources.history ? await self.session.historySuggestions(matching: query, limit: 12) : []
+            guard self.session.activeSpace === space, space.profile === profile else { return [] }
             let activeID = self.session.activeTab?.id
             let engine = self.session.searchEngine(for: self.session.activeSpace)
             let search = engine.url(for: query.trimmingCharacters(in: .whitespacesAndNewlines))
                 .map { SearchCandidate(engineName: engine.name, url: $0) }
 
-            let allTabs: [TabCandidate] = self.commandSpaces.flatMap { space in
+            // Arc's empty launcher recents span profiles. Typed tab matches
+            // follow the active profile, including its other Spaces.
+            let allTabs: [TabCandidate] = self.commandSpaces.filter { $0.profile === profile }.flatMap { space in
                 space.tabs.map { tab in
                     TabCandidate(
                         id: tab.id,
