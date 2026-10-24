@@ -164,7 +164,9 @@ final class CommandRowView: NSView {
         subtitleLabel.isHidden = compact || splitChoice
         rowHeight.constant = arcLayout ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
         labelsLeading.constant = arcLayout ? 12 : Style.Metrics.rowContentSpacing
-        titleLabel.font = arcLayout ? .systemFont(ofSize: 13, weight: .semibold) : Style.Fonts.body
+        let titleFont = arcLayout ? NSFont.systemFont(ofSize:13,weight:.semibold) : Style.Fonts.body
+        titleLabel.attributedStringValue = NSAttributedString(string:result.title,
+            attributes:[.font:titleFont,.kern:arcLayout ? -0.1 : 0])
         subtitleLabel.font = .systemFont(ofSize: locationChoice ? 13 : CommandBarMetrics.subtitleFontSize, weight: .medium)
         subtitleLabel.setContentCompressionResistancePriority(locationChoice ? .init(751) : .defaultLow, for: .horizontal)
         usesIconPlate = arcLayout
