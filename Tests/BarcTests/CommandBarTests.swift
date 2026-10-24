@@ -592,12 +592,26 @@ struct CommandSourcesTests {
     private let bookmark = BookmarkCandidate(url: URL(string: "https://apple.example/docs")!, title: "Apple Docs", key: "apple.example/docs")
     private let search = SearchCandidate(engineName: "DuckDuckGo", url: URL(string: "https://duckduckgo.com/?q=apple")!)
 
-    @Test("Bookmarks are suggested, and a search row comes last")
+    @Test("Literal search follows the best local match while the remaining destinations keep their order")
     func bookmarksAndSearch() {
         let results = CommandRanker.rank(query: "apple", tabs: [tab], history: [history], bookmarks: [bookmark], search: search)
         #expect(results.contains { $0.kind == .bookmark && $0.title == "Apple Docs" })
-        #expect(results.last?.kind == .search)
-        #expect(results.last?.title == "apple")
+        #expect(results[0].action == .switchToTab(tab.id))
+        #expect(results[1].kind == .search && results[1].title == "apple")
+        #expect(results[1].action == .openURL(search.url))
+        let local = CommandRanker.rank(query:"apple",tabs:[tab],history:[history],bookmarks:[bookmark])
+        #expect(results.filter { $0.kind != .search } == local)
+    }
+
+    @Test("Search remains available with no local match or a one-destination limit")
+    func searchWithoutOtherResults() {
+        let searchOnly = CommandRanker.rank(query:"  unrelated words  ",tabs:[tab],history:[history],search:search)
+        #expect(searchOnly.map(\.kind) == [.search])
+        #expect(searchOnly.first?.title == "unrelated words")
+        #expect(searchOnly.first?.completionText == "unrelated words")
+        let capped = CommandRanker.rank(query:"apple",tabs:[tab],history:[history],bookmarks:[bookmark],search:search,limit:1)
+        #expect(capped.map(\.kind) == [.openTab,.search])
+        #expect(CommandRanker.rank(query:"apple",tabs:[tab],history:[],search:search,limit:0).isEmpty)
     }
 
     @Test("Each source can be switched off")

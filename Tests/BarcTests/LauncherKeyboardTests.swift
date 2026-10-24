@@ -166,6 +166,41 @@ struct LauncherKeyboardTests {
         #expect(action == site.action && !bar.isOpen)
     }
 
+    @Test("One Down arrow chooses the literal search ahead of remaining local results", .timeLimit(.minutes(1)),
+          arguments:["new", "location", "address", "split"])
+    func literalSearchKeyboard(mode:String) async throws {
+        let window = window();defer { window.close() }
+        let root = try #require(window.contentView)
+        let bar = CommandBar();bar.install(in:root)
+        let search = SearchCandidate(engineName:"Fixture",url:URL(string:"https://search.invalid/?q=project")!)
+        let rows = CommandRanker.rank(query:"project",tabs:[
+            .init(id:UUID(),title:"Project Notes",address:"docs.invalid/notes",url:URL(string:"https://docs.invalid/notes")!,isActive:false),
+            .init(id:UUID(),title:"Project Plans",address:"docs.invalid/plans",url:URL(string:"https://docs.invalid/plans")!,isActive:false)
+        ],history:[],search:search)
+        #expect(rows.map(\.kind) == [.openTab,.search,.openTab])
+        let (arrivals,continuation) = AsyncStream<Void>.makeStream();defer { continuation.finish() }
+        var iterator = arrivals.makeAsyncIterator()
+        bar.resultsProvider = { _ in continuation.yield(());return rows }
+        let anchor = NSView(frame:NSRect(x:8,y:800,width:220,height:36));root.addSubview(anchor)
+        switch mode {
+        case "location":bar.openLocation(text:"https://current.invalid/",suggestions:[])
+        case "address":bar.openAddress(text:"https://current.invalid/",anchor:anchor)
+        case "split":bar.openSplit(recentResults:[])
+        default:bar.openNewTab(recentResults:[])
+        }
+        let editor = try #require(window.firstResponder as? NSTextView)
+        editor.insertText("project",replacementRange:NSRange(location:NSNotFound,length:0));try publishEdit(bar,editor:editor)
+        _ = await iterator.next();await Task.yield()
+        try #require(bar.visibleResults == rows)
+        #expect(bar.selectedIndex == 0 && bar.queryText == "project")
+        bar.moveSelection(by:1)
+        #expect(bar.visibleResults[try #require(bar.selectedIndex)].kind == .search)
+        #expect(bar.queryText == "project" && editor.selectedRange() == NSRange(location:7,length:0))
+        var action:CommandAction?
+        bar.onRun = { action = $0;_ = $1 };bar.submit()
+        #expect(action == .openURL(search.url) && !bar.isOpen)
+    }
+
     @Test("Shrinking the list keeps its selected address, visible row and Return destination together")
     func resizedSelection() throws {
         let window = window();defer { window.close() }

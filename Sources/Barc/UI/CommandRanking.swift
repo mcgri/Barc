@@ -1,4 +1,4 @@
-// Modified for Barc: distinguish the current page in URL editor suggestions, 2026-10-24.
+// Modified for Barc: Arc's literal search placement and URL editor suggestions, 2026-10-24.
 import Foundation
 
 /// What activating a command-bar row does.
@@ -316,11 +316,11 @@ enum CommandRanker {
 
         var ordered = Array(results.sorted(by: isOrderedBefore).prefix(limit))
 
-        // The search row is last, and always there when the source is on:
-        // it is the one answer that cannot be wrong, so it never competes.
+        // Arc keeps the literal query one arrow below the best match. With
+        // no local match it becomes the first row, so Return still searches.
         if sources.searchEngine, let search {
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            ordered.append(CommandResult(
+            ordered.insert(CommandResult(
                 id: "search",
                 kind: .search,
                 title: trimmed,
@@ -328,7 +328,7 @@ enum CommandRanker {
                 symbolName: "magnifyingglass",
                 action: .openURL(search.url),
                 score: -1, completionText: trimmed
-            ))
+            ), at: min(1, ordered.count))
         }
         return ordered
     }
