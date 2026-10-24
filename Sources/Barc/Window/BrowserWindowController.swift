@@ -658,8 +658,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         let bar = content.topBar
         bar.sidebarToggle.setClickHandler { [weak self] in
             guard let self else { return }
-            if self.compact.controller.state.isEnabled { self.compact.controller.dismissSidebar() }
-            else { self.toggleBarcSidebar(nil) }
+            self.toggleBarcSidebar(nil)
         }
         bar.backButton.setClickHandler { [weak self] in self?.goBack(nil) }
         bar.forwardButton.setClickHandler { [weak self] in self?.goForward(nil) }
@@ -1345,22 +1344,19 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     // MARK: - Menu actions
 
-    /// Ours rather than `NSSplitViewController.toggleSidebar`, which only acts
-    /// on an item created with sidebar behaviour.
+    /// Command-S switches between a docked sidebar and edge reveal. The same
+    /// action locks a revealed floating sidebar back into the layout.
     @objc func toggleBarcSidebar(_ sender: Any?) {
         if sidebar.isLibraryVisible { sidebar.hideLibrary(); return }
-        // In compact mode there is no split view item to collapse: the sidebar
-        // has been taken out of the layout and floats over the page. The
-        // button then does the floating equivalent -- pin it open, or let it
-        // go again -- rather than finding nothing and doing nothing, which is
-        // what it did, on the one control whose whole job is to show and hide
-        // the sidebar.
-        if compact.controller.state.isEnabled {
+        // Fullscreen chrome is borrowed from the Space's own preferences.
+        // Keep its reveal override separate from the normal window's layout.
+        if compact.controller.state.isEnabled,
+           isWindowFullScreen || compact.controller.state.suppressions.contains(.pageFullScreen) {
             compact.controller.toggleUserShow()
             return
         }
-        guard let item = splitViewController.splitViewItem(for: sidebar) else { return }
-        item.animator().isCollapsed.toggle()
+        let collapsed = splitViewController.splitViewItem(for: sidebar)?.isCollapsed ?? false
+        setSidebarMode(compact.controller.state.isEnabled || collapsed ? .expanded : .compact)
     }
 
     /// Shows the archive, or puts it away. It is a mode of the sidebar rather
@@ -1664,7 +1660,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// carries the button itself.
     private func updateFloatingSidebarActions() {
         content.topBar.sidebarToggle.setSymbol("sidebar.leading",
-            label: compact?.controller.state.isEnabled == true ? "Hide Sidebar" : "Toggle Sidebar")
+            label: compact?.controller.state.isEnabled == true ? "Lock sidebar" : (isSidebarCollapsed ? "Show sidebar" : "Hide sidebar"))
     }
 
     private func updateCardInsets() {
@@ -2705,7 +2701,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case #selector(equalizeSplitPanes(_:)): return session.activeSplit != nil
         case #selector(toggleBarcSidebar(_:)):
             let collapsed = splitViewController.splitViewItem(for: sidebar)?.isCollapsed ?? false
-            menuItem.title = collapsed ? "Show Sidebar" : "Hide Sidebar"
+            menuItem.title = compact.controller.state.isEnabled || collapsed ? "Show Sidebar" : "Hide Sidebar"
             return true
         case #selector(toggleCompactMode(_:)):
             menuItem.state = compact.controller.state.isEnabled ? .on : .off
@@ -2901,6 +2897,16 @@ final class BarcSplitViewController: NSSplitViewController {
 /// page. Only the window controller knows how the split view is built, so only
 /// it can take it apart and put it back.
 extension BrowserWindowController: CompactSidebarSlot {
+    var pointerIsOnSidebarRevealEdge: Bool {
+        guard let window, window.isKeyWindow, sidebar.view.window === window else { return false }
+        let point = sidebar.view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        let bounds = sidebar.view.bounds
+        guard bounds.contains(point) else { return false }
+        return Settings.shared.sidebarPosition == .leading
+            ? point.x <= bounds.minX + CompactMetrics.hoverEdgeWidth
+            : point.x >= bounds.maxX - CompactMetrics.hoverEdgeWidth
+    }
+
     var restingSidebarWidth: CGFloat {
         // Measured only while the sidebar is still in the split view.
         //

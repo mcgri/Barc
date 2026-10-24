@@ -53,13 +53,11 @@ final class CompactModeController {
     private var flashTask: Task<Void, Never>?
     private var debounceTask: Task<Void, Never>?
 
-    /// Suppresses the first hover after compact mode is switched on.
+    /// Suppresses a synthetic enter beneath the pointer when compact mode starts.
     ///
-    /// Turning compact mode on almost always leaves the pointer inside the
-    /// area the sidebar just vacated, and AppKit will deliver a mouse-entered
-    /// for the strip that appears under it. Without this the sidebar animates
-    /// away and immediately back, which reads as a glitch rather than as a
-    /// mode change.
+    /// Installing the reveal strip under a pointer already at the edge can
+    /// synthesize an enter without movement. The host suppresses that event;
+    /// enabling from elsewhere leaves the first genuine edge entry available.
     private var ignoresNextHover = false
 
     init(
@@ -82,7 +80,7 @@ final class CompactModeController {
     /// `animated` is false on the first call after launch: restoring a window
     /// that was already in compact mode must not play the entry animation, or
     /// every launch starts with the sidebar sliding away.
-    func setEnabled(_ enabled: Bool, animated: Bool = true) {
+    func setEnabled(_ enabled: Bool, animated: Bool = true, suppressInitialHover: Bool = true) {
         guard enabled != state.isEnabled else { return }
         cancelTimers()
         var next = state
@@ -90,7 +88,7 @@ final class CompactModeController {
         // Everything that was keeping the chrome up belonged to the old mode.
         next.sidebarReasons = []
         next.toolbarReasons = []
-        ignoresNextHover = enabled
+        ignoresNextHover = enabled && suppressInitialHover
         apply(next, forcingImmediate: !animated)
     }
 
@@ -148,6 +146,7 @@ final class CompactModeController {
     /// preserving across it.
     func windowDidResignOrResize() {
         cancelTimers()
+        ignoresNextHover = false
         var next = state
         next.sidebarReasons = []
         next.toolbarReasons = []
@@ -176,10 +175,11 @@ final class CompactModeController {
         // Consumed, not merely checked: the flag exists to swallow exactly one
         // spurious enter, and leaving it set would swallow the user's first
         // real hover as well.
-        guard !ignoresNextHover else {
+        if ignoresNextHover, !isDrag {
             ignoresNextHover = false
             return
         }
+        ignoresNextHover = false
         cancelKeepHover(for: target)
         outsideWindowTask?.cancel()
         outsideWindowTask = nil

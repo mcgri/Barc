@@ -209,7 +209,7 @@ final class ShortcutManager {
             category: .appearance,
             selector: #selector(BrowserWindowController.toggleBarcSidebar(_:)),
             defaultKey: "s",
-            defaultModifiers: [.command, .control]
+            defaultModifiers: [.command]
         ),
         ShortcutDefinition(
             id: "toggle-icons-only",

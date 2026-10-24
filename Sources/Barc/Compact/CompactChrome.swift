@@ -12,6 +12,8 @@ protocol CompactSidebarSlot: AnyObject {
     /// The width the sidebar rests at, read before it is taken out so it can
     /// be put back at the same size.
     var restingSidebarWidth: CGFloat { get }
+    /// Ignore only an enter synthesized under a pointer already at the reveal edge.
+    var pointerIsOnSidebarRevealEdge: Bool { get }
     /// Takes the sidebar out of the layout and hands over its view controller.
     /// The caller becomes responsible for parenting it.
     func detachSidebar() -> NSViewController
@@ -106,7 +108,7 @@ final class CompactChrome: CompactModeHost {
         if enabled, let slot {
             controller.setMeasuredSidebarWidth(slot.restingSidebarWidth)
         }
-        controller.setEnabled(enabled, animated: animated)
+        controller.setEnabled(enabled, animated: animated, suppressInitialHover: slot?.pointerIsOnSidebarRevealEdge ?? false)
     }
 
     func toggle() { setEnabled(!controller.state.isEnabled) }

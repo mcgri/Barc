@@ -307,7 +307,7 @@ enum MainMenu {
             item("Show Tab Bar", #selector(BrowserWindowController.toggleTabStrip(_:)), "b",
                  modifiers: [.command, .control]),
             item("Hide Sidebar", #selector(BrowserWindowController.toggleBarcSidebar(_:)), "s",
-                 modifiers: [.command, .control]),
+                 modifiers: [.command]),
             item("Icons-Only Sidebar", #selector(BrowserWindowController.toggleIconsOnlySidebar(_:)), "i",
                  modifiers: [.command, .control]),
             item("Compact Mode", #selector(BrowserWindowController.toggleCompactMode(_:)), "c",
