@@ -46,6 +46,41 @@ struct NamingTests {
         #expect(TabNaming.displayTitle(customName: nil, pageTitle: nil, url: url("about:blank")) == "about:blank")
     }
 
+    @Test("Observed service decoration is removed only from its own page captions")
+    func compactServiceCaptions() {
+        let cases: [(String, String, String)] = [
+            ("https://docs.google.com/document/d/fixture/edit", "Silvermere - Google Docs", "Silvermere"),
+            ("https://www.google.com/maps/place/fixture", "EXAMPLE CAFE - Google Maps", "EXAMPLE CAFE"),
+            ("https://maps.google.com/", "EXAMPLE CAFE - Google Maps", "EXAMPLE CAFE"),
+            ("https://github.com/mcgri/Barc", "GitHub - mocky/Browser: This is a sample browser · GitHub", "mocky/Browser: This is a sample browser"),
+            ("https://www.google.com/search?q=maps", "Example - Google Maps", "Example - Google Maps"),
+            ("https://example.invalid/maps/", "Example - Google Maps", "Example - Google Maps"),
+            ("https://docs.google.com.example.invalid/", "Example - Google Docs", "Example - Google Docs"),
+            ("https://example.invalid/", "GitHub - Project · GitHub", "GitHub - Project · GitHub"),
+            ("https://github.com/mcgri/Barc", "Project · GitHub", "Project · GitHub"),
+            ("https://docs.google.com/", " - Google Docs", " - Google Docs"),
+            ("https://github.com/", "GitHub -  · GitHub", "GitHub -  · GitHub")
+        ]
+        for (address, raw, expected) in cases {
+            #expect(TabNaming.displayTitle(customName:nil,pageTitle:raw,url:url(address)) == expected)
+            #expect(TabNaming.displayTitle(customName:raw,pageTitle:raw,url:url(address)) == raw,
+                    "A chosen name is never formatted as a service title")
+        }
+    }
+
+    @Test("Compact restored labels keep the full page title and chosen name in the saved session")
+    func compactCaptionSnapshot() {
+        let raw = "Fixture - Google Docs"
+        let snapshot = SessionSnapshot.Tab(url:url("https://docs.google.com/document/d/fixture/edit"),title:raw)
+        let tab = Tab(restoring:snapshot,identity:.standard)
+        #expect(tab.displayTitle == "Fixture" && tab.pageTitle == raw)
+        #expect(tab.snapshot().title == raw && tab.snapshot().customName == nil)
+        TabNameStore.shared.restore("Chosen - Google Docs",for:tab.id)
+        defer { TabNameStore.shared.forget(tab.id) }
+        #expect(tab.displayTitle == "Chosen - Google Docs")
+        #expect(tab.snapshot().title == raw && tab.snapshot().customName == "Chosen - Google Docs")
+    }
+
     @Test("Renaming records the name and reports what happened")
     func renameStoresName() {
         let store = TabNameStore()

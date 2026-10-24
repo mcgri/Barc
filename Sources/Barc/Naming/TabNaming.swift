@@ -1,3 +1,4 @@
+// Modified for Barc: source-observed compact page captions, 2026-10-24.
 import Foundation
 
 /// What a tab is called, as pure logic.
@@ -34,8 +35,26 @@ enum TabNaming {
     /// `document.title` every few seconds.
     static func displayTitle(customName: String?, pageTitle: String?, url: URL) -> String {
         if let customName, !customName.isEmpty { return customName }
-        if let pageTitle, !pageTitle.isEmpty { return pageTitle }
+        if let pageTitle, !pageTitle.isEmpty { return pageCaption(pageTitle, url: url) }
         if let host = url.host() { return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host }
         return url.absoluteString
+    }
+
+    /// Remove service decoration only on the corresponding service. Keep the
+    /// original page title in the tab and session so this never renames a page.
+    private static func pageCaption(_ title: String, url: URL) -> String {
+        let host = url.host()?.lowercased()
+        var caption = title
+        if host == "docs.google.com", title.hasSuffix(" - Google Docs") {
+            caption = String(title.dropLast(" - Google Docs".count))
+        } else if (host == "maps.google.com"
+                   || ((host == "google.com" || host == "www.google.com")
+                       && (url.path == "/maps" || url.path.hasPrefix("/maps/")))),
+                  title.hasSuffix(" - Google Maps") {
+            caption = String(title.dropLast(" - Google Maps".count))
+        } else if host == "github.com", title.hasPrefix("GitHub - "), title.hasSuffix(" · GitHub") {
+            caption = String(title.dropFirst("GitHub - ".count).dropLast(" · GitHub".count))
+        }
+        return caption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? title : caption
     }
 }
