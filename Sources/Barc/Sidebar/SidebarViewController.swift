@@ -44,7 +44,7 @@ final class SidebarViewController: NSViewController {
     /// is what the sidebar is displaying. Weak: the footer owns it, and rebuilds
     /// it whenever its actions are set.
     private weak var archiveButton: IconButton?
-    private let tableView = SidebarTableView()
+    private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private var spaceColorPopover: NSPopover?
     private var normalStack: NSStackView?
@@ -527,6 +527,11 @@ final class SidebarViewController: NSViewController {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.setContentHuggingPriority(.defaultLow, for: .vertical)
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification, object: scrollView.contentView)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.positionFolderNameEditor() }
+            }.store(in: &cancellables)
     }
 
     private func wireActions() {
@@ -2086,9 +2091,8 @@ final class SidebarViewController: NSViewController {
         let field = FolderNameEditor(name: group.name) { [weak self, weak group, weak space] name in
             guard let self, let edit = folderNameEdit, edit.id == id else { return }
             folderNameEdit = nil
-            tableView.inlineNameEditor = nil
             edit.field.removeFromSuperview()
-            NSAccessibility.post(element: tableView, notification: .layoutChanged)
+            NSAccessibility.post(element: view, notification: .layoutChanged)
             if let name, let group, let space,
                session.spaces.contains(where: { $0 === space }), space.group(withID: group.id) === group {
                 session.rename(group, to: name)
@@ -2096,16 +2100,18 @@ final class SidebarViewController: NSViewController {
             reloadTabs()
         }
         folderNameEdit = (id, space, group, field)
-        tableView.inlineNameEditor = field
-        tableView.addSubview(field)
         tableView.scrollRowToVisible(row)
+        // A table exposes synthesized rows to accessibility clients. Host the
+        // persistent editor beside the table so it remains a normal text field
+        // in that hierarchy, rather than adding a non-row to AXChildren.
+        view.addSubview(field)
         positionFolderNameEditor()
         // A menu restores its previous responder as tracking ends. Focusing
         // synchronously would immediately blur and commit this new editor.
         DispatchQueue.main.async { [weak self, weak field] in
             guard let self, let field, folderNameEdit?.field === field else { return }
             field.beginEditing()
-            NSAccessibility.post(element: tableView, notification: .layoutChanged)
+            NSAccessibility.post(element: view, notification: .layoutChanged)
         }
     }
 
@@ -2116,7 +2122,16 @@ final class SidebarViewController: NSViewController {
               let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true),
               let header = cell.subviews.compactMap({ $0 as? TabGroupHeaderView }).first else { return }
         cell.layoutSubtreeIfNeeded()
-        edit.field.frame = header.nameEditorFrame(in: tableView)
+        let tableFrame = header.nameEditorFrame(in: tableView)
+        let viewport = scrollView.contentView.convert(scrollView.contentView.bounds, to: tableView)
+        // A row rebuild can briefly give the clip view a zero-sized viewport.
+        // Wait for its next layout rather than committing during that transition.
+        if viewport.height > 0, tableFrame.minY < viewport.minY || tableFrame.maxY > viewport.maxY {
+            edit.field.commit(); return
+        }
+        var frame = view.convert(tableFrame, from: tableView)
+        frame.size.width = max(0, min(frame.width, view.bounds.width - Style.Metrics.sidebarInset - frame.minX))
+        edit.field.frame = frame
         header.isEditingName = true
     }
 

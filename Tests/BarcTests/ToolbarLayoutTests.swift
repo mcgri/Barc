@@ -104,12 +104,12 @@ struct ToolbarLayoutTests {
     @Test("Sidebar navigation follows the Arc reference while keeping utilities in the same row", arguments: [190.0, 214.0, 228.0, 300.0])
     func sidebarNavigation(width: Double) throws {
         let bar = ContentTopBar()
-        let header = SidebarHeaderView()
-        header.installNavigation(bar.takeNavigationRow())
-        let host = UITestSupport.host(header, width: width, height: 100)
+        let sidebar = SidebarViewController(session: TestSession.make().0)
+        sidebar.installBrowserControls([bar])
+        let host = UITestSupport.host(sidebar.view, width: width, height: 800)
         host.layoutSubtreeIfNeeded()
         let controls = [bar.sidebarToggle, bar.utilitiesButton, bar.backButton, bar.forwardButton, bar.reloadButton]
-        let frames = controls.map { $0.convert($0.bounds, to: header) }
+        let frames = controls.map { $0.convert($0.bounds, to: sidebar.view) }
         #expect(frames.allSatisfy { $0.minX >= 0 && $0.maxX <= width && abs($0.midY - frames[0].midY) < 0.5 })
         for pair in zip(frames, frames.dropFirst()) { #expect(pair.0.maxX <= pair.1.minX) }
         if width == 228 {

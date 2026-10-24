@@ -173,7 +173,7 @@ private final class WrappingControlsView: NSView {
             // Keep the sidebar toggle and utility menu together, leaving Arc's
             // back/forward/reload positions across the remaining top band.
             // Narrow sidebars still use the wrapped layout above.
-            let last = max(4 * side, width - side - 11)
+            let last = max(4 * side, width - side - (11 - Style.Metrics.sidebarInset))
             let navigationStep = (last - 2 * side) / 2
             for (index, origin) in origins.enumerated() {
                 origin.x.constant = index < 2 ? CGFloat(index) * side : 2 * side + CGFloat(index - 2) * navigationStep

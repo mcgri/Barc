@@ -19,6 +19,8 @@ final class FolderNameEditor: NSTextField, NSTextFieldDelegate {
         usesSingleLineMode = true
         cell?.sendsActionOnEndEditing = false
         delegate = self
+        setAccessibilityElement(true)
+        setAccessibilityRole(.textField)
         setAccessibilityLabel("Folder name")
     }
 

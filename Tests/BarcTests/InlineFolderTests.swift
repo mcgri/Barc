@@ -10,8 +10,11 @@ struct InlineFolderTests {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 228, height: 800),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.contentViewController = sidebar
+        let content = UITestSupport.host(sidebar.view, width: 228, height: 800)
+        sidebar.view.bottomAnchor.constraint(equalTo: content.bottomAnchor).isActive = true
+        window.contentView = content
         window.contentView?.layoutSubtreeIfNeeded()
+        sidebar.viewDidLayout()
         return (sidebar, window)
     }
 
@@ -47,9 +50,10 @@ struct InlineFolderTests {
         let text = try #require(field.currentEditor() as? NSTextView)
         #expect(text.selectedRange() == NSRange(location: 0, length: "Untitled".utf16.count))
         #expect(session.activeTab === tab)
-        #expect(field.superview === sidebar.tabListTableView)
+        #expect(field.superview === sidebar.view)
         #expect(field.frame.width > 60 && field.frame.maxX <= sidebar.tabListTableView.bounds.maxX)
-        let row = sidebar.tabListTableView.row(at: NSPoint(x: field.frame.midX, y: field.frame.midY))
+        let center = sidebar.tabListTableView.convert(NSPoint(x: field.frame.midX, y: field.frame.midY), from: sidebar.view)
+        let row = sidebar.tabListTableView.row(at: center)
         let next = sidebar.tabListTableView.view(atColumn: 0, row: row + 1, makeIfNecessary: true)
         #expect(next.map { UITestSupport.accessibilityLabels(in: $0).contains("New Tab") } == true)
         type("Client research", into: field)
@@ -194,6 +198,7 @@ struct InlineFolderTests {
         let field = try editor(sidebar); type("Before Library", into: field)
         window.setContentSize(NSSize(width: 190, height: 800))
         window.contentView?.layoutSubtreeIfNeeded()
+        sidebar.viewDidLayout()
         #expect(field.frame.width > 40 && field.frame.maxX <= sidebar.tabListTableView.bounds.maxX)
         sidebar.showLibrary(category: .spaces)
         #expect(folder.name == "Before Library" && field.superview == nil)
@@ -212,24 +217,48 @@ struct InlineFolderTests {
         // must not interpret that restoration as the user finishing an edit.
         #expect(window.makeFirstResponder(sidebar.tabListTableView))
         await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
-        #expect(field.superview === sidebar.tabListTableView)
+        #expect(field.superview === sidebar.view)
         #expect(field.currentEditor() != nil)
         field.cancel()
         #expect(folder.name == "Original")
     }
 
-    @Test("The table exposes its active name field to accessibility and removes it on cancel")
+    @Test("The sidebar exposes its active name field without changing the table's row hierarchy")
     func accessibleEditor() async throws {
         let session = TestSession.make().0
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
+        let rowCount = sidebar.tabListTableView.accessibilityRows()?.count
         try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let field = try editor(sidebar)
         func exposed() -> Bool {
-            (sidebar.tabListTableView.accessibilityChildren() ?? []).contains { ($0 as AnyObject) === field }
+            NSAccessibility.unignoredChildren(from: sidebar.view.subviews).contains { ($0 as AnyObject) === field }
         }
         #expect(exposed())
+        #expect(field.accessibilityRole() == .textField)
+        #expect(sidebar.tabListTableView.accessibilityRows()?.count == rowCount)
         field.cancel()
         #expect(!exposed())
+    }
+
+    @Test("Scrolling the name out of view saves it without leaving an editor over another row")
+    func scrollEditedFolderAway() async throws {
+        let session = TestSession.make().0
+        let folder = session.createGroup(named: "Original")
+        for index in 0..<30 { _ = session.createGroup(named: "Folder \(index)") }
+        let (sidebar, window) = host(session); defer { window.close() }
+        window.makeKeyAndOrderFront(nil)
+        window.contentView?.layoutSubtreeIfNeeded()
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        let field = try editor(sidebar)
+        type("Saved while scrolling", into: field)
+        let scroll = try #require(sidebar.tabListTableView.enclosingScrollView)
+        #expect(scroll.contentView.bounds.height > 0)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 300))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(scroll.contentView.bounds.minY > 0)
+        #expect(folder.name == "Saved while scrolling")
+        #expect(field.superview == nil)
     }
 }
