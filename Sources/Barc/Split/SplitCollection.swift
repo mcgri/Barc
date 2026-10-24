@@ -1,0 +1,127 @@
+// Modified for Barc: independent split groups and restoration without persistent tab IDs, 2026-10-24.
+import Foundation
+
+/// The independent splits in one Space. A tab belongs to at most one group.
+struct SplitCollection: Equatable, Sendable {
+    private(set) var layouts: [SplitLayout] = []
+    private(set) var stickyTabIDs: Set<UUID> = []
+
+    func layout(containing id: UUID?) -> SplitLayout? {
+        guard let id else { return nil }
+        return layouts.first { $0.contains(id) }
+    }
+
+    /// Extending a group preserves its proportions. Joining two groups carries
+    /// every member over, and refuses the whole operation if four panes won't fit.
+    @discardableResult
+    mutating func join(_ ids: [UUID], grid: SplitLayout.Grid) -> Bool {
+        let unique = ids.reduce(into: [UUID]()) { if !$0.contains($1) { $0.append($1) } }
+        guard unique.count >= 2 else { return false }
+        let touched = layouts.indices.filter { index in unique.contains(where: layouts[index].contains) }
+        var expanded: [UUID] = []
+        for id in unique {
+            for member in layout(containing: id)?.tabIDs ?? [id] where !expanded.contains(member) {
+                expanded.append(member)
+            }
+        }
+        guard expanded.count <= SplitLayout.maximumPanes else { return false }
+        var result: SplitLayout
+        if let original = layout(containing: unique.first) {
+            result = original
+            for id in expanded where !result.contains(id) {
+                guard let next = result.adding(id) else { return false }
+                result = next
+            }
+        } else {
+            guard let created = SplitLayout(tabs: expanded, grid: grid) else { return false }
+            result = created
+        }
+        let insertion = touched.first ?? layouts.count
+        for index in touched.reversed() { layouts.remove(at: index) }
+        layouts.insert(result, at: insertion)
+        // A combined split has one sticky pane; keep the first group's choice.
+        let sticky = result.tabIDs.first(where: stickyTabIDs.contains)
+        stickyTabIDs.subtract(result.tabIDs)
+        if let sticky { stickyTabIDs.insert(sticky) }
+        return true
+    }
+
+    @discardableResult
+    mutating func update(_ layout: SplitLayout) -> Bool {
+        guard layout.isValid,
+              let index = layouts.firstIndex(where: { $0.tabIDs == layout.tabIDs }) else { return false }
+        layouts[index] = layout
+        return true
+    }
+
+    mutating func replace(_ oldID: UUID, with newID: UUID) {
+        guard layout(containing: newID) == nil,
+              let index = layouts.firstIndex(where: { $0.contains(oldID) }) else { return }
+        layouts[index] = layouts[index].replacing(oldID, with: newID)
+        if stickyTabIDs.remove(oldID) != nil { stickyTabIDs.insert(newID) }
+    }
+
+    @discardableResult
+    mutating func remove(_ id: UUID) -> SplitLayout.Removal? {
+        guard let index = layouts.firstIndex(where: { $0.contains(id) }),
+              let removal = layouts[index].removing(id) else { return nil }
+        stickyTabIDs.remove(id)
+        switch removal {
+        case .dissolved:
+            stickyTabIDs.subtract(layouts[index].tabIDs)
+            layouts.remove(at: index)
+        case .resized(let layout): layouts[index] = layout
+        }
+        return removal
+    }
+
+    mutating func dissolve(containing id: UUID) {
+        guard let index = layouts.firstIndex(where: { $0.contains(id) }) else { return }
+        stickyTabIDs.subtract(layouts[index].tabIDs)
+        layouts.remove(at: index)
+    }
+
+    mutating func toggleSticky(_ id: UUID) {
+        guard let layout = layout(containing: id) else { return }
+        let wasSticky = stickyTabIDs.contains(id)
+        stickyTabIDs.subtract(layout.tabIDs)
+        if !wasSticky { stickyTabIDs.insert(id) }
+    }
+
+    func retaining(_ ids: Set<UUID>) -> Self {
+        var copy = self
+        for id in layouts.flatMap(\.tabIDs) where !ids.contains(id) { copy.remove(id) }
+        return copy
+    }
+
+    /// Slots refer to the enclosing saved tab array, so duplicate URLs remain
+    /// distinct and restoring a group never needs to guess a tab's identity.
+    func snapshot(tabIDs: [UUID]) -> [SessionSnapshot.Split]? {
+        let positions = Dictionary(tabIDs.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
+        let saved = layouts.compactMap { layout -> SessionSnapshot.Split? in
+            let indices = layout.tabIDs.compactMap { positions[$0] }
+            guard indices.count == layout.paneCount else { return nil }
+            return SessionSnapshot.Split(layout: layout, tabIndices: indices,
+                stickyTabIndex: layout.tabIDs.first(where: stickyTabIDs.contains).flatMap { positions[$0] })
+        }
+        return saved.isEmpty ? nil : saved
+    }
+
+    static func restoring(_ records: [SessionSnapshot.Split]?, tabIDs: [UUID]) -> Self {
+        var result = Self()
+        for record in records ?? [] {
+            let oldIDs = record.layout.tabIDs
+            guard oldIDs.count == record.tabIndices.count,
+                  record.tabIndices.allSatisfy(tabIDs.indices.contains),
+                  Set(record.tabIndices).count == record.tabIndices.count else { continue }
+            let bindings = Dictionary(zip(oldIDs, record.tabIndices.map { tabIDs[$0] }), uniquingKeysWith: { first, _ in first })
+            guard let layout = record.layout.mappingTabs({ bindings[$0] }),
+                  layout.tabIDs.allSatisfy({ result.layout(containing: $0) == nil }) else { continue }
+            result.layouts.append(layout)
+            if let index = record.stickyTabIndex, record.tabIndices.contains(index), tabIDs.indices.contains(index) {
+                result.stickyTabIDs.insert(tabIDs[index])
+            }
+        }
+        return result
+    }
+}

@@ -1,3 +1,4 @@
+// Modified for Barc: durable independent split groups, 2026-10-24.
 import CoreGraphics
 import Foundation
 
@@ -17,6 +18,40 @@ import Foundation
 /// not `NSSplitView`'s autosave, which would put per-tab-group state in
 /// `UserDefaults` and restore it into whatever tabs happened to be there.
 struct SplitLayout: Equatable, Codable, Sendable {
+
+    /// Validate decoded layouts before they reach recursive native split views.
+    var isValid: Bool {
+        var ids: Set<Tab.ID> = []
+        func valid(_ node: Node, depth: Int) -> Bool {
+            guard depth <= Self.maximumPanes, node.share.isFinite,
+                  node.share > 0, node.share <= 1 else { return false }
+            switch node {
+            case .pane(let id, _): return ids.insert(id).inserted
+            case .split(_, let children, _):
+                return children.count >= 2 && children.count <= Self.maximumPanes
+                    && abs(children.reduce(0) { $0 + $1.share } - 1) < 0.000001
+                    && children.allSatisfy { valid($0, depth: depth + 1) }
+            }
+        }
+        return abs(root.share - 1) < 0.000001 && valid(root, depth: 0)
+            && ids.count >= 2 && ids.count <= Self.maximumPanes
+    }
+
+    func mappingTabs(_ transform: (Tab.ID) -> Tab.ID?) -> SplitLayout? {
+        guard isValid else { return nil }
+        func map(_ node: Node) -> Node? {
+            switch node {
+            case .pane(let id, let share): return transform(id).map { .pane(id: $0, share: share) }
+            case .split(let axis, let children, let share):
+                let mapped = children.compactMap(map)
+                guard mapped.count == children.count else { return nil }
+                return .split(axis: axis, children: mapped, share: share)
+            }
+        }
+        guard let mapped = map(root) else { return nil }
+        let result = SplitLayout(root: mapped, grid: grid)
+        return result.isValid ? result : nil
+    }
 
     /// Four panes, checked at every site that could add one.
     ///

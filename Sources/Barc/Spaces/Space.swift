@@ -240,6 +240,8 @@ final class Space: Identifiable {
     /// being kept.
     var isPrivate: Bool { identity.isPrivate }
 
+    var splits = SplitCollection()
+
     private(set) var workspaceTabs: [Tab] = []
     var tabs: [Tab] {
         profile.favoriteTabs.isEmpty ? workspaceTabs : workspaceTabs + profile.favoriteTabs

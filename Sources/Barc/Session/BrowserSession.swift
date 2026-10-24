@@ -80,16 +80,9 @@ final class BrowserSession {
     private let sessionStore: SessionStore
     private let settings: Settings
     private var tabSubscriptions: [Tab.ID: AnyCancellable] = [:]
-    /// The split shown in each space, if it has one. Keyed by space because a
-    /// split is a property of a set of tabs, and tabs belong to a space.
-    private var splitsBySpace: [Space.ID: SplitLayout] = [:]
-    /// Pinned/sticky pane in the split, per space. When sticky, selecting other tabs in the sidebar
-    /// replaces the unsticky pane instead of dissolving or hiding the split.
-    private var stickyPanesBySpace: [Space.ID: Tab.ID] = [:]
-
     private struct SplitUndoState: Sendable {
         let spaceID: Space.ID
-        let layout: SplitLayout?
+        let splits: SplitCollection
         let activeTabID: Tab.ID?
     }
     private var lastSplitUndoState: SplitUndoState?
@@ -219,8 +212,7 @@ final class BrowserSession {
             let tab = Tab(url: settings.newTabURL(isPrivate: false), identity: profile.identity); adopt(tab)
             space.insert(tab, at: 0); space.setActiveTabID(tab.id)
         } else { space.setActiveTabID(space.workspaceTabs[min(selected ?? 0, space.workspaceTabs.count - 1)].id) }
-        splitsBySpace[space.id] = nil
-        stickyPanesBySpace[space.id] = nil
+        space.splits = SplitCollection()
         if !spaces.contains(where: { $0.profile === oldProfile }) {
             for tab in oldProfile.favoriteTabs { tab.unload() }
         }
@@ -566,8 +558,7 @@ final class BrowserSession {
         // show them and nothing can restore them -- while still counting
         // against that space's cap if its id ever came back.
         archivedTabs.removeAll { $0.spaceID == space.id }
-        splitsBySpace[space.id] = nil
-        stickyPanesBySpace[space.id] = nil
+        space.splits = SplitCollection()
         spaces.remove(at: index)
         routing.removeRoutes(toSpacesNotIn: Set(spaces.map(\.id)))
         if activeSpaceID == space.id {
@@ -1680,16 +1671,16 @@ final class BrowserSession {
 
         // If the space has an active split with a sticky pane, replace the unsticky pane
         // so the user can browse tabs while keeping the stuck pane pinned on screen.
-        if let layout = splitsBySpace[space.id],
-           let stickyID = stickyPanesBySpace[space.id],
-           layout.contains(stickyID),
+        if let layout = space.splits.layout(containing: space.activeTabID),
+           let stickyID = layout.tabIDs.first(where: space.splits.stickyTabIDs.contains),
+           space.splits.layout(containing: tab.id) == nil,
            tab.id != stickyID,
            !layout.contains(tab.id) {
             let toReplace = layout.tabIDs.first(where: { $0 == space.activeTabID && $0 != stickyID })
                 ?? layout.tabIDs.first(where: { $0 != stickyID })
             if let toReplace {
                 recordSplitUndoState()
-                splitsBySpace[space.id] = layout.replacing(toReplace, with: tab.id)
+                space.splits.replace(toReplace, with: tab.id)
             }
         }
 
@@ -2081,90 +2072,70 @@ final class BrowserSession {
     /// Tabs that must be loaded and unloaded together: the members of each
     /// split, in every space.
     var splitCohorts: [Set<Tab.ID>] {
-        splitsBySpace.values.map { Set($0.tabIDs) }
+        spaces.flatMap { $0.splits.layouts.map { Set($0.tabIDs) } }
     }
 
     // MARK: - Split view
 
-    /// The split on screen, which is the one containing the selected tab. A
-    /// split whose tabs are all in the background is kept but not shown.
-    var activeSplit: SplitLayout? {
-        guard let layout = splitsBySpace[activeSpaceID],
-              let active = activeTab, layout.contains(active.id) else { return nil }
-        return layout
+    /// Each selected member brings its own independent split back on screen.
+    var activeSplit: SplitLayout? { split(activeSpace) }
+
+    func split(_ space: Space) -> SplitLayout? {
+        space.splits.layout(containing: space.activeTabID)
     }
 
-    func split(_ space: Space) -> SplitLayout? { splitsBySpace[space.id] }
+    func splitGroups(in space: Space) -> [SplitLayout] { space.splits.layouts }
 
-    private func recordSplitUndoState() {
-        lastSplitUndoState = SplitUndoState(
-            spaceID: activeSpaceID,
-            layout: splitsBySpace[activeSpaceID],
-            activeTabID: activeSpace.activeTabID
-        )
+    private func recordSplitUndoState(in space: Space? = nil) {
+        let space = space ?? activeSpace
+        lastSplitUndoState = SplitUndoState(spaceID: space.id, splits: space.splits, activeTabID: space.activeTabID)
     }
 
-    /// Whether there is a split layout change that can be undone in the active space.
-    var canUndoSplit: Bool {
-        lastSplitUndoState?.spaceID == activeSpaceID
-    }
+    var canUndoSplit: Bool { lastSplitUndoState?.spaceID == activeSpaceID }
 
-    /// Reverts the most recent split or unsplit action in the active space.
+    /// Undo retains all independent groups and never resurrects a closed tab.
     func undoSplit() {
         guard let undo = lastSplitUndoState, undo.spaceID == activeSpaceID else {
             unsplit()
             return
         }
-        let currentLayout = splitsBySpace[activeSpaceID]
-        let currentActive = activeSpace.activeTabID
-        splitsBySpace[activeSpaceID] = undo.layout
-        if let tabID = undo.activeTabID, let tab = activeSpace.tabs.first(where: { $0.id == tabID }) {
+        let space = activeSpace
+        let current = SplitUndoState(spaceID: space.id, splits: space.splits, activeTabID: space.activeTabID)
+        space.splits = undo.splits.retaining(Set(space.tabs.map(\.id)))
+        if let tabID = undo.activeTabID, let tab = space.tabs.first(where: { $0.id == tabID }) {
             selectTab(tab)
         }
-        lastSplitUndoState = SplitUndoState(
-            spaceID: activeSpaceID,
-            layout: currentLayout,
-            activeTabID: currentActive
-        )
+        lastSplitUndoState = current
         changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
     }
 
-    /// Pinned/sticky state of a tab in the active space's split.
-    func isSticky(_ tabID: Tab.ID) -> Bool {
-        stickyPanesBySpace[activeSpaceID] == tabID
-    }
+    func isSticky(_ tabID: Tab.ID) -> Bool { activeSpace.splits.stickyTabIDs.contains(tabID) }
 
-    /// Toggles the sticky state of a pane in the active split.
     func toggleStickPane(_ tabID: Tab.ID) {
-        if stickyPanesBySpace[activeSpaceID] == tabID {
-            stickyPanesBySpace[activeSpaceID] = nil
-        } else {
-            stickyPanesBySpace[activeSpaceID] = tabID
-        }
+        guard activeSpace.splits.layout(containing: tabID) != nil else { return }
+        activeSpace.splits.toggleSticky(tabID)
         changes.send(.structure)
         changes.send(.activeTab)
+        scheduleSave()
     }
 
-    /// Locks or unlocks the currently focused pane in the active split.
     func stickActivePane() {
-        guard let activeTab, let split = activeSplit, split.contains(activeTab.id) else { return }
+        guard let activeTab, activeSplit != nil else { return }
         toggleStickPane(activeTab.id)
     }
 
-    /// Resets all panes in the active split to equal fractions.
     func equalizeSplit() {
-        guard let layout = splitsBySpace[activeSpaceID] else { return }
+        guard let layout = activeSplit else { return }
         recordSplitUndoState()
-        splitsBySpace[activeSpaceID] = layout.relaid(as: layout.grid)
+        activeSpace.splits.update(layout.relaid(as: layout.grid))
         changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
     }
 
-    /// A split's new page is explicitly placed next to its source, so it uses
-    /// that Space's identity rather than applying new-tab domain routing.
+    /// New split pages stay in their source profile, without domain routing.
     @discardableResult
     func openNewPageInSplit(_ url: URL, from source: Tab, grid: SplitLayout.Grid) -> Tab? {
         guard activeTab === source, activeSpace.tabs.contains(where: { $0 === source }),
@@ -2176,89 +2147,69 @@ final class BrowserSession {
         return tab
     }
 
-    /// Opens a link in the other pane of an existing split, or splits side-by-side with a new tab.
     func openLinkInSplit(_ url: URL, from sourceTab: Tab) {
-        recordSplitUndoState()
-        let space = activeSpace
-        if let split = activeSplit, split.contains(sourceTab.id) {
-            let otherIDs = split.tabIDs.filter { $0 != sourceTab.id }
-            if let otherID = otherIDs.first, let otherTab = space.tabs.first(where: { $0.id == otherID }) {
-                otherTab.load(url)
-                selectTab(otherTab)
-                return
-            }
+        guard activeSpace.tabs.contains(where: { $0 === sourceTab }) else { return }
+        if let split = activeSpace.splits.layout(containing: sourceTab.id),
+           let otherID = split.tabIDs.first(where: { $0 != sourceTab.id }),
+           let otherTab = activeSpace.tabs.first(where: { $0.id == otherID }) {
+            otherTab.load(url)
+            selectTab(otherTab)
+            return
         }
-        let newTab = newTab(url: url, select: false)
-        splitTabs([sourceTab, newTab], grid: .sideBySide)
-        selectTab(newTab)
+        selectTab(sourceTab)
+        openNewPageInSplit(url, from: sourceTab, grid: .sideBySide)
     }
 
-    /// Puts these tabs on screen together, extending the active space's split if
-    /// one of them is already in it.
+    /// A new group preserves every unrelated group in this Space. Combining
+    /// existing groups is atomic and always respects the four-pane limit.
     @discardableResult
     func splitTabs(_ tabs: [Tab], grid: SplitLayout.Grid = .grid) -> Bool {
-        let ids = tabs.map(\.id)
-        guard let first = tabs.first else { return false }
+        let space = activeSpace
+        guard let first = tabs.first,
+              tabs.allSatisfy({ candidate in space.tabs.contains { $0 === candidate } }) else { return false }
+        var updated = space.splits
+        guard updated.join(tabs.map(\.id), grid: grid) else { return false }
+        guard updated != space.splits else { return true }
         recordSplitUndoState()
-
-        if var layout = splitsBySpace[activeSpaceID], ids.contains(where: layout.contains) {
-            for id in ids where !layout.contains(id) {
-                guard let extended = layout.adding(id) else { return false }
-                layout = extended
-            }
-            splitsBySpace[activeSpaceID] = layout
-        } else {
-            guard let layout = SplitLayout(tabs: ids, grid: grid) else { return false }
-            splitsBySpace[activeSpaceID] = layout
-        }
-
-        // Focus has to land inside the split, or it would not be shown.
-        if activeSplit == nil { selectTab(first) }
+        space.splits = updated
+        if let formed = space.splits.layout(containing: first.id),
+           activeTab.map({ !formed.contains($0.id) }) ?? true { selectTab(first) }
         changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
         return true
     }
 
-    /// Rebuilds the active split in a different arrangement.
     func relaySplit(as grid: SplitLayout.Grid) {
-        guard let layout = splitsBySpace[activeSpaceID] else { return }
+        guard let layout = activeSplit else { return }
         recordSplitUndoState()
-        splitsBySpace[activeSpaceID] = layout.relaid(as: grid)
+        activeSpace.splits.update(layout.relaid(as: grid))
+        changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
     }
 
-    /// Records new proportions after a divider drag.
     func updateSplitLayout(_ layout: SplitLayout) {
-        guard splitsBySpace[activeSpaceID]?.tabIDs == layout.tabIDs else { return }
-        splitsBySpace[activeSpaceID] = layout
+        guard activeSplit?.tabIDs == layout.tabIDs, activeSpace.splits.update(layout) else { return }
         scheduleSave()
     }
 
-    /// Takes a tab out of whatever split it is in, dissolving the split when
-    /// that would leave one pane. The tab itself is untouched.
+    /// Shared Favorites may participate in splits in multiple Spaces. Removing
+    /// one repairs every affected group, including groups in the background.
     func removeFromSplit(_ tab: Tab) {
-        guard let spaceID = splitsBySpace.first(where: { $0.value.contains(tab.id) })?.key,
-              let removal = splitsBySpace[spaceID]?.removing(tab.id) else { return }
-
-        recordSplitUndoState()
-        if stickyPanesBySpace[spaceID] == tab.id {
-            stickyPanesBySpace[spaceID] = nil
-        }
-
-        switch removal {
-        case .dissolved(let remaining):
-            splitsBySpace[spaceID] = nil
-            if spaceID == activeSpaceID, activeTab?.id == tab.id,
-               let survivor = activeSpace.tabs.first(where: { $0.id == remaining.first }) {
-                selectTab(survivor)
+        let owners = spaces.filter { $0.splits.layout(containing: tab.id) != nil }
+        guard let undoOwner = owners.first(where: { $0.id == activeSpaceID }) ?? owners.first else { return }
+        recordSplitUndoState(in: undoOwner)
+        for space in owners {
+            guard let removal = space.splits.remove(tab.id) else { continue }
+            let survivors: [Tab.ID]
+            switch removal {
+            case .dissolved(let remaining): survivors = remaining
+            case .resized(let layout): survivors = layout.tabIDs
             }
-        case .resized(let layout):
-            splitsBySpace[spaceID] = layout
-            if spaceID == activeSpaceID, activeTab?.id == tab.id,
-               let next = activeSpace.tabs.first(where: { $0.id == layout.tabIDs.first }) {
-                selectTab(next)
+            if space === activeSpace, activeTab?.id == tab.id,
+               let survivor = space.tabs.first(where: { $0.id == survivors.first }) {
+                selectTab(survivor)
             }
         }
         changes.send(.structure)
@@ -2266,12 +2217,10 @@ final class BrowserSession {
         scheduleSave()
     }
 
-    /// Dissolves the active split without closing anything.
     func unsplit() {
-        guard splitsBySpace[activeSpaceID] != nil else { return }
+        guard let active = activeTab, activeSplit != nil else { return }
         recordSplitUndoState()
-        stickyPanesBySpace[activeSpaceID] = nil
-        splitsBySpace[activeSpaceID] = nil
+        activeSpace.splits.dissolve(containing: active.id)
         changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
@@ -2765,7 +2714,8 @@ final class BrowserSession {
                     userAgent: space.userAgent,
                     sleepMinutes: space.sleepMinutes,
                     defaultZoom: space.defaultZoom,
-                    icon: space.icon
+                    icon: space.icon,
+                    splits: space.isPrivate ? nil : space.splits.snapshot(tabIDs: space.tabs.map(\.id))
                 )
             },
             activeSpaceIndex: spaces.firstIndex { $0.id == activeSpaceID } ?? 0,
@@ -2880,6 +2830,9 @@ final class BrowserSession {
             } else if let index = stored.activeTabIndex, restoredSelection.indices.contains(index) {
                 space.setActiveTabID(restoredSelection[index].id)
             } else { space.setActiveTabID(space.tabs.first?.id) }
+            if !space.isPrivate {
+                space.splits = SplitCollection.restoring(stored.splits, tabIDs: restoredSelection.map(\.id))
+            }
             return space
         }
         return spaces.isEmpty ? nil : spaces
@@ -3051,6 +3004,7 @@ final class BrowserSession {
         for tab in allTabs { forget(tab) }
         tabSubscriptions.removeAll()
         self.spaces = newSpaces
+        lastSplitUndoState = nil
         self.profiles = Self.profileList(from: snapshot, spaces: newSpaces)
         let index = min(max(snapshot.activeSpaceIndex, 0), newSpaces.count - 1)
         self.activeSpaceID = newSpaces[index].id

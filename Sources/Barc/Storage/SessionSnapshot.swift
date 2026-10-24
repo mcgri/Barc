@@ -1,3 +1,4 @@
+// Modified for Barc: durable independent split groups, 2026-10-24.
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import AppKit
 
@@ -55,6 +56,12 @@ struct SessionSnapshot: Codable, Equatable {
         var pinnedPageURL: URL? = nil
     }
 
+    struct Split: Codable, Equatable, Sendable {
+        var layout: SplitLayout
+        var tabIndices: [Int]
+        var stickyTabIndex: Int?
+    }
+
     struct Space: Codable, Equatable {
         var name: String
         /// Written by builds that had a space switcher row with an icon and a
@@ -105,6 +112,7 @@ struct SessionSnapshot: Codable, Equatable {
         /// The emoji, symbol or picture on this space. Absent in sessions
         /// written before spaces had icons, which restore on the dot.
         var icon: SpaceIcon?
+        var splits: [Split]?
 
         init(
             id: UUID? = nil,
@@ -133,7 +141,8 @@ struct SessionSnapshot: Codable, Equatable {
             userAgent: String? = nil,
             sleepMinutes: Int? = nil,
             defaultZoom: String? = nil,
-            icon: SpaceIcon? = nil
+            icon: SpaceIcon? = nil,
+            splits: [Split]? = nil
         ) {
             self.id = id
             self.name = name
@@ -162,6 +171,7 @@ struct SessionSnapshot: Codable, Equatable {
             self.sleepMinutes = sleepMinutes
             self.defaultZoom = defaultZoom
             self.icon = icon
+            self.splits = splits
         }
     }
 
