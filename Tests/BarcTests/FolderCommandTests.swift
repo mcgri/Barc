@@ -201,6 +201,7 @@ struct FolderCommandTests {
         #expect(row.accessibilityLabel() == "Open \(path)")
         let icon = try #require(row.subviews.compactMap { $0 as? NSImageView }.first)
         #expect(icon.contentTintColor == .systemOrange)
+        #expect(icon.image?.isTemplate == true)
         let iconAlignment = icon.alignmentRect(forFrame:icon.frame)
         #expect(iconAlignment.width == 20 && iconAlignment.height == 20)
         #expect(abs(iconAlignment.midX-22)<0.1)

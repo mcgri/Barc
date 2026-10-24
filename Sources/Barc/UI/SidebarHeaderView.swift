@@ -154,7 +154,7 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
 
         label.font = .systemFont(ofSize:13,weight:.semibold)
         label.delegate = self
-        label.textColor = Style.Colors.primaryText
+        label.textColor = Style.Colors.secondaryText
         label.lineBreakMode = .byTruncatingTail
         label.cell?.usesSingleLineMode = true
         label.setAccessibilityElement(false)

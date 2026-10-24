@@ -195,7 +195,20 @@ final class CommandRowView: NSView {
         iconLeading.constant = CommandBarMetrics.rowInset - (fullFolder ? 2 : 0)
         iconWidth.constant = fullFolder ? 20 : CommandBarMetrics.rowIconSide
         iconHeight.constant = fullFolder ? 20 : CommandBarMetrics.rowIconSide
-        iconView.image = image ?? (isFolder ? symbol?.withSymbolConfiguration(.init(pointSize:fullFolder ? 13 : 16,weight:.regular)) : symbol)
+        if fullFolder, let symbol = symbol?.withSymbolConfiguration(.init(pointSize:14,weight:.regular)) {
+            // Remove SF Symbols' alignment insets from the image view. Their
+            // baseline metrics otherwise lift the visible folder above the
+            // center of the selection plate.
+            let normalized = NSImage(size:NSSize(width:20,height:20),flipped:false) { rect in
+                symbol.draw(in:NSRect(x:rect.midX-symbol.size.width/2,y:rect.midY-symbol.size.height/2,
+                                      width:symbol.size.width,height:symbol.size.height))
+                return true
+            }
+            normalized.isTemplate = true
+            iconView.image = normalized
+        } else {
+            iconView.image = image ?? (isFolder ? symbol?.withSymbolConfiguration(.init(pointSize:16,weight:.regular)) : symbol)
+        }
         titleLabel.stringValue = isFolder ? "Open" : result.title
         subtitleLabel.stringValue = result.subtitle
         subtitleLabel.isHidden = isFolder || compact || splitChoice

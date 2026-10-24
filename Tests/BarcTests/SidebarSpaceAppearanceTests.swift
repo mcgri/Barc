@@ -98,6 +98,8 @@ struct SidebarSpaceAppearanceTests {
         #expect(abs(icon.convert(icon.bounds,to:identity).minX-18)<0.1)
         #expect(abs(name.convert(field.alignmentRect(forFrame:field.frame),to:identity).minX-44)<0.1)
         #expect(field.font?.pointSize == 13)
+        #expect(field.textColor == Style.Colors.secondaryText)
+        #expect(abs(name.frame.midY-identity.bounds.midY+3)<0.1)
         let frame = field.convert(field.bounds,to:identity)
         name.beginRenaming { _ in };host.layoutSubtreeIfNeeded()
         #expect(field.convert(field.bounds,to:identity) == frame)
