@@ -123,7 +123,7 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
     private var representedID: UUID?
     private var rename: ((String) -> Void)?
 
-    private let label = NSTextField(labelWithString: "")
+    private let label = SidebarLabel(labelWithString: "")
     /// The space's mark, before its name. Hidden for a space wearing nothing,
     /// so a header that never had an icon looks exactly as it did.
     private let icon = NSImageView()
@@ -154,7 +154,7 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
 
         label.font = .systemFont(ofSize:13,weight:.semibold)
         label.delegate = self
-        label.textColor = Style.Colors.secondaryText
+        label.textColor = Style.Colors.sidebarSecondaryText
         label.lineBreakMode = .byTruncatingTail
         label.cell?.usesSingleLineMode = true
         label.setAccessibilityElement(false)
@@ -205,8 +205,8 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
             icon.widthAnchor.constraint(equalToConstant: Self.iconSide),
             icon.heightAnchor.constraint(equalToConstant: Self.iconSide),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            label.topAnchor.constraint(equalTo: topAnchor, constant: 3),
-            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3)
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 2.5),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -3.5)
         ])
 
         setAccessibilityRole(.popUpButton)

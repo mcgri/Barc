@@ -149,8 +149,8 @@ final class TabRowView: NSTableCellView {
         }
     }
 
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let subtitleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = SidebarLabel(labelWithString: "")
+    private let subtitleLabel = SidebarLabel(labelWithString: "")
     private lazy var titleStack = NSStackView(views: [titleLabel, subtitleLabel])
     private let spinner = NSProgressIndicator()
     /// The emoji drawn where the favicon goes, when the tab has one.
@@ -249,6 +249,7 @@ final class TabRowView: NSTableCellView {
     /// have had their say about this row.
     private var isFresh = true
     private var leadingConstraint: NSLayoutConstraint?
+    private var titleCenter: NSLayoutConstraint?
     /// The spinner's and close button's trailing constraints, kept so a row on a
     /// group plate can pull them in to match the pill's trailing inset.
     private var trailingConstraints: [NSLayoutConstraint] = []
@@ -387,6 +388,8 @@ final class TabRowView: NSTableCellView {
             constant: contentInset + indentation
         )
         leadingConstraint = leading
+        let titleCenter = titleStack.centerYAnchor.constraint(equalTo:pillStrip.centerYAnchor)
+        self.titleCenter = titleCenter
 
         let spinnerTrailing = spinner.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInset)
         let closeTrailing = closeButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -contentInset)
@@ -416,8 +419,8 @@ final class TabRowView: NSTableCellView {
         NSLayoutConstraint.activate([
             leading,
             favicon.centerYAnchor.constraint(equalTo: pillStrip.centerYAnchor),
-            titleStack.leadingAnchor.constraint(equalTo: favicon.trailingAnchor, constant: Style.Metrics.rowContentSpacing),
-            titleStack.centerYAnchor.constraint(equalTo: pillStrip.centerYAnchor),
+            titleStack.leadingAnchor.constraint(equalTo: favicon.trailingAnchor, constant: Style.Metrics.rowContentSpacing+1),
+            titleCenter,
             titleEdge,
             titleLabel.widthAnchor.constraint(equalTo: titleStack.widthAnchor),
             subtitleLabel.widthAnchor.constraint(equalTo: titleStack.widthAnchor),
@@ -446,7 +449,8 @@ final class TabRowView: NSTableCellView {
         titleLabel.stringValue = content.title
         subtitleLabel.stringValue = content.subtitle ?? ""
         subtitleLabel.isHidden = content.subtitle?.isEmpty != false
-        titleLabel.textColor = Style.Colors.primaryText
+        titleLabel.textColor = Style.Colors.sidebarPrimaryText
+        titleCenter?.constant = content.keepsInSidebar ? -1 : 0
         toolTip = content.address
         setAccessibilityCustomActions(content.canResetPinnedPage ? [
             NSAccessibilityCustomAction(name: "Reset Tab") { [weak self] in
@@ -713,6 +717,7 @@ final class TabRowView: NSTableCellView {
         isHovered = false
         isSelected = false
         content = TabRowContent(title: "")
+        titleCenter?.constant = 0
         titleLabel.stringValue = ""
         subtitleLabel.stringValue = ""
         subtitleLabel.isHidden = true

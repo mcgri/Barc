@@ -12,7 +12,7 @@ final class ActionRowView: NSView {
     var onPress: (() -> Void)?
 
     private let glyph = SidebarActionGlyph()
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = SidebarLabel(labelWithString: "")
     private var trackingArea: NSTrackingArea?
     private var highlight: RowHighlight?
     private var isHovered = false {
@@ -34,14 +34,14 @@ final class ActionRowView: NSView {
         glyph.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = Style.Fonts.tabTitle
-        titleLabel.textColor = Style.Colors.secondaryText
+        titleLabel.textColor = Style.Colors.sidebarNewTabText
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.usesSingleLineMode = true
         titleLabel.setAccessibilityElement(false)
 
         let stack = NSStackView(views: [glyph, titleLabel])
         stack.orientation = .horizontal
-        stack.spacing = Style.Metrics.rowContentSpacing
+        stack.spacing = Style.Metrics.rowContentSpacing+1
         stack.alignment = .centerY
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)

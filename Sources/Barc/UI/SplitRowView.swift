@@ -127,7 +127,7 @@ final class SplitRowView: NSTableCellView {
     @MainActor
     final class MemberView:NSView {
         let favicon = FaviconImageView()
-        let title = NSTextField(labelWithString:"")
+        let title = SidebarLabel(labelWithString:"")
         private let emoji = NSTextField(labelWithString:"")
         private let symbol = NSImageView()
         private let close = NSButton(image:NSImage(systemSymbolName:"xmark",accessibilityDescription:"Close Tab")!,target:nil,action:nil)
@@ -147,7 +147,7 @@ final class SplitRowView: NSTableCellView {
             favicon.removeConstraints(favicon.constraints)
             favicon.translatesAutoresizingMaskIntoConstraints = true
             title.font = Style.Fonts.tabTitle
-            title.textColor = Style.Colors.primaryText
+            title.textColor = Style.Colors.sidebarPrimaryText
             title.lineBreakMode = .byTruncatingTail
             title.cell?.usesSingleLineMode = true
             title.setAccessibilityElement(false)

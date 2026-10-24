@@ -403,6 +403,9 @@ enum Style {
         static var headerDisabledNavigationInk: NSColor { dynamic(light:NSColor(white:0,alpha:0.22),dark:.tertiaryLabelColor) }
         static var addressText: NSColor { dynamic(light:NSColor(white:0,alpha:0.6),dark:.labelColor) }
         static var addressFill: NSColor { ink(light:0.045,dark:0.08) }
+        static var sidebarPrimaryText: NSColor { dynamic(light:NSColor(white:0,alpha:0.9),dark:.labelColor) }
+        static var sidebarSecondaryText: NSColor { dynamic(light:NSColor(white:0,alpha:0.55),dark:.secondaryLabelColor) }
+        static var sidebarNewTabText: NSColor { dynamic(light:NSColor(white:0,alpha:0.35),dark:.secondaryLabelColor) }
 
         // MARK: Graphs
 

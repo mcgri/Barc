@@ -200,6 +200,6 @@ final class AddressField: NSView {
 @MainActor
 private final class AddressLabelButton: NSButton {
     override func draw(_ dirtyRect: NSRect) {
-        attributedTitle.draw(in:(cell as? NSButtonCell)?.titleRect(forBounds:bounds) ?? bounds)
+        cell?.drawInterior(withFrame:bounds,in:self)
     }
 }

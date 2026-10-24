@@ -41,7 +41,7 @@ final class TabGroupHeaderView: NSView {
     /// to someone who went looking for it.
     private let lockGlyph = NSImageView()
     private var isLocked = false
-    private let titleLabel = NSTextField(labelWithString: "")
+    private let titleLabel = SidebarLabel(labelWithString: "")
     var iconPickerAnchor: NSView { emojiLabel.isHidden ? folderIcon : emojiLabel }
     var isEditingName = false {
         didSet {
@@ -76,7 +76,7 @@ final class TabGroupHeaderView: NSView {
         emojiLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         titleLabel.font = Style.Fonts.groupHeader
-        titleLabel.textColor = Style.Colors.primaryText
+        titleLabel.textColor = Style.Colors.sidebarPrimaryText
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.cell?.usesSingleLineMode = true
         titleLabel.setAccessibilityElement(false)
@@ -111,7 +111,7 @@ final class TabGroupHeaderView: NSView {
             // both start at the pill's margin plus the padding inside it, so a
             // folder's children read as one indent step in from their header.
             leading,
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor,constant:-1),
             chevron.widthAnchor.constraint(equalToConstant: Style.Metrics.smallGlyphSide),
             chevron.heightAnchor.constraint(equalToConstant: Style.Metrics.smallGlyphSide)
         ])

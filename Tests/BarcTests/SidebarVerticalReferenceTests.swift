@@ -30,7 +30,7 @@ struct SidebarVerticalReferenceTests {
         let a = session.newTab(url:URL(string:"https://rhythm.invalid/barc")!)
         session.rename(a,to:"mocky/Browser: This is a sample browser")
         let site = session.newTab(url:URL(string:"https://rhythm.invalid/site")!)
-        session.rename(site,to:"Lightweight Mac browser")
+        session.rename(site,to:"Lightweight Mac browser — Kylmora")
         let b = session.newTab(url:URL(string:"https://rhythm.invalid/repository")!)
         // A frozen loading caption, supplied as fixture content, not a rule
         // for deriving production titles from hostnames.
@@ -62,6 +62,33 @@ struct SidebarVerticalReferenceTests {
             let color = bitmap.colorAt(x:x,y:y)!.usingColorSpace(.deviceRGB)!
             return Double(color.redComponent+color.greenComponent+color.blueComponent)/3
         }
+        func ink(_ region:NSRect) -> (bounds:NSRect,alpha:Double) {
+            var samples: [(x:Int,y:Int,value:Double)] = []
+            for y in Int(region.minY)..<Int(region.maxY) {
+                for x in Int(region.minX)..<Int(region.maxX) { samples.append((x,y,light(x,y))) }
+            }
+            let levels = samples.map(\.value).sorted(), background = levels[levels.count/2]
+            let peak = samples.map { background-$0.value }.max()!
+            let points = samples.filter { background-$0.value > peak*0.45 }
+            let x0 = points.map(\.x).min()!, x1 = points.map(\.x).max()!
+            let y0 = points.map(\.y).min()!, y1 = points.map(\.y).max()!
+            return (NSRect(x:x0,y:y0,width:x1-x0+1,height:y1-y0+1),peak/background)
+        }
+        // Reference layout anchors with ink bounds for anonymized fixture captions.
+        let captions: [(NSRect,NSRect,Double)] = [
+            (NSRect(x:80,y:300,width:170,height:50),NSRect(x:89,y:317,width:93,height:24),0.55),
+            (NSRect(x:80,y:380,width:250,height:55),NSRect(x:90,y:398,width:180,height:26),0.9),
+            (NSRect(x:80,y:465,width:350,height:50),NSRect(x:90,y:480,width:223,height:26),0.9),
+            (NSRect(x:80,y:545,width:350,height:53),NSRect(x:90,y:562,width:254,height:26),0.9),
+            (NSRect(x:80,y:675,width:180,height:55),NSRect(x:90,y:694,width:108,height:21),0.35),
+            (NSRect(x:90,y:770,width:125,height:37),NSRect(x:94,y:776,width:110,height:26),0.9),
+            (NSRect(x:80,y:835,width:350,height:55),NSRect(x:90,y:858,width:317,height:26),0.9)
+        ]
+        for (region,expected,alpha) in captions {
+            let actual = ink(region)
+            #expect(actual.bounds == expected)
+            #expect(abs(actual.alpha-alpha) < 0.015)
+        }
         let background = (60..<420).map { light($0,630) }.reduce(0,+)/360
         let dividerRows = (631..<650).filter { y in
             let level = (60..<420).map { light($0,y) }.reduce(0,+)/360
@@ -84,7 +111,7 @@ struct SidebarVerticalReferenceTests {
             records.append(["name":name,"x":rect.minX,"yFromTop":root.bounds.maxY-rect.maxY,"width":rect.width,"height":rect.height])
         }
         record("Address plate",bar.addressField)
-        for label in UITestSupport.textFields(in:root) where ["Space 1","Pull Requests","Messaging Terms","Example Dashboard","New Tab","mocky/Browser: This is a sample browser","github.com","Lightweight Mac browser"].contains(label.stringValue) {
+        for label in UITestSupport.textFields(in:root) where ["Space 1","Pull Requests","Messaging Terms","Example Dashboard","New Tab","mocky/Browser: This is a sample browser","github.com","Lightweight Mac browser — Kylmora"].contains(label.stringValue) {
             record(label.stringValue,label)
         }
         for view in UITestSupport.descendants(of:root) where view is SidebarSpaceIdentityView || view is PinnedTilesView || view is SplitRowView {
