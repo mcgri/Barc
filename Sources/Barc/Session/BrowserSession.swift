@@ -32,7 +32,7 @@ final class BrowserSession {
         case structure
     }
 
-    let changes = PassthroughSubject<Change, Never>()
+    let changes = SessionChangeStream()
 
     /// How the session tells the user something happened somewhere they are not
     /// looking. Set by the window; nil in tests and before a window exists, so
@@ -829,7 +829,9 @@ final class BrowserSession {
 
     /// Every tab in the space but this one.
     func closeOtherTabs(than tab: Tab) {
-        for other in activeSpace.tabs where other !== tab { closeTab(other) }
+        changes.batch {
+            for other in activeSpace.tabs where other !== tab { closeTab(other) }
+        }
     }
 
     /// Every tab after this one in the space's order.
@@ -841,14 +843,23 @@ final class BrowserSession {
 
     /// Closes a collection of tabs in batch.
     func closeTabs(_ tabsToClose: [Tab]) {
-        let unlockeds = tabsToClose.filter { !$0.isLocked }
-        if unlockeds.count > 1, let first = unlockeds.first,
-           let space = space(containing: first),
-           !space.isPrivate {
-            recordClosedWindow(title: "Window", tabs: unlockeds, in: space)
-        }
-        for tab in tabsToClose {
-            closeTab(tab)
+        changes.batch {
+            var seen: Set<Tab.ID> = []
+            var owners: [(space:Space, tabs:[Tab])] = []
+            // Resolve owners before closing changes any shared Favorite list.
+            // A mixed request must never file private pages under a public owner.
+            for tab in tabsToClose where !tab.isLocked && seen.insert(tab.id).inserted {
+                guard let owner = space(containing:tab), !owner.isPrivate else { continue }
+                if let index = owners.firstIndex(where:{ $0.space === owner }) {
+                    owners[index].tabs.append(tab)
+                } else { owners.append((owner,[tab])) }
+            }
+            for owner in owners where owner.tabs.count > 1 {
+                recordClosedWindow(title:"Window",tabs:owner.tabs,in:owner.space)
+            }
+            for tab in tabsToClose {
+                closeTab(tab)
+            }
         }
     }
 
@@ -926,36 +937,40 @@ final class BrowserSession {
 
     /// Closes all unpinned tabs in the given space.
     func closeAllTabs(in space: Space) {
-        let unlockeds = space.tabs.filter { !$0.isLocked }
-        if unlockeds.count > 1 && !space.isPrivate {
-            recordClosedWindow(title: "\(space.name) Window", tabs: unlockeds, in: space)
-        }
-        for tab in space.tabs {
-            closeTab(tab)
+        changes.batch {
+            let unlockeds = space.tabs.filter { !$0.isLocked }
+            if unlockeds.count > 1 && !space.isPrivate {
+                recordClosedWindow(title: "\(space.name) Window", tabs: unlockeds, in: space)
+            }
+            for tab in space.tabs {
+                closeTab(tab)
+            }
         }
     }
 
     /// Complete split rows travel as units. Explicitly selecting only some
     /// pages keeps the old split's survivors and moves those pages separately.
     func moveTabs(_ tabsToMove: [Tab], toSpace target: Space) {
-        guard spaces.contains(where: { $0 === target }) else { return }
-        var seen: Set<UUID> = []
-        var sources: [(space: Space, tabs: [Tab])] = []
-        let requestedIDs = Set(tabsToMove.map(\.id))
-        // Resolve ownership before any move changes a shared Favorite's list.
-        for tab in tabsToMove where seen.insert(tab.id).inserted {
-            let splitOwners = tab.pinnedSiteID == nil ? [] : spaces.filter { owner in
-                owner !== target && owner.tabs.contains(where: { $0 === tab })
-                    && owner.splits.layout(containing:tab.id).map { Set($0.tabIDs).isSubset(of:requestedIDs) } == true
+        changes.batch {
+            guard spaces.contains(where: { $0 === target }) else { return }
+            var seen: Set<UUID> = []
+            var sources: [(space: Space, tabs: [Tab])] = []
+            let requestedIDs = Set(tabsToMove.map(\.id))
+            // Resolve ownership before any move changes a shared Favorite's list.
+            for tab in tabsToMove where seen.insert(tab.id).inserted {
+                let splitOwners = tab.pinnedSiteID == nil ? [] : spaces.filter { owner in
+                    owner !== target && owner.tabs.contains(where: { $0 === tab })
+                        && owner.splits.layout(containing:tab.id).map { Set($0.tabIDs).isSubset(of:requestedIDs) } == true
+                }
+                guard let owner = splitOwners.first(where: { $0 === activeSpace }) ?? splitOwners.first ?? space(containing:tab),
+                      owner !== target else { continue }
+                if let index = sources.firstIndex(where: { $0.space === owner }) {
+                    sources[index].tabs.append(tab)
+                } else { sources.append((owner,[tab])) }
             }
-            guard let owner = splitOwners.first(where: { $0 === activeSpace }) ?? splitOwners.first ?? space(containing:tab),
-                  owner !== target else { continue }
-            if let index = sources.firstIndex(where: { $0.space === owner }) {
-                sources[index].tabs.append(tab)
-            } else { sources.append((owner,[tab])) }
-        }
-        for source in sources {
-            transferTabs(source.tabs,from:source.space,to:target,clearingGroups:true)
+            for source in sources {
+                transferTabs(source.tabs,from:source.space,to:target,clearingGroups:true)
+            }
         }
     }
 
@@ -970,24 +985,26 @@ final class BrowserSession {
     /// still produces an ordinary tab. Page bindings keep duplicate URLs distinct.
     @discardableResult
     func duplicateTabs(_ tabsToDuplicate: [Tab]) -> [Tab] {
-        let space = activeSpace
-        let originalSplits = space.splits
-        var bindings: [UUID: UUID] = [:]
-        var copies: [Tab] = []
-        var seen: Set<UUID> = []
-        for tab in tabsToDuplicate where seen.insert(tab.id).inserted {
-            if let copy = duplicate(tab) { copies.append(copy); bindings[tab.id] = copy.id }
+        return changes.batch {
+            let space = activeSpace
+            let originalSplits = space.splits
+            var bindings: [UUID: UUID] = [:]
+            var copies: [Tab] = []
+            var seen: Set<UUID> = []
+            for tab in tabsToDuplicate where seen.insert(tab.id).inserted {
+                if let copy = duplicate(tab) { copies.append(copy); bindings[tab.id] = copy.id }
+            }
+            let copied = space.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
+            if !copied.isEmpty {
+                let focusedID = copies.last.flatMap { space.splits.preferredTab(containing:$0.id) }
+                let focused = space.tabs.first { $0.id == focusedID }
+                changes.send(.structure)
+                if let focused { selectTab(focused) }
+                changes.send(.activeTab)
+                scheduleSave()
+            }
+            return copies
         }
-        let copied = space.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
-        if !copied.isEmpty {
-            let focusedID = copies.last.flatMap { space.splits.preferredTab(containing:$0.id) }
-            let focused = space.tabs.first { $0.id == focusedID }
-            changes.send(.structure)
-            if let focused { selectTab(focused) }
-            changes.send(.activeTab)
-            scheduleSave()
-        }
-        return copies
     }
 
     /// Pins a collection of tabs in batch.
@@ -1067,85 +1084,89 @@ final class BrowserSession {
     }
 
     private func transferTabs(_ tabs: [Tab], from source: Space, to target: Space, clearingGroups: Bool) {
-        let originalSplits = source.splits
-        let requestedIDs = Set(tabs.map(\.id))
-        // A shared Favorite may already belong to a different split in the
-        // destination. Refuse that complete unit instead of breaking either
-        // group or moving just its non-Favorite half.
-        let blocked = Set(originalSplits.layouts.filter { layout in
-            source.profile === target.profile && Set(layout.tabIDs).isSubset(of:requestedIDs)
-                && layout.tabIDs.contains { target.splits.layout(containing:$0) != nil }
-        }.flatMap(\.tabIDs))
-        var bindings: [UUID: UUID] = [:]
-        for tab in tabs where !blocked.contains(tab.id) && source.tabs.contains(where: { $0 === tab }) {
-            if source.profile === target.profile {
-                if tab.pinnedSiteID == nil {
-                    detach(tab,from:source,keepingPage:true)
-                    if clearingGroups { tab.setGroupID(nil) }
-                    insert(tab,into:target,at:target.workspaceTabs.count,select:false)
+        changes.batch {
+            let originalSplits = source.splits
+            let requestedIDs = Set(tabs.map(\.id))
+            // A shared Favorite may already belong to a different split in the
+            // destination. Refuse that complete unit instead of breaking either
+            // group or moving just its non-Favorite half.
+            let blocked = Set(originalSplits.layouts.filter { layout in
+                source.profile === target.profile && Set(layout.tabIDs).isSubset(of:requestedIDs)
+                    && layout.tabIDs.contains { target.splits.layout(containing:$0) != nil }
+            }.flatMap(\.tabIDs))
+            var bindings: [UUID: UUID] = [:]
+            for tab in tabs where !blocked.contains(tab.id) && source.tabs.contains(where: { $0 === tab }) {
+                if source.profile === target.profile {
+                    if tab.pinnedSiteID == nil {
+                        detach(tab,from:source,keepingPage:true)
+                        if clearingGroups { tab.setGroupID(nil) }
+                        insert(tab,into:target,at:target.workspaceTabs.count,select:false)
+                    }
+                    // A Favorite is already shared by the two layouts.
+                    bindings[tab.id] = tab.id
+                } else {
+                    var snapshot = tab.snapshot()
+                    if clearingGroups { snapshot.groupID = nil }
+                    snapshot.pinnedSiteID = nil
+                    snapshot.interactionState = nil
+                    let wasFavorite = tab.pinnedSiteID != nil
+                    detach(tab,from:source)
+                    if wasFavorite { repairSelections(for:source.profile) }
+                    let moved = Tab(restoring:snapshot,identity:target.identity)
+                    insert(moved,into:target,at:target.workspaceTabs.count,select:false)
+                    bindings[tab.id] = moved.id
                 }
-                // A Favorite is already shared by the two layouts.
-                bindings[tab.id] = tab.id
-            } else {
-                var snapshot = tab.snapshot()
-                if clearingGroups { snapshot.groupID = nil }
-                snapshot.pinnedSiteID = nil
-                snapshot.interactionState = nil
-                let wasFavorite = tab.pinnedSiteID != nil
-                detach(tab,from:source)
-                if wasFavorite { repairSelections(for:source.profile) }
-                let moved = Tab(restoring:snapshot,identity:target.identity)
-                insert(moved,into:target,at:target.workspaceTabs.count,select:false)
-                bindings[tab.id] = moved.id
             }
-        }
-        let transferred = target.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
-        // Detach normally repairs the source. An all-Favorite group needs
-        // this explicit removal because none of its shared pages detached.
-        for layout in originalSplits.layouts {
-            if let first = layout.tabIDs.first,
-               let id = originalSplits.identifier(containing:first), transferred.contains(id) {
-                source.splits.dissolve(containing:first)
+            let transferred = target.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
+            // Detach normally repairs the source. An all-Favorite group needs
+            // this explicit removal because none of its shared pages detached.
+            for layout in originalSplits.layouts {
+                if let first = layout.tabIDs.first,
+                   let id = originalSplits.identifier(containing:first), transferred.contains(id) {
+                    source.splits.dissolve(containing:first)
+                }
             }
+            guard !bindings.isEmpty else { return }
+            changes.send(.structure)
+            changes.send(.activeTab)
+            scheduleSave()
         }
-        guard !bindings.isEmpty else { return }
-        changes.send(.structure)
-        changes.send(.activeTab)
-        scheduleSave()
     }
 
     /// Moves a whole group -- its nested subgroups and every tab filed under any
     /// of them -- to another space, keeping the structure intact. The group's
     /// own "Move to Space" menu, the counterpart of a tab's.
     func move(_ group: TabGroup, toSpace target: Space) {
-        guard let source = spaces.first(where: { $0.group(withID: group.id) != nil }),
-              source.id != target.id,
-              spaces.contains(where: { $0.id == target.id })
-        else { return }
+        changes.batch {
+            guard let source = spaces.first(where: { $0.group(withID: group.id) != nil }),
+                  source.id != target.id,
+                  spaces.contains(where: { $0.id == target.id })
+            else { return }
 
-        // The group and everything nested under it travel together.
-        let moving = [group] + FolderTree.descendants(of: group, in: source.groups)
-        let movingIDs = Set(moving.map(\.id))
-        // Captured before any detach empties the source's tab list.
-        let movingTabs = source.tabs.filter { $0.groupID.map(movingIDs.contains) ?? false }
+            // The group and everything nested under it travel together.
+            let moving = [group] + FolderTree.descendants(of: group, in: source.groups)
+            let movingIDs = Set(moving.map(\.id))
+            // Captured before any detach empties the source's tab list.
+            let movingTabs = source.tabs.filter { $0.groupID.map(movingIDs.contains) ?? false }
 
-        // If the moved root's parent stays behind, it becomes a root in the
-        // target rather than pointing at a folder that is not there.
-        if let parent = group.parentID, !movingIDs.contains(parent) {
-            group.parentID = nil
+            // If the moved root's parent stays behind, it becomes a root in the
+            // target rather than pointing at a folder that is not there.
+            if let parent = group.parentID, !movingIDs.contains(parent) {
+                group.parentID = nil
+            }
+
+            // Carry the groups over first -- with the non-orphaning removal, so the
+            // tabs still filed under them survive the trip -- then the tabs, each
+            // rebuilt for the target's identity but keeping the group it belongs to.
+            for moved in moving {
+                source.detachGroup(moved)
+                target.addGroup(moved)
+            }
+            transferTabs(movingTabs,from:source,to:target,clearingGroups:false)
+
+            changes.send(.structure)
+            scheduleSave()
         }
-
-        // Carry the groups over first -- with the non-orphaning removal, so the
-        // tabs still filed under them survive the trip -- then the tabs, each
-        // rebuilt for the target's identity but keeping the group it belongs to.
-        for moved in moving {
-            source.detachGroup(moved)
-            target.addGroup(moved)
-        }
-        transferTabs(movingTabs,from:source,to:target,clearingGroups:false)
-
-        changes.send(.structure)
-        scheduleSave()
     }
 
     /// Copies the complete subtree beside its original without changing the
