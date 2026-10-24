@@ -18,14 +18,14 @@ enum SpaceEmojiCatalog {
         }
         var symbol: String {
             switch self {
-            case .people: "face.smiling"
-            case .nature: "sun.max"
-            case .food: "cup.and.saucer"
-            case .activities: "rosette"
-            case .travel: "box.truck"
-            case .objects: "gift"
-            case .symbols: "heart"
-            case .flags: "flag"
+            case .people: "ionicon.happy-outline"
+            case .nature: "ionicon.sunny-outline"
+            case .food: "ionicon.cafe-outline"
+            case .activities: "ionicon.ribbon-outline"
+            case .travel: "ionicon.bus-outline"
+            case .objects: "ionicon.gift-outline"
+            case .symbols: "ionicon.heart-outline"
+            case .flags: "ionicon.flag-outline"
             }
         }
     }

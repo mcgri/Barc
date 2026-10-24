@@ -17,6 +17,10 @@ struct CompactSpaceIconPickerTests {
         }
         #expect(SpaceSymbols.storedName(forArcName: "fileTrayFull") == "ionicon.file-tray-full")
         #expect(SpaceSymbols.storedName(forArcName: "colorPallete") == "ionicon.color-palette")
+        #expect(SpaceSymbols.storedName(forArcName: "bag") == "ionicon.basket")
+        for category in SpaceEmojiCatalog.Category.allCases {
+            #expect(SpaceSymbols.image(named: category.symbol)?.tiffRepresentation != nil)
+        }
         #expect(SpaceSymbols.storedName(forArcName: "../invalid") == nil)
     }
     @Test("Unicode search handles words, graphemes and the eight category groups")

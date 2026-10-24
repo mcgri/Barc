@@ -35,23 +35,23 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
     override func loadView() {
         view = FlippedView(frame: NSRect(origin: .zero, size: preferredContentSize))
         view.setAccessibilityLabel("Space icon")
-        tabs.frame = NSRect(x: 63, y: 14, width: 114, height: 24)
+        tabs.frame = NSRect(x: 64, y: 14, width: 114, height: 24)
         tabs.segmentStyle = .rounded
         tabs.selectedSegment = mode.rawValue
         tabs.target = self; tabs.action = #selector(chooseGlyphMode)
         tabs.setAccessibilityLabel("Icon type")
         view.addSubview(tabs)
 
-        trash.frame = NSRect(x: 184, y: 14, width: 26, height: 24)
+        trash.frame = NSRect(x: 185, y: 14, width: 26, height: 24)
         trash.title = ""; trash.isBordered = false
-        trash.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "Remove Icon")
+        trash.image = Self.templateImage("ionicon.trash-outline", side: 16)
         trash.contentTintColor = .secondaryLabelColor
         trash.target = self; trash.action = #selector(removeIcon)
         trash.toolTip = "Remove Icon"; trash.setAccessibilityLabel("Remove Icon")
         trash.isEnabled = selected.isCustomized
         view.addSubview(trash)
 
-        search.frame = NSRect(x: 10, y: 48, width: 250, height: 24)
+        search.frame = NSRect(x: 11, y: 48, width: 250, height: 24)
         search.placeholderString = "Search"
         search.font = .systemFont(ofSize: 13)
         search.delegate = self
@@ -85,12 +85,12 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
             MainActor.assumeIsolated { self?.updateCategorySelection() }
         }
 
-        footer.frame = NSRect(x: 10, y: 230, width: 250, height: 34)
+        footer.frame = NSRect(x: 11, y: 230, width: 250, height: 34)
         for category in SpaceEmojiCatalog.Category.allCases {
             let button = NSButton()
             button.frame = NSRect(x: CGFloat(category.rawValue) * 31 + 1, y: 5, width: 30, height: 26)
             button.title = ""; button.isBordered = false
-            button.image = NSImage(systemSymbolName: category.symbol, accessibilityDescription: category.title)
+            button.image = Self.templateImage(category.symbol, side: 14)
             button.contentTintColor = .secondaryLabelColor
             button.target = self; button.action = #selector(jumpToCategory(_:))
             button.tag = category.rawValue
@@ -99,11 +99,11 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
         }
         view.addSubview(footer)
         divider.boxType = .separator
-        divider.frame = NSRect(x: 10, y: 228, width: 250, height: 1)
+        divider.frame = NSRect(x: 11, y: 228, width: 250, height: 1)
         view.addSubview(divider)
         empty.font = .systemFont(ofSize: 12); empty.textColor = .secondaryLabelColor
         empty.alignment = .center
-        empty.frame = NSRect(x: 10, y: 140, width: 250, height: 20)
+        empty.frame = NSRect(x: 11, y: 140, width: 250, height: 20)
         view.addSubview(empty)
         configureMode()
     }
@@ -129,7 +129,7 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
     }
     private func configureMode() {
         search.isHidden = mode == .icon; footer.isHidden = mode == .icon; divider.isHidden = mode == .icon
-        scroll.frame = NSRect(x: 10, y: mode == .emoji ? 84 : 47, width: 250, height: mode == .emoji ? 144 : 217)
+        scroll.frame = NSRect(x: 11, y: mode == .emoji ? 84 : 47, width: 250, height: mode == .emoji ? 144 : 217)
         if let layout = collection.collectionViewLayout as? NSCollectionViewFlowLayout {
             layout.itemSize = NSSize(width: 31, height: mode == .emoji ? 33 : 31)
             layout.invalidateLayout()
@@ -171,19 +171,30 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
         view.window?.makeFirstResponder(search)
     }
     private func scrollTo(_ index: Int) {
-        // Align the row, keeping the chosen cow's neighbors on the same row.
-        collection.scrollToItems(at: [IndexPath(item: index - index % 8, section: 0)], scrollPosition: .top)
+        // scrollToItems(.top) adds AppKit's item reveal margin. Move the
+        // clip view to the exact row boundary so no preceding row peeks in.
+        collection.layoutSubtreeIfNeeded()
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: CGFloat(index / 8) * 33))
+        scroll.reflectScrolledClipView(scroll.contentView)
         updateCategorySelection()
     }
     private func updateCategorySelection() {
         guard mode == .emoji else { return }
-        let first = collection.indexPathsForVisibleItems().min { $0.item < $1.item }
-        let category = first.flatMap { displayedEmoji.indices.contains($0.item) ? displayedEmoji[$0.item].category : nil }
+        // Collection reuse lags the bounds notification by one layout pass.
+        // Calculate the visible category from the viewport, not stale cells.
+        let viewport = scroll.contentView.bounds
+        let index = Int(max(0, (viewport.minY + viewport.height / 2) / 33)) * 8
+        let category = displayedEmoji.indices.contains(index) ? displayedEmoji[index].category : nil
         for button in categoryButtons {
             let selected = category?.rawValue == button.tag
             button.contentTintColor = selected ? .labelColor : .secondaryLabelColor
             button.setAccessibilityValue(selected ? "Selected" : "")
         }
+    }
+    private static func templateImage(_ name: String, side: CGFloat) -> NSImage? {
+        guard let image = SpaceSymbols.image(named: name)?.copy() as? NSImage else { return nil }
+        image.size = NSSize(width: side, height: side)
+        return image
     }
     private func chooseCurrentItem() {
         if let path = collection.selectionIndexPaths.first { chooseItem(at: path.item) }
@@ -245,7 +256,7 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
         override var isSelected: Bool { didSet { button.keyboardSelected = isSelected } }
         func configure(icon: SpaceIcon, label: String, chosen: Bool, action: @escaping () -> Void) {
             _ = view
-            let side: CGFloat = if case .emoji = icon { 23 } else { 14 }
+            let side: CGFloat = if case .emoji = icon { 22 } else { 14 }
             button.image = icon.image(color: .gray, title: label, side: side)
             button.chosen = chosen
             button.keyboardSelected = isSelected

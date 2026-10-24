@@ -41,13 +41,14 @@ SPACE_NAMES = [
     "cloudOutline", "map", "bonfire", "pizza", "skull", "receipt", "thumbsUp", "train",
 ]
 ALIASES = {"fileTrayFull": "file-tray-full", "chatBubbleEllipses": "chatbubble-ellipses",
-    "construction": "construct", "musicalNote": "musical-note", "colorPallete": "color-palette",
+    "construction": "construct", "bag": "basket", "musicalNote": "musical-note", "colorPallete": "color-palette",
     "video": "videocam", "cloudOutline": "cloud-outline", "thumbsUp": "thumbs-up"}
 TITLES = {"medical": "Asterisk", "flash": "Lightning", "notifications": "Bell", "bulb": "Light bulb",
     "chatBubbleEllipses": "Chat", "construction": "Tools", "ellipse": "Circle", "fileTrayFull": "File tray",
     "musicalNote": "Music", "colorPallete": "Color palette", "cloudOutline": "Cloud outline", "thumbsUp": "Thumbs up"}
 space_icons = [(ALIASES.get(n, n), TITLES.get(n, n[:1].upper() + n[1:])) for n in SPACE_NAMES]
-all_icons = dict(ICONS + space_icons)
+FOOTER_ICONS = ["happy-outline", "sunny-outline", "cafe-outline", "ribbon-outline", "bus-outline", "gift-outline", "heart-outline", "flag-outline", "trash-outline"]
+all_icons = dict(ICONS + space_icons + [("bag", "Bag")] + [(n, n) for n in FOOTER_ICONS])
 with ThreadPoolExecutor(max_workers=8) as pool:
     assets = list(pool.map(asset, all_icons.items()))
 
