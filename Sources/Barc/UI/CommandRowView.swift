@@ -259,10 +259,18 @@ final class CommandRowView: NSView {
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        trackingArea = installHoverTracking(replacing: trackingArea)
+        if let trackingArea { removeTrackingArea(trackingArea) }
+        let area = NSTrackingArea(rect:bounds,options:[.mouseMoved,.activeInActiveApp,.inVisibleRect],owner:self)
+        addTrackingArea(area)
+        trackingArea = area
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    /// Rebuilding the list can create an entry event under a stationary
+    /// pointer. Only actual movement should replace the keyboard selection.
+    override func mouseMoved(with event: NSEvent) {
+        guard window != nil, !isHiddenOrHasHiddenAncestor else { return }
+        let point = convert(event.locationInWindow,from:nil)
+        guard bounds.contains(point), visibleRect.contains(point) else { return }
         onHover?()
     }
 

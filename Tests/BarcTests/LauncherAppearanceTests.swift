@@ -267,4 +267,53 @@ struct LauncherAppearanceTests {
         row.mouseUp(with:try event(.leftMouseUp,NSPoint(x:350,y:23)))
         #expect(chosen == 1 && host.outsidePresses == 0)
     }
+
+    @Test("A suggestion appearing under a stationary pointer cannot replace the keyboard selection")
+    func stationaryPointerSelection() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1400,height:900),styleMask:[.titled],backing:.buffered,defer:false)
+        window.isReleasedWhenClosed = false;defer { window.close() }
+        let bar = CommandBar();bar.install(in:try #require(window.contentView))
+        let choices = (0..<3).map { index in
+            CommandResult(id:"row\(index)",kind:.openTab,title:"Page \(index)",subtitle:"",symbolName:"globe",
+                action:.switchToTab(UUID()),score:0)
+        }
+        bar.openNewTab(recentResults:choices)
+        window.contentView?.layoutSubtreeIfNeeded()
+        let rows = UITestSupport.descendants(of:bar).compactMap { $0 as? CommandRowView }
+        try #require(rows.count == 3 && bar.selectedIndex == 0)
+        let point = rows[2].convert(NSPoint(x:30,y:20),to:nil)
+        let entered = try #require(NSEvent.enterExitEvent(with:.mouseEntered,location:point,modifierFlags:[],timestamp:1,
+            windowNumber:window.windowNumber,context:nil,eventNumber:1,trackingNumber:1,userData:nil))
+        rows[2].mouseEntered(with:entered)
+        #expect(bar.selectedIndex == 0, "Creating a tracking area under the pointer is not a request to select that row")
+        bar.select(1)
+        rows[2].mouseEntered(with:entered)
+        #expect(bar.selectedIndex == 1, "A tracking refresh must not undo keyboard navigation")
+        let moved = try #require(NSEvent.mouseEvent(with:.mouseMoved,location:point,modifierFlags:[],timestamp:2,
+            windowNumber:window.windowNumber,context:nil,eventNumber:2,clickCount:0,pressure:0))
+        rows[2].mouseMoved(with:moved)
+        #expect(bar.selectedIndex == 2, "Real mouse movement still selects the pointed result")
+        bar.moveSelection(by:1)
+        #expect(bar.selectedIndex == 0)
+        rows[2].updateTrackingAreas()
+        #expect(rows[2].trackingAreas.contains {
+            $0.options.contains(.mouseMoved) && ($0.owner as? CommandRowView) === rows[2]
+        }, "AppKit must deliver real movement to the result row without moving focus out of the query field")
+        rows[2].mouseEntered(with:entered)
+        #expect(bar.selectedIndex == 0)
+        bar.setResults(Array(choices.reversed()));bar.select(0)
+        window.contentView?.layoutSubtreeIfNeeded()
+        rows[2].mouseMoved(with:moved)
+        #expect(bar.selectedIndex == 0, "A removed row cannot select the same index in a replacement list")
+        let replaced = UITestSupport.descendants(of:bar).compactMap { $0 as? CommandRowView }
+        let newPoint = replaced[2].convert(NSPoint(x:30,y:20),to:nil)
+        let newMove = try #require(NSEvent.mouseEvent(with:.mouseMoved,location:newPoint,modifierFlags:[],timestamp:3,
+            windowNumber:window.windowNumber,context:nil,eventNumber:3,clickCount:0,pressure:0))
+        replaced[2].mouseMoved(with:newMove)
+        #expect(bar.selectedIndex == 2)
+        var action:CommandAction?
+        bar.onRun = { action = $0;_ = $1;_ = $2 };bar.submit()
+        #expect(action == choices[0].action && !bar.isOpen)
+    }
 }
