@@ -44,7 +44,7 @@ final class SidebarViewController: NSViewController {
     /// is what the sidebar is displaying. Weak: the footer owns it, and rebuilds
     /// it whenever its actions are set.
     private weak var archiveButton: IconButton?
-    private let tableView = NSTableView()
+    private let tableView = SidebarTableView()
     private let scrollView = NSScrollView()
     private var spaceColorPopover: NSPopover?
     private var normalStack: NSStackView?
@@ -2086,7 +2086,9 @@ final class SidebarViewController: NSViewController {
         let field = FolderNameEditor(name: group.name) { [weak self, weak group, weak space] name in
             guard let self, let edit = folderNameEdit, edit.id == id else { return }
             folderNameEdit = nil
+            tableView.inlineNameEditor = nil
             edit.field.removeFromSuperview()
+            NSAccessibility.post(element: tableView, notification: .layoutChanged)
             if let name, let group, let space,
                session.spaces.contains(where: { $0 === space }), space.group(withID: group.id) === group {
                 session.rename(group, to: name)
@@ -2094,6 +2096,7 @@ final class SidebarViewController: NSViewController {
             reloadTabs()
         }
         folderNameEdit = (id, space, group, field)
+        tableView.inlineNameEditor = field
         tableView.addSubview(field)
         tableView.scrollRowToVisible(row)
         positionFolderNameEditor()
@@ -2102,6 +2105,7 @@ final class SidebarViewController: NSViewController {
         DispatchQueue.main.async { [weak self, weak field] in
             guard let self, let field, folderNameEdit?.field === field else { return }
             field.beginEditing()
+            NSAccessibility.post(element: tableView, notification: .layoutChanged)
         }
     }
 

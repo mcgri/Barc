@@ -217,4 +217,19 @@ struct InlineFolderTests {
         field.cancel()
         #expect(folder.name == "Original")
     }
+
+    @Test("The table exposes its active name field to accessibility and removes it on cancel")
+    func accessibleEditor() async throws {
+        let session = TestSession.make().0
+        let folder = session.createGroup(named: "Original")
+        let (sidebar, window) = host(session); defer { window.close() }
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        let field = try editor(sidebar)
+        func exposed() -> Bool {
+            (sidebar.tabListTableView.accessibilityChildren() ?? []).contains { ($0 as AnyObject) === field }
+        }
+        #expect(exposed())
+        field.cancel()
+        #expect(!exposed())
+    }
 }
