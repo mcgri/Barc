@@ -37,6 +37,15 @@ final class FolderPlateRowView: NSTableRowView {
     /// itself, so the row draws nothing of the kind.
     override func drawSelection(in dirtyRect: NSRect) {}
 
+    override func drawDraggingDestinationFeedback(in dirtyRect: NSRect) {
+        var ancestor = superview
+        while let view = ancestor {
+            if let table = view as? SidebarTableView, table.splitDropPreviewRect != nil { return }
+            ancestor = view.superview
+        }
+        super.drawDraggingDestinationFeedback(in:dirtyRect)
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
         guard !slices.isEmpty else { return }
         let radius = Style.Metrics.folderPlateCornerRadius

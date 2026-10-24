@@ -1219,6 +1219,7 @@ final class SidebarViewController: NSViewController {
     private var tabIconPopover: NSPopover?
 
     private func reloadTabs() {
+        tableView.showSplitDropPreview(nil)
         if let edit = tabNameEdit,
            shownSpace !== edit.space || !edit.space.tabs.contains(where: { $0 === edit.tab }) {
             edit.field.commit()
@@ -3110,6 +3111,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
                    endedAt screenPoint: NSPoint, operation: NSDragOperation) {
         pinnedTiles.setTabDragInProgress(false)
+        self.tableView.showSplitDropPreview(nil)
     }
 
     /// What is being dragged, or nil for something this list does not take.
@@ -3256,15 +3258,15 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         return dropLanding(TabDropPlan.between(rows: dropRows, row: row, tabs: space.tabs, groups: space.groups), at: row)
     }
 
-    private func isTabSplitDrop(row: Int, payload: DropPayload, operation: NSTableView.DropOperation) -> Bool {
-        guard let targetTab = splitDropTarget(at:row), operation == .on else { return false }
+    private func isTabSplitDrop(onto target: SidebarSplitDropTarget, payload: DropPayload) -> Bool {
+        let targetTab = target.tab
         switch payload {
         case .tabs(let tabs):
             guard !tabs.contains(where: { tab in
                 tab.id == targetTab.id || session.activeSpace.splits.layout(containing:tab.id)?.contains(targetTab.id) == true
             }) else { return false }
             var proposed = session.activeSpace.splits
-            return proposed.join([targetTab.id]+tabs.map(\.id),grid:.sideBySide)
+            return proposed.insert(tabs.map(\.id),beside:targetTab.id,on:target.side)
         case .link:
             return session.activeSpace.splits.layout(containing:targetTab.id)?.isFull != true
         case .group:
@@ -3272,13 +3274,36 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         }
     }
 
-    private func splitDropTarget(at row:Int) -> Tab? {
-        guard rows.indices.contains(row) else { return nil }
+    private struct SidebarSplitDropTarget {
+        let tab: Tab
+        let side: SplitLayout.InsertionSide
+        let preview: NSRect
+    }
+
+    private func splitDropTarget(at row:Int, info:any NSDraggingInfo) -> SidebarSplitDropTarget? {
+        guard rows.indices.contains(row),
+              let cell = tableView.view(atColumn:0,row:row,makeIfNecessary:true) else { return nil }
+        cell.layoutSubtreeIfNeeded()
+        let point = cell.convert(info.draggingLocation,from:nil)
+        let tab: Tab
+        let rect: NSRect
         switch rows[row] {
-        case .tab(let tab, _, _): return tab
-        case .split(let split): return split.anchor
+        case .tab(let page, _, _):
+            guard let view = cell as? TabRowView else { return nil }
+            tab = page; rect = view.pillRect
+        case .split(let split):
+            guard let view = cell as? SplitRowView,
+                  let index = view.members.indices.min(by: {
+                      abs(view.members[$0].frame.midX-point.x) < abs(view.members[$1].frame.midX-point.x)
+                  }), split.tabs.indices.contains(index) else { return nil }
+            tab = split.tabs[index]; rect = view.members[index].frame
         default: return nil
         }
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let side: SplitLayout.InsertionSide = point.x < rect.midX ? .left : .right
+        let preview = NSRect(x:side == .left ? rect.minX : rect.midX,y:rect.minY,
+                             width:rect.width/2,height:rect.height).insetBy(dx:1,dy:1)
+        return SidebarSplitDropTarget(tab:tab,side:side,preview:cell.convert(preview,to:tableView))
     }
 
     /// Resolve before mutating the session: its notifications rebuild the table synchronously.
@@ -3308,6 +3333,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         proposedRow row: Int,
         proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
+        self.tableView.showSplitDropPreview(nil)
         guard shownSpace === session.activeSpace, let payload = dropPayload(from: info) else { return [] }
         let operation = allowedDropOperation(for:payload,source:info.draggingSourceOperationMask)
         guard !operation.isEmpty else { return [] }
@@ -3321,8 +3347,10 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             guard dropDestination(info,payload:payload,row:row,operation:.above) != nil else { return [] }
             return .copy
         }
-        if isTabSplitDrop(row: row, payload: payload, operation: dropOperation) {
+        if dropOperation == .on, let target = splitDropTarget(at:row,info:info),
+           isTabSplitDrop(onto:target,payload:payload) {
             tableView.setDropRow(row, dropOperation: .on)
+            self.tableView.showSplitDropPreview(target.preview,color:shownSpace.color)
             return operation
         }
         guard dropDestination(info, payload: payload, row: row, operation: dropOperation) != nil
@@ -3336,6 +3364,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         row: Int,
         dropOperation: NSTableView.DropOperation
     ) -> Bool {
+        defer { self.tableView.showSplitDropPreview(nil) }
         guard shownSpace === session.activeSpace, let payload = dropPayload(from: info) else { return false }
         let operation = allowedDropOperation(for:payload,source:info.draggingSourceOperationMask)
         guard !operation.isEmpty else { return false }
@@ -3354,13 +3383,13 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             return session.duplicateSidebarTabs(tabs,to:destination.plan.tabIndex,group:group,
                                                 before:destination.before,retained:destination.retained)
         }
-        if dropOperation == .on, let targetTab = splitDropTarget(at:row) {
-            guard isTabSplitDrop(row:row,payload:payload,operation:dropOperation) else { return false }
+        if dropOperation == .on, let target = splitDropTarget(at:row,info:info) {
+            guard isTabSplitDrop(onto:target,payload:payload) else { return false }
             switch payload {
             case .tabs(let tabs):
-                return session.splitTabs([targetTab]+tabs, grid: .sideBySide)
+                return session.splitSidebarTabs(tabs,beside:target.tab,on:target.side)
             case .link(let url):
-                return session.openSidebarLink(url,splitting:targetTab)
+                return session.openSidebarLink(url,splitting:target.tab,on:target.side)
             case .group:
                 break
             }

@@ -8,7 +8,7 @@ private final class SidebarDragInfoFixture: NSObject, NSDraggingInfo {
     let draggingPasteboard: NSPasteboard
     var draggingSourceOperationMask: NSDragOperation
     var draggingLocation: NSPoint = .zero
-    var draggingDestinationWindow: NSWindow? { nil }
+    var draggingDestinationWindow: NSWindow?
     var draggingSource: Any? { nil }
     var draggingSequenceNumber: Int { 1 }
     var draggedImageLocation: NSPoint { .zero }
@@ -58,6 +58,18 @@ struct SidebarDragOperationTests {
         return board
     }
 
+    private func point(in row:Int, of sidebar:SidebarViewController, member:Int? = nil, left:Bool) throws -> NSPoint {
+        let cell = try #require(sidebar.tabListTableView.view(atColumn:0,row:row,makeIfNecessary:true))
+        cell.layoutSubtreeIfNeeded()
+        let rect: NSRect
+        if let split = cell as? SplitRowView, let member {
+            rect = split.members[member].frame
+        } else {
+            rect = try #require((cell as? TabRowView)?.pillRect)
+        }
+        return cell.convert(NSPoint(x:rect.minX+rect.width*(left ? 0.25 : 0.75),y:rect.midY),to:nil)
+    }
+
     @Test("Reordering during a drag still moves the page identified by its stable ID")
     func stableIdentity() throws {
         let session = TestSession.make().0
@@ -97,6 +109,7 @@ struct SidebarDragOperationTests {
         let targetRow = try row("Target",in:sidebar)
         let info = SidebarDragInfoFixture(board:board,operations:.copy)
         #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.on) == .copy)
+        #expect((table as? SidebarTableView)?.splitDropPreviewRect == nil)
         #expect(sidebar.tableView(table,acceptDrop:info,row:targetRow,dropOperation:.on))
         let copy = try #require(session.activeSpace.sidebarVisibleTabs.first { $0.url == a.url && $0 !== a })
         #expect(session.activeSpace.sidebarVisibleTabs.map(\.id) == [a.id,b.id,copy.id,target.id])
@@ -236,14 +249,15 @@ struct SidebarDragOperationTests {
         let board = try board(for:row("A",in:sidebar),in:sidebar); defer { board.releaseGlobally() }
         let targetRow = try row("Target",in:sidebar)
         let info = SidebarDragInfoFixture(board:board,operations:[.copy,.move])
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:false)
         #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.on) == .move)
         #expect(sidebar.tableView(table,acceptDrop:info,row:targetRow,dropOperation:.on))
         #expect(session.activeSpace.splits.layout(containing:a.id)?.tabIDs == [target.id,a.id])
         #expect(session.activeSpace.sidebarVisibleTabs.count == 2)
     }
 
-    @Test("An explicit sidebar URL drop stays in its destination profile despite domain routing", arguments:[false,true])
-    func placedURLBypassesRouting(split:Bool) throws {
+    @Test("An explicit sidebar URL drop stays in its destination profile despite domain routing", arguments:[false,true],[false,true])
+    func placedURLBypassesRouting(split:Bool, left:Bool) throws {
         let root = FileManager.default.temporaryDirectory.appending(path:"barc-dropped-link-\(UUID())")
         defer { try? FileManager.default.removeItem(at:root) }
         let routing = SpaceRoutingService(store:SpaceRoutingStore(fileURL:root.appending(path:"routing.json")))
@@ -264,6 +278,7 @@ struct SidebarDragOperationTests {
         let info = SidebarDragInfoFixture(board:board,operations:.copy)
         let targetRow = try row("Target",in:sidebar)
         let operation: NSTableView.DropOperation = split ? .on : .above
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:left)
         #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:operation) == .copy)
         #expect(sidebar.tableView(table,acceptDrop:info,row:targetRow,dropOperation:operation))
         let inserted = try #require(destination.tabs.first { $0.url == url })
@@ -271,8 +286,9 @@ struct SidebarDragOperationTests {
         #expect(routed.tabs.map(\.id) == routedBefore)
         #expect(session.activeSpace === destination)
         if split {
-            #expect(destination.splits.layout(containing:target.id)?.tabIDs == [target.id,inserted.id])
-            #expect(destination.sidebarVisibleTabs.map(\.id) == [target.id,inserted.id,unrelated.id])
+            let expected = left ? [inserted.id,target.id] : [target.id,inserted.id]
+            #expect(destination.splits.layout(containing:target.id)?.tabIDs == expected)
+            #expect(destination.sidebarVisibleTabs.map(\.id) == expected+[unrelated.id])
         } else {
             #expect(destination.splits.layouts.isEmpty)
             #expect(destination.sidebarVisibleTabs.map(\.id) == [inserted.id,target.id,unrelated.id])
@@ -303,5 +319,138 @@ struct SidebarDragOperationTests {
             #expect(session.activeSpace.sidebarVisibleTabs.map(\.id) == [a.id,b.id])
             #expect(a.groupID == folder.id && b.groupID == folder.id)
         }
+    }
+
+    @Test("The pointer's left or right half determines the order of a new sidebar split", arguments:[false,true])
+    func splitSide(left:Bool) throws {
+        let session = TestSession.make().0
+        let incoming = page("Incoming",in:session), prefix = page("Prefix",in:session)
+        let target = page("Target",in:session), tail = page("Tail",in:session)
+        target.setKeepsInSidebar(true)
+        let sidebar = sidebar(session), table = sidebar.tabListTableView
+        let board = try board(for:row("Incoming",in:sidebar),in:sidebar); defer { board.releaseGlobally() }
+        let targetRow = try row("Target",in:sidebar)
+        let info = SidebarDragInfoFixture(board:board,operations:.move)
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:left)
+        #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.on) == .move)
+        let preview = try #require((table as? SidebarTableView)?.splitDropPreviewRect)
+        let cell = try #require(table.view(atColumn:0,row:targetRow,makeIfNecessary:true) as? TabRowView)
+        let pill = cell.convert(cell.pillRect,to:table)
+        #expect(abs(preview.width-(pill.width/2-2)) < 0.01)
+        #expect(abs(preview.minX-(left ? pill.minX+1 : pill.midX+1)) < 0.01)
+        #expect(sidebar.tableView(table,acceptDrop:info,row:targetRow,dropOperation:.on))
+        #expect((table as? SidebarTableView)?.splitDropPreviewRect == nil)
+        let expected = left ? [incoming.id,target.id] : [target.id,incoming.id]
+        #expect(session.activeSpace.splits.layout(containing:target.id)?.tabIDs == expected)
+        #expect(session.activeSpace.sidebarVisibleTabs.map(\.id) == [prefix.id]+expected+[tail.id])
+        #expect(SidebarOrder.items(groups:[],tabs:session.activeSpace.sidebarVisibleTabs,parentID:nil).map(\.id) == expected+[prefix.id,tail.id])
+        #expect(incoming.keepsInSidebar && target.keepsInSidebar)
+        session.unsplit()
+        #expect(session.activeSpace.sidebarVisibleTabs.map(\.id) == [prefix.id]+expected+[tail.id])
+    }
+
+    @Test("A drop on a compact split member lands beside that pane, retaining the group identity", arguments:[false,true])
+    func splitMemberSide(left:Bool) throws {
+        let session = TestSession.make().0
+        let a = page("A",in:session), b = page("B",in:session), incoming = page("Incoming",in:session)
+        session.splitTabs([a,b],grid:.stacked)
+        session.updateSplitLayout(try #require(session.activeSplit).settingShares(at:[],to:[0.7,0.3]))
+        session.selectTab(b)
+        let groupID = session.activeSpace.splits.identifier(containing:a.id)
+        let sidebar = sidebar(session), table = sidebar.tabListTableView
+        let targetRow = table.selectedRow
+        let board = try board(for:row("Incoming",in:sidebar),in:sidebar); defer { board.releaseGlobally() }
+        let info = SidebarDragInfoFixture(board:board,operations:.move)
+        info.draggingLocation = try point(in:targetRow,of:sidebar,member:1,left:left)
+        #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.on) == .move)
+        #expect(sidebar.tableView(table,acceptDrop:info,row:targetRow,dropOperation:.on))
+        let layout = try #require(session.activeSpace.splits.layout(containing:b.id))
+        #expect(layout.tabIDs == (left ? [a.id,incoming.id,b.id] : [a.id,b.id,incoming.id]))
+        #expect(session.activeSpace.splits.identifier(containing:b.id) == groupID)
+        #expect(session.activeTab === b)
+        #expect(layout.unitFrames()[a.id] == CGRect(x:0,y:0,width:1,height:0.7))
+        let bFrame = try #require(layout.unitFrames()[b.id])
+        #expect(abs(bFrame.width-0.5) < 0.000001)
+        #expect(abs(bFrame.minX-(left ? 0.5 : 0)) < 0.000001)
+    }
+
+    @Test("The split preview disappears on exit, ordinary insertion, invalid payloads and Space changes")
+    func previewCleanup() throws {
+        let session = TestSession.make().0
+        _ = page("Incoming",in:session); _ = page("Target",in:session)
+        let sidebar = sidebar(session), table = try #require(sidebar.tabListTableView as? SidebarTableView)
+        let board = try board(for:row("Incoming",in:sidebar),in:sidebar); defer { board.releaseGlobally() }
+        let targetRow = try row("Target",in:sidebar)
+        let info = SidebarDragInfoFixture(board:board,operations:.move)
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:true)
+        func preview() {
+            #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.on) == .move)
+            #expect(table.splitDropPreviewRect != nil)
+        }
+        preview(); table.draggingExited(nil)
+        #expect(table.splitDropPreviewRect == nil)
+        preview()
+        _ = sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.above)
+        #expect(table.splitDropPreviewRect == nil)
+        preview(); info.draggingSourceOperationMask = []
+        #expect(!sidebar.tableView(table,acceptDrop:info,row:targetRow,dropOperation:.on))
+        #expect(table.splitDropPreviewRect == nil)
+        info.draggingSourceOperationMask = .move
+        preview(); _ = session.addSpace(named:"Other")
+        #expect(table.splitDropPreviewRect == nil)
+    }
+
+    @Test("Owned light and dark sidebar renders show the preview in the chosen half", arguments:[false,true],[false,true])
+    func renderSplitPreview(dark:Bool, left:Bool) throws {
+        let session = TestSession.make().0
+        _ = page("Incoming",in:session); _ = page("Target",in:session)
+        session.activeSpace.look.appearance = dark ? .dark : .light
+        let sidebar = sidebar(session), table = try #require(sidebar.tabListTableView as? SidebarTableView)
+        table.backgroundColor = session.activeSpace.color.blended(withFraction:0.78,of:dark ? .black : .white)!
+        let targetRow = try row("Target",in:sidebar)
+        let board = try board(for:row("Incoming",in:sidebar),in:sidebar); defer { board.releaseGlobally() }
+        let info = SidebarDragInfoFixture(board:board,operations:.move)
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:left)
+        #expect(sidebar.tableView(table,validateDrop:info,proposedRow:targetRow,proposedDropOperation:.on) == .move)
+        let preview = try #require(table.splitDropPreviewRect)
+        let region = table.rect(ofRow:targetRow).insetBy(dx:0,dy:-4)
+        #expect(region.contains(preview))
+        let bitmap = try #require(table.bitmapImageRepForCachingDisplay(in:region))
+        table.cacheDisplay(in:region,to:bitmap)
+        if let directory = ProcessInfo.processInfo.environment["BARC_SPLIT_DROP_CAPTURE_DIR"] {
+            let output = URL(fileURLWithPath:directory).appending(path:"split-drop205-\(dark ? "dark" : "light")-\(left ? "left" : "right").png")
+            try #require(bitmap.representation(using:.png,properties:[:])).write(to:output)
+            try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:output.path)
+        }
+    }
+
+    @Test("AppKit's table drag tracking updates the chosen half while the pointer remains on one row")
+    func tableTracksSameRow() throws {
+        let session = TestSession.make().0
+        _ = page("Incoming",in:session); _ = page("Target",in:session)
+        let sidebar = sidebar(session), table = try #require(sidebar.tabListTableView as? SidebarTableView)
+        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:228,height:760),styleMask:[.borderless],backing:.buffered,defer:true)
+        window.contentView = sidebar.view
+        sidebar.view.layoutSubtreeIfNeeded()
+        let board = try board(for:row("Incoming",in:sidebar),in:sidebar); defer { board.releaseGlobally() }
+        let targetRow = try row("Target",in:sidebar)
+        let info = SidebarDragInfoFixture(board:board,operations:.move)
+        info.draggingDestinationWindow = window
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:true)
+        #expect(table.draggingEntered(info) == .move)
+        let left = try #require(table.splitDropPreviewRect)
+        info.draggingLocation = try point(in:targetRow,of:sidebar,left:false)
+        #expect(table.draggingUpdated(info) == .move)
+        let right = try #require(table.splitDropPreviewRect)
+        #expect(right.minX > left.minX && right.size == left.size)
+        info.draggingSourceOperationMask = .copy
+        #expect(table.draggingUpdated(info) == .copy)
+        #expect(table.splitDropPreviewRect == nil)
+        info.draggingSourceOperationMask = .move
+        #expect(table.draggingUpdated(info) == .move)
+        #expect(table.splitDropPreviewRect == right)
+        table.draggingExited(info)
+        #expect(table.splitDropPreviewRect == nil)
+        window.contentView = nil
     }
 }

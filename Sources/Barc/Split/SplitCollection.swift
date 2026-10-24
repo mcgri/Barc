@@ -70,6 +70,44 @@ struct SplitCollection: Equatable, Sendable {
         return true
     }
 
+    /// A sidebar drop targets one pane, retaining the destination group's
+    /// identity and the internal geometry of any complete incoming units.
+    @discardableResult
+    mutating func insert(_ ids: [UUID], beside target: UUID, on side: SplitLayout.InsertionSide) -> Bool {
+        let original = layout(containing:target)
+        let targetIDs = Set(original?.tabIDs ?? [target])
+        var roots: [SplitLayout.Node] = []
+        var incoming: Set<UUID> = []
+        for id in ids where !incoming.contains(id) {
+            if let unit = layout(containing:id) {
+                guard targetIDs.isDisjoint(with:unit.tabIDs) else { return false }
+                roots.append(unit.root)
+                incoming.formUnion(unit.tabIDs)
+            } else {
+                guard !targetIDs.contains(id) else { return false }
+                roots.append(.pane(id:id,share:1))
+                incoming.insert(id)
+            }
+        }
+        guard let result = SplitLayout(inserting:roots,beside:target,on:side,into:original) else { return false }
+        let touched = layouts.indices.filter { index in
+            layouts[index].contains(target) || !incoming.isDisjoint(with:layouts[index].tabIDs)
+        }
+        let insertion = touched.first ?? layouts.count
+        let identifier = identifier(containing:target) ?? UUID()
+        let focus = focusedTabs[identifier] ?? target
+        let sticky = original?.tabIDs.first(where:stickyTabIDs.contains) ?? result.tabIDs.first(where:stickyTabIDs.contains)
+        for index in touched.reversed() {
+            focusedTabs[identifiers[index]] = nil
+            identifiers.remove(at:index); layouts.remove(at:index)
+        }
+        layouts.insert(result,at:insertion); identifiers.insert(identifier,at:insertion)
+        focusedTabs[identifier] = focus
+        stickyTabIDs.subtract(result.tabIDs)
+        if let sticky { stickyTabIDs.insert(sticky) }
+        return true
+    }
+
     @discardableResult
     mutating func update(_ layout: SplitLayout) -> Bool {
         guard layout.isValid,

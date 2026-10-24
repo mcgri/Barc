@@ -1878,13 +1878,13 @@ final class BrowserSession {
     }
 
     @discardableResult
-    func openSidebarLink(_ url: URL, splitting target: Tab) -> Bool {
+    func openSidebarLink(_ url: URL, splitting target: Tab, on side: SplitLayout.InsertionSide = .right) -> Bool {
         let space = activeSpace
         guard space.tabs.contains(where: { $0 === target }),
               space.splits.layout(containing:target.id)?.isFull != true else { return false }
         let tab = Tab(url:url,identity:space.identity)
         insert(tab,into:space,at:space.tabs.count,select:false)
-        guard splitTabs([target,tab],grid:.sideBySide) else { closeTab(tab); return false }
+        guard splitSidebarTabs([tab],beside:target,on:side) else { closeTab(tab); return false }
         return true
     }
 
@@ -2355,9 +2355,25 @@ final class BrowserSession {
         let space = activeSpace
         guard let first = tabs.first,
               tabs.allSatisfy({ candidate in space.tabs.contains { $0 === candidate } }) else { return false }
-        let previous = space.splits.layout(containing:first.id)
         var updated = space.splits
-        guard updated.join(tabs.map(\.id), grid: grid), let formed = updated.layout(containing:first.id) else { return false }
+        guard updated.join(tabs.map(\.id), grid: grid) else { return false }
+        return applySplit(updated,primary:first)
+    }
+
+    @discardableResult
+    func splitSidebarTabs(_ tabs: [Tab], beside target: Tab, on side: SplitLayout.InsertionSide) -> Bool {
+        let space = activeSpace
+        guard space.tabs.contains(where: { $0 === target }),
+              tabs.allSatisfy({ candidate in space.tabs.contains { $0 === candidate } }) else { return false }
+        var updated = space.splits
+        guard updated.insert(tabs.map(\.id),beside:target.id,on:side) else { return false }
+        return applySplit(updated,primary:target)
+    }
+
+    private func applySplit(_ updated: SplitCollection, primary first: Tab) -> Bool {
+        let space = activeSpace
+        let previous = space.splits.layout(containing:first.id)
+        guard let formed = updated.layout(containing:first.id) else { return false }
         guard updated != space.splits else { return true }
         recordSplitUndoState()
         space.splits = updated

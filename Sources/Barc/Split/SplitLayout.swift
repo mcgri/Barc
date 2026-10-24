@@ -123,6 +123,10 @@ struct SplitLayout: Equatable, Codable, Sendable {
         case left, right, up, down
     }
 
+    enum InsertionSide: Equatable, Sendable {
+        case left, right
+    }
+
     private(set) var root: Node
     private(set) var grid: Grid
 
@@ -144,6 +148,37 @@ struct SplitLayout: Equatable, Codable, Sendable {
     private init(root: Node, grid: Grid) {
         self.root = root
         self.grid = grid
+    }
+
+    /// Insert complete incoming units beside the indicated pane. Horizontal
+    /// siblings share the new space proportionally; a vertical branch keeps
+    /// its height and splits only the indicated pane horizontally.
+    init?(inserting incoming: [Node], beside target: Tab.ID, on side: InsertionSide, into existing: Self?) {
+        guard !incoming.isEmpty, existing == nil || existing?.contains(target) == true else { return nil }
+        let base = existing?.root ?? .pane(id:target,share:1)
+        func withShare(_ node:Node, _ share:Double) -> Node {
+            var copy = node; copy.share = share; return copy
+        }
+        func inserted(_ node:Node) -> Node {
+            switch node {
+            case .pane(let id, let share):
+                guard id == target else { return node }
+                let children = side == .left ? incoming+[.pane(id:id,share:1)] : [.pane(id:id,share:1)]+incoming
+                return .split(axis:.horizontal,children:children.map { withShare($0,1/Double(children.count)) },share:share)
+            case .split(let axis, let children, let share):
+                if axis == .horizontal, let index = children.firstIndex(where: {
+                    if case .pane(let id, _) = $0 { return id == target }; return false
+                }) {
+                    let count = Double(children.count+incoming.count)
+                    var result = children.map { withShare($0,$0.share*Double(children.count)/count) }
+                    result.insert(contentsOf:incoming.map { withShare($0,1/count) },at:index+(side == .left ? 0 : 1))
+                    return .split(axis:axis,children:result,share:share)
+                }
+                return .split(axis:axis,children:children.map(inserted),share:share)
+            }
+        }
+        self.init(root:inserted(base),grid:existing?.grid ?? .sideBySide)
+        guard isValid else { return nil }
     }
 
     private static func tree(for tabs: [Tab.ID], grid: Grid) -> Node {
