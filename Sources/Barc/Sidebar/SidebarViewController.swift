@@ -2311,6 +2311,15 @@ final class SidebarViewController: NSViewController {
         }
     }
 
+    func revealFolder(_ group: TabGroup, in space: Space) {
+        _ = view
+        guard session.openFolder(group,in:space) else { return }
+        hideLibrary()
+        setArchiveVisible(false)
+        view.layoutSubtreeIfNeeded()
+        if let row = groupRow(of:group) { tableView.scrollRowToVisible(row) }
+    }
+
     private func tab(from sender: Any?) -> Tab? {
         (sender as? NSMenuItem)?.representedObject as? Tab
     }

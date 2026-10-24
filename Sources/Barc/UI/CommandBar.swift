@@ -906,7 +906,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
                 if let completion = item.completionText { fillText = completion }
                 else {
                     switch item.kind {
-                    case .address, .search, .command, .space:
+                    case .address, .search, .command, .space, .folder:
                         fillText = item.title
                     case .openTab, .history, .bookmark:
                         fillText = item.subtitle

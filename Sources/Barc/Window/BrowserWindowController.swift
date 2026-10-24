@@ -1266,6 +1266,13 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 query: query,
                 tabs: allTabs,
                 spaces: spaces,
+                folders: self.commandSpaces.flatMap { space in
+                    space.groups.map { folder in
+                        let ancestors = FolderTree.ancestors(of:folder,in:space.groups).reversed().map(\.name)
+                        return FolderCandidate(id:folder.id,spaceID:space.id,name:folder.name,
+                            path:([space.name] + ancestors + [folder.name]).joined(separator:" / "))
+                    }
+                },
                 commands: commands,
                 history: history.map {
                     HistoryCandidate(
@@ -1325,6 +1332,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             case .switchToSpace(let id):
                 guard let space = self.session.spaces.first(where: { $0.id == id }) else { return }
                 self.session.selectSpace(space)
+            case .openFolder(let spaceID, let folderID):
+                guard let space = self.commandSpaces.first(where: { $0.id == spaceID }),
+                      let folder = space.group(withID:folderID) else { return }
+                self.sidebar.revealFolder(folder,in:space)
             case .runCommand(let commandId):
                 self.executeCommand(commandId)
             case .openURL(let url):

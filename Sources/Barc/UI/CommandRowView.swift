@@ -18,6 +18,9 @@ final class CommandRowView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let subtitleLabel = NSTextField(labelWithString: "")
     private let shortcutLabel = NSTextField(labelWithString: "")
+    private let labels = NSStackView()
+    private let folderPathPlate = NSView()
+    private let folderPathLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
     private var hasWebsiteIcon = false
     private var rowHeight: NSLayoutConstraint!
@@ -30,6 +33,7 @@ final class CommandRowView: NSView {
     private var compactLabelsTrailing: NSLayoutConstraint!
     private var showsSplitArrow = false
     private var usesIconPlate = false
+    private var isFolder = false
     private static let normalText = NSColor(name: nil) { appearance in
         NSColor(srgbRed: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0.9 : 0.2,
                 green: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0.9 : 0.2,
@@ -81,7 +85,25 @@ final class CommandRowView: NSView {
         shortcutLabel.setContentHuggingPriority(.required, for: .horizontal)
         shortcutLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        let labels = NSStackView(views: [titleLabel, subtitleLabel])
+        folderPathPlate.translatesAutoresizingMaskIntoConstraints = false
+        folderPathPlate.wantsLayer = true
+        folderPathPlate.layer?.cornerRadius = 3
+        folderPathPlate.setAccessibilityElement(false)
+        folderPathLabel.translatesAutoresizingMaskIntoConstraints = false
+        folderPathLabel.font = .systemFont(ofSize:13,weight:.semibold)
+        folderPathLabel.lineBreakMode = .byTruncatingTail
+        folderPathLabel.cell?.usesSingleLineMode = true
+        folderPathLabel.setAccessibilityElement(false)
+        folderPathLabel.setContentCompressionResistancePriority(.defaultLow,for:.horizontal)
+        folderPathPlate.addSubview(folderPathLabel)
+        NSLayoutConstraint.activate([
+            folderPathLabel.leadingAnchor.constraint(equalTo:folderPathPlate.leadingAnchor,constant:7),
+            folderPathLabel.trailingAnchor.constraint(equalTo:folderPathPlate.trailingAnchor,constant:-7),
+            folderPathLabel.topAnchor.constraint(equalTo:folderPathPlate.topAnchor,constant:2),
+            folderPathLabel.bottomAnchor.constraint(equalTo:folderPathPlate.bottomAnchor,constant:-2)
+        ])
+        folderPathPlate.isHidden = true
+        labels.setViews([titleLabel, subtitleLabel, folderPathPlate],in:.leading)
         labels.orientation = .horizontal
         labels.alignment = .lastBaseline
         labels.spacing = CommandBarMetrics.rowLabelSpacing
@@ -156,12 +178,17 @@ final class CommandRowView: NSView {
                    splitChoice: Bool = false, locationChoice: Bool = false) {
         let launcher = splitChoice || locationChoice
         let arcLayout = launcher || compact
+        isFolder = result.kind == .folder
+        folderPathPlate.isHidden = !isFolder
+        folderPathLabel.stringValue = isFolder ? result.subtitle : ""
+        labels.alignment = isFolder ? .centerY : .lastBaseline
+        titleLabel.setContentCompressionResistancePriority(isFolder ? .required : .defaultHigh,for:.horizontal)
         compactLabelsTrailing.isActive = compact
         hasWebsiteIcon = image != nil
         iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
-        titleLabel.stringValue = result.title
+        titleLabel.stringValue = isFolder ? "Open" : result.title
         subtitleLabel.stringValue = result.subtitle
-        subtitleLabel.isHidden = compact || splitChoice
+        subtitleLabel.isHidden = isFolder || compact || splitChoice
         rowHeight.constant = arcLayout ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
         labelsLeading.constant = arcLayout ? 12 : Style.Metrics.rowContentSpacing
         let titleFont = arcLayout ? NSFont.systemFont(ofSize:13,weight:.semibold) : Style.Fonts.body
@@ -169,7 +196,7 @@ final class CommandRowView: NSView {
         paragraph.lineBreakMode = .byTruncatingTail
         var titleAttributes: [NSAttributedString.Key:Any] = [.font:titleFont,.paragraphStyle:paragraph]
         if arcLayout { titleAttributes[.tracking] = 0.075 }
-        titleLabel.attributedStringValue = NSAttributedString(string:result.title,attributes:titleAttributes)
+        titleLabel.attributedStringValue = NSAttributedString(string:isFolder ? "Open" : result.title,attributes:titleAttributes)
         subtitleLabel.font = .systemFont(ofSize: locationChoice ? 13 : CommandBarMetrics.subtitleFontSize, weight: .medium)
         subtitleLabel.setContentCompressionResistancePriority(locationChoice ? .init(751) : .defaultLow, for: .horizontal)
         usesIconPlate = arcLayout
@@ -179,7 +206,11 @@ final class CommandRowView: NSView {
         arrowTrailing.constant = showsSplitArrow ? -12 : -CommandBarMetrics.rowInset
         shortcutTrailing.constant = showsSplitArrow ? -44 : -CommandBarMetrics.rowInset
         shortcutLabel.font = launcher ? .systemFont(ofSize: 13, weight: .medium) : .monospacedSystemFont(ofSize: 11, weight: .medium)
-        if showsSplitArrow {
+        if isFolder {
+            shortcutLabel.stringValue = ""
+            shortcutLabel.isHidden = true
+            setAccessibilityLabel(result.title)
+        } else if showsSplitArrow {
             shortcutLabel.stringValue = "Switch to Tab"
             shortcutLabel.isHidden = false
             setAccessibilityLabel("\(result.title), Switch to Tab")
@@ -202,11 +233,15 @@ final class CommandRowView: NSView {
         titleLabel.textColor = isSelected ? .white : Self.normalText
         subtitleLabel.textColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText
         shortcutLabel.textColor = isSelected ? .white : Self.hintText
-        iconView.contentTintColor = hasWebsiteIcon ? nil : (isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText)
+        folderPathLabel.textColor = isSelected ? .white : Self.hintText
+        iconView.contentTintColor = hasWebsiteIcon ? nil : (isSelected
+            ? (usesIconPlate ? selectionColor : .alternateSelectedControlTextColor) : Style.Colors.secondaryText)
         iconPlate.isHidden = !usesIconPlate || !isSelected
         effectiveAppearance.performAsCurrentDrawingAppearance {
             iconPlate.layer?.backgroundColor = NSColor.white.cgColor
             arrowPlate.layer?.backgroundColor = (isSelected ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
+            folderPathPlate.layer?.backgroundColor = (isSelected
+                ? NSColor.white.withAlphaComponent(0.12) : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
         }
         arrowImage.contentTintColor = isSelected ? selectionColor : Style.Colors.secondaryText
     }

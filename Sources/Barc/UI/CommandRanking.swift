@@ -11,6 +11,7 @@ enum CommandAction: Equatable, Sendable {
     /// a model type.
     case switchToTab(UUID)
     case switchToSpace(UUID)
+    case openFolder(spaceID: UUID, folderID: UUID)
     case runCommand(String)
     case openURL(URL)
 }
@@ -36,6 +37,14 @@ struct SpaceCandidate: Equatable, Sendable {
     let name: String
     let isActive: Bool
     var tabCount: Int = 0
+}
+
+struct FolderCandidate: Equatable, Sendable {
+    let id: UUID
+    let spaceID: UUID
+    let name: String
+    /// Space followed by every ancestor and the folder itself.
+    let path: String
 }
 
 /// A command or action that can be executed from the palette.
@@ -94,6 +103,7 @@ struct CommandResult: Equatable, Sendable, Identifiable {
         case address
         case openTab
         case space
+        case folder
         case command
         case history
         case bookmark
@@ -166,6 +176,7 @@ enum CommandRanker {
         query: String,
         tabs: [TabCandidate],
         spaces: [SpaceCandidate] = [],
+        folders: [FolderCandidate] = [],
         commands: [CommandCandidate] = [],
         history: [HistoryCandidate],
         bookmarks: [BookmarkCandidate] = [],
@@ -217,6 +228,18 @@ enum CommandRanker {
                 score: score + spaceBonus,
                 shortcut: "Space"
             ))
+        }
+
+        // Folders have their owning Space in the path, including when several
+        // Spaces contain a folder with the same name.
+        for folder in folders where sources.spaces {
+            let title = "Open \(folder.path)"
+            guard let score = [folder.name, folder.path, title]
+                .compactMap({ scoreText(query: normalisedQuery, in: $0) }).max() else { continue }
+            results.append(CommandResult(id:"folder:\(folder.spaceID):\(folder.id)",kind:.folder,
+                title:title,subtitle:folder.path,symbolName:"folder",
+                action:.openFolder(spaceID:folder.spaceID,folderID:folder.id),score:score + spaceBonus,
+                completionText:query.trimmingCharacters(in:.whitespacesAndNewlines)))
         }
 
         // 3. Commands & Actions
@@ -351,11 +374,12 @@ enum CommandRanker {
         switch kind {
         case .address: return 0
         case .openTab: return 1
-        case .space: return 2
-        case .command: return 3
-        case .bookmark: return 4
-        case .history: return 5
-        case .search: return 6
+        case .folder: return 2
+        case .space: return 3
+        case .command: return 4
+        case .bookmark: return 5
+        case .history: return 6
+        case .search: return 7
         }
     }
 

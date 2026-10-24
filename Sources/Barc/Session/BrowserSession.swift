@@ -1804,6 +1804,25 @@ final class BrowserSession {
         scheduleSave()
     }
 
+    /// Opening a folder changes the sidebar, keeping its Space's selected page.
+    /// Validate ownership before selecting anything: a stale command may name a
+    /// folder that has since been deleted or moved to another Space.
+    @discardableResult
+    func openFolder(_ group: TabGroup, in space: Space) -> Bool {
+        guard spaces.contains(where: { $0 === space }), space.group(withID:group.id) === group else { return false }
+        selectSpace(space)
+        FolderTree.revealAncestors(of:group,in:space.groups)
+        group.isCollapsed = false
+        if space.look.pinnedSectionCollapsed {
+            var look = space.look
+            look.pinnedSectionCollapsed = false
+            setLook(look,for:space)
+        }
+        changes.send(.structure)
+        scheduleSave()
+        return true
+    }
+
     /// Puts an emoji, a symbol or a picture on a folder -- or takes it off.
     ///
     /// The same three choices a space has, from the same menu and out of the
