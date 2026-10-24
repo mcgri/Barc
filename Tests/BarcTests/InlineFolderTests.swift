@@ -19,7 +19,14 @@ struct InlineFolderTests {
     }
 
     private func perform(_ title: String, in menu: NSMenu) async throws {
-        let item = try #require(menu.items.first { $0.title == title })
+        func find(_ menu: NSMenu) -> NSMenuItem? {
+            for item in menu.items {
+                if item.title == title { return item }
+                if let submenu = item.submenu, let found = find(submenu) { return found }
+            }
+            return nil
+        }
+        let item = try #require(find(menu))
         #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }

@@ -532,7 +532,7 @@ final class SidebarViewController: NSViewController {
         scrollView.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.publisher(for: NSView.boundsDidChangeNotification, object: scrollView.contentView)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.positionFolderNameEditor() }
+                MainActor.assumeIsolated { self?.positionFolderNameEditor(); self?.positionTabNameEditor() }
             }.store(in: &cancellables)
     }
 
@@ -1186,8 +1186,14 @@ final class SidebarViewController: NSViewController {
     /// list that changed from a different list altogether.
     private var shownRowsSpaceID: Space.ID?
     private var folderNameEdit: (id: UUID, space: Space, group: TabGroup, field: FolderNameEditor)?
+    private var tabNameEdit: (id: UUID, space: Space, tab: Tab, field: FolderNameEditor)?
+    private var tabIconPopover: NSPopover?
 
     private func reloadTabs() {
+        if let edit = tabNameEdit,
+           shownSpace !== edit.space || !edit.space.tabs.contains(where: { $0 === edit.tab }) {
+            edit.field.commit()
+        }
         if let edit = folderNameEdit,
            shownSpace !== edit.space || edit.space.group(withID: edit.group.id) !== edit.group {
             edit.field.commit()
@@ -1223,11 +1229,13 @@ final class SidebarViewController: NSViewController {
         }
         syncActiveTab()
         positionFolderNameEditor()
+        positionTabNameEditor()
     }
 
     override func viewDidLayout() {
         super.viewDidLayout()
         positionFolderNameEditor()
+        positionTabNameEditor()
     }
 
     /// Hands the rebuild to the table as the change it actually was.
@@ -1509,6 +1517,7 @@ final class SidebarViewController: NSViewController {
         // The same leading inset the group headers use, so a tab that belongs
         // to no folder lines up with a top-level folder rather than sitting
         // four points further out and running its pill into the sidebar edge.
+        cell.isEditingName = tabNameEdit?.tab === tab
         cell.indentation = Style.Metrics.sidebarInset + FolderTree.indent(forDepth: depth)
         cell.configure(TabRowContent(
             title: tab.displayTitle,
@@ -1526,7 +1535,8 @@ final class SidebarViewController: NSViewController {
             isMuted: tab.isMuted,
             colorTag: tab.colorTag,
             hasUnreadChange: tab.hasUnreadChange && !session.visibleTabIDs.contains(tab.id),
-            emoji: tab.emoji
+            emoji: tab.emoji,
+            sidebarSymbolName: tab.sidebarSymbolName
         ))
         cell.onToggleMute = { [weak tab] in
             tab?.toggleMute()
@@ -1719,7 +1729,7 @@ final class SidebarViewController: NSViewController {
     /// The sheet that names a space and picks its colour -- solid or a gradient
     /// with a direction -- in one step, so a space is its colour from the moment
     /// it is made.
-    private func presentNewSpaceSheet(initialPrivate: Bool, movingFolder: TabGroup? = nil) {
+    private func presentNewSpaceSheet(initialPrivate: Bool, movingFolder: TabGroup? = nil, movingTab: Tab? = nil) {
         let sheet = NewSpaceSheet(
             suggestedColor: session.nextUnusedTheme().color,
             initialPrivate: initialPrivate
@@ -1727,11 +1737,13 @@ final class SidebarViewController: NSViewController {
             guard let self else { return }
             let folderSpace = movingFolder.flatMap { folder in session.spaces.first { $0.group(withID: folder.id) === folder } }
             if movingFolder != nil, folderSpace == nil { return }
+            let tabSpace = movingTab.flatMap { session.sidebarOwner(of: $0) }
+            if movingTab != nil, tabSpace == nil { return }
             let space = session.addSpace(
                 named: options.name,
                 isPrivate: options.isPrivate,
                 icon: options.icon,
-                profile: options.isPrivate ? nil : (folderSpace?.profile ?? (session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile))
+                profile: options.isPrivate ? nil : (folderSpace?.profile ?? tabSpace?.profile ?? (session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile))
             )
             if options.keepsItsOwnColour {
                 switch options.wash {
@@ -1752,6 +1764,7 @@ final class SidebarViewController: NSViewController {
             // each clears the other's fill; these are plain fields of the look.
             session.setLook(options.look(from: space.look), for: space)
             if let movingFolder { session.move(movingFolder, toSpace: space) }
+            if let movingTab { session.move(movingTab, toSpace: space) }
         }
         presentAsSheet(sheet)
     }
@@ -1782,9 +1795,75 @@ final class SidebarViewController: NSViewController {
         makeSpaceOptionsMenu(for: shownSpace, anchor: anchor ?? view)
     }
 
-    /// The tab menu. Move to Window and Change Icon are not offered: Barc
-    /// has one window, and a tab's icon is its site's.
-    func makeTabMenu(for tab: Tab) -> NSMenu {
+    /// Compact tab actions retain the clicked owner even if the active Space changes.
+    func makeTabMenu(for tab: Tab, anchor: NSView? = nil) -> NSMenu {
+        let owner = session.sidebarOwner(of: tab)
+        let retained = tab.isSidebarRetained
+        let canArchive: (BrowserSession.SidebarArchiveScope) -> Bool = { [session] scope in
+            owner.map { !session.sidebarArchiveCandidates(relativeTo: tab, in: $0, scope: scope).isEmpty } ?? false
+        }
+        return TabOptionsMenu.make(retained: retained, muted: tab.isMuted, canMute: tab.isPlayingAudio || tab.isMuted,
+            canRemove: retained ? !tab.isLocked : canArchive(.tab), canSplit: (owner?.tabs.count ?? 0) > 1,
+            canReplacePinnedURL: (tab.pinnedPageURL ?? tab.url) != tab.url,
+            owner: owner, destinations: session.spaces, canArchiveOther: canArchive(.other),
+            canArchiveAbove: canArchive(.above), canArchiveBelow: canArchive(.below), extended: makeExtendedTabMenu(for: tab)) {
+            [weak self, weak tab, weak owner, weak anchor] action in
+            guard let self, let tab, let owner, session.spaces.contains(where: { $0 === owner }),
+                  owner.tabs.contains(where: { $0 === tab }) else { return }
+            DispatchQueue.main.async { [weak self, weak tab, weak owner, weak anchor] in
+                guard let self, let tab, let owner, session.spaces.contains(where: { $0 === owner }),
+                      owner.tabs.contains(where: { $0 === tab }) else { return }
+                switch action {
+                case .copyLink:
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(tab.url.absoluteString, forType: .string)
+                case .icon: showTabIconPicker(for: tab, in: owner, anchor: anchor)
+                case .rename: beginNamingTab(tab, in: owner)
+                case .mute: if tab.isPlayingAudio || tab.isMuted { tab.toggleMute() }
+                case .split: session.selectSpace(owner); splitTab(tab)
+                case .duplicate: session.selectSpace(owner); session.duplicate(tab)
+                case .move(let id):
+                    guard let destination = session.spaces.first(where: { $0.id == id }) else { return }
+                    session.move(tab, toSpace: destination)
+                case .newSpace:
+                    presentNewSpaceSheet(initialPrivate: owner.isPrivate, movingTab: tab)
+                case .archive: session.archiveSidebarTabs(relativeTo: tab, in: owner, scope: .tab)
+                case .archiveOther: session.archiveSidebarTabs(relativeTo: tab, in: owner, scope: .other)
+                case .archiveAbove: session.archiveSidebarTabs(relativeTo: tab, in: owner, scope: .above)
+                case .archiveBelow: session.archiveSidebarTabs(relativeTo: tab, in: owner, scope: .below)
+                case .removePin: session.removeSidebarPin(tab, in: owner)
+                case .replacePinnedURL: if tab.isSidebarRetained { tab.setPinnedPageURL(tab.url) }
+                case .editPinnedURL: editPinnedPage(for: tab, in: owner)
+                }
+            }
+        }
+    }
+
+    private func showTabIconPicker(for tab: Tab, in owner: Space, anchor: NSView?) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = CompactSpaceIconPicker(selected: tab.sidebarIcon) { [weak self, weak owner, weak tab, weak popover] icon in
+            guard let self, let owner, let tab, session.spaces.contains(where: { $0 === owner }),
+                  owner.tabs.contains(where: { $0 === tab }) else { return }
+            tab.setSidebarIcon(icon)
+            popover?.close()
+        }
+        let origin = anchor ?? tableView
+        tabIconPopover?.close(); tabIconPopover = popover
+        popover.show(relativeTo: origin.bounds, of: origin, preferredEdge: .minY)
+    }
+
+    private func editPinnedPage(for tab: Tab, in owner: Space) {
+        guard tab.isSidebarRetained else { return }
+        PinnedPageEditor(url: tab.pinnedPageURL ?? tab.url) { [weak self, weak tab, weak owner] url in
+            guard let self, let tab, let owner, session.spaces.contains(where: { $0 === owner }),
+                  owner.tabs.contains(where: { $0 === tab }), tab.isSidebarRetained else { return }
+            tab.setPinnedPageURL(url)
+        }.present(in: view.window)
+    }
+
+    /// Older lifecycle and annotation tools stay available by holding Option.
+    func makeExtendedTabMenu(for tab: Tab) -> NSMenu {
         let menu = NSMenu()
         let space = session.activeSpace
         func add(_ title: String, _ selector: Selector, symbol: String? = nil, key: String = "",
@@ -2058,6 +2137,7 @@ final class SidebarViewController: NSViewController {
         // in that hierarchy, rather than adding a non-row to AXChildren.
         view.addSubview(field)
         positionFolderNameEditor()
+        positionTabNameEditor()
         // A menu restores its previous responder as tracking ends. Focusing
         // synchronously would immediately blur and commit this new editor.
         DispatchQueue.main.async { [weak self, weak field] in
@@ -2085,6 +2165,58 @@ final class SidebarViewController: NSViewController {
         frame.size.width = max(0, min(frame.width, view.bounds.width - Style.Metrics.sidebarInset - frame.minX))
         edit.field.frame = frame
         header.isEditingName = true
+    }
+
+    private func beginNamingTab(_ tab: Tab, in space: Space) {
+        folderNameEdit?.field.commit(); tabNameEdit?.field.commit()
+        guard session.spaces.contains(where: { $0 === space }), space.tabs.contains(where: { $0 === tab }) else { return }
+        if isLibraryVisible { hideLibrary() }
+        session.selectSpace(space)
+        if tab.isSidebarRetained, space.look.pinnedSectionCollapsed {
+            var look = space.look; look.pinnedSectionCollapsed = false
+            session.setLook(look, for: space)
+        }
+        var ancestor = tab.groupID
+        var visited: Set<UUID> = []
+        while let id = ancestor, visited.insert(id).inserted, let parent = space.group(withID: id) {
+            if parent.isCollapsed { session.toggleCollapsed(parent) }
+            ancestor = parent.parentID
+        }
+        guard let row = rows.firstIndex(where: { if case .tab(let candidate, _, _) = $0 { candidate === tab } else { false } }) else { return }
+        let id = UUID()
+        let field = FolderNameEditor(name: tab.displayTitle, font: Style.Fonts.tabTitle, placeholder: "Tab Title", label: "Tab name") {
+            [weak self, weak tab, weak space] name in
+            guard let self, let edit = tabNameEdit, edit.id == id else { return }
+            tabNameEdit = nil
+            edit.field.removeFromSuperview()
+            if let tab, let space, let name, session.spaces.contains(where: { $0 === space }),
+               space.tabs.contains(where: { $0 === tab }) { session.rename(tab, to: name) }
+            reloadTabs()
+            NSAccessibility.post(element: view, notification: .layoutChanged)
+        }
+        tabNameEdit = (id, space, tab, field)
+        tableView.scrollRowToVisible(row)
+        view.addSubview(field)
+        positionTabNameEditor()
+        DispatchQueue.main.async { [weak self, weak field] in
+            guard let self, let field, tabNameEdit?.field === field else { return }
+            field.beginEditing()
+            NSAccessibility.post(element: view, notification: .layoutChanged)
+        }
+    }
+
+    private func positionTabNameEditor() {
+        guard let edit = tabNameEdit, shownSpace === edit.space else { return }
+        guard let row = rows.firstIndex(where: { if case .tab(let candidate, _, _) = $0 { candidate === edit.tab } else { false } }),
+              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabRowView else { edit.field.commit(); return }
+        cell.layoutSubtreeIfNeeded()
+        let tableFrame = cell.nameEditorFrame(in: tableView)
+        let viewport = scrollView.contentView.convert(scrollView.contentView.bounds, to: tableView)
+        if viewport.height > 0, tableFrame.minY < viewport.minY || tableFrame.maxY > viewport.maxY { edit.field.commit(); return }
+        var frame = view.convert(tableFrame, from: tableView)
+        frame.size.width = max(0, min(frame.width, view.bounds.width - Style.Metrics.sidebarInset - frame.minX))
+        edit.field.frame = frame
+        cell.isEditingName = true
     }
 
     @objc private func newNestedFolderFromMenu(_ sender: Any?) {
@@ -2225,6 +2357,10 @@ final class SidebarViewController: NSViewController {
     /// one, beside its neighbour, which is what the Split menu items do.
     @objc private func splitTabFromMenu(_ sender: Any?) {
         guard let tab = tab(from: sender) else { return }
+        splitTab(tab)
+    }
+
+    private func splitTab(_ tab: Tab) {
         let tabs = session.activeSpace.tabs
         if let current = session.activeTab, current !== tab {
             session.splitTabs([current, tab], grid: .sideBySide)
@@ -2521,7 +2657,7 @@ extension SidebarViewController: NSMenuDelegate {
         if selection.count > 1, clicked >= 0, tableView.selectedRowIndexes.contains(clicked) {
             source = makeMultiTabMenu(for: selection)
         } else if rows.indices.contains(clicked), case .tab(let tab, _, _) = rows[clicked] {
-            source = makeTabMenu(for: tab)
+            source = makeTabMenu(for: tab, anchor: tableView.view(atColumn: 0, row: clicked, makeIfNecessary: true) ?? tableView)
         } else if rows.indices.contains(clicked), case .group(let group, _, _) = rows[clicked] {
             source = makeGroupMenu(for: group)
         } else if rows.indices.contains(clicked), case .newTab = rows[clicked] {

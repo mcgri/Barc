@@ -1130,20 +1130,18 @@ struct SidebarContextMenuTests {
         #expect(kinds == ["GitHub"])
     }
 
-    @Test("A tab row's menu has the expected shape, less what Barc cannot offer")
+    @Test("An ordinary tab uses Arc's compact default menu without sharing")
     func tabMenuShape() {
         let session = TestSession.make().0
         let tab = session.newTab(url: URL(string: "https://a.example")!)
         let sidebar = SidebarViewController(session: session)
-        let titles = sidebar.makeTabMenu(for: tab).items.map { $0.isSeparatorItem ? "-" : $0.title }
-        #expect(titles == [
-            "Pin", "-",
-            "Keep Awake", "Lock", "Keep in Sidebar", "Sleep Now", "Archive Now", "-",
-            "Open as Split", "Duplicate", "-",
-            "New Folder with Tab", "Move to Space", "-",
-            "Rename\u{2026}", "Colour Tag", "Auto Reload", "Add Note\u{2026}", "Set Emoji\u{2026}", "-",
-            "Close", "Close Other Tabs", "Close Tabs Below", "Close All Tabs in Space"
-        ])
+        let menu = sidebar.makeTabMenu(for: tab)
+        let titles = menu.items.filter { !$0.isAlternate }.map { $0.isSeparatorItem ? "-" : $0.title }
+        #expect(titles == ["Copy Link", "-", "Change Icon…", "Rename…", "Mute", "-",
+                           "Open in Split View", "Duplicate", "Move to", "-", "Archive Tab", "Archive Tabs Below"])
+        #expect(menu.items.allSatisfy { $0.image == nil })
+        #expect(menu.items.first { $0.title == "Archive Other Tabs" }?.isAlternate == true)
+        #expect(menu.items.first { $0.title == "Archive Tabs Above" }?.isAlternate == true)
     }
 
     @Test("A context menu opened before switching Spaces creates its folder in its original Space")

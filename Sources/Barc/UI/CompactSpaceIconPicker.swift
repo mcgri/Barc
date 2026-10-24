@@ -37,6 +37,9 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
         view.setAccessibilityLabel("Space icon")
         tabs.frame = NSRect(x: 64, y: 14, width: 114, height: 24)
         tabs.segmentStyle = .rounded
+        tabs.setWidth(57, forSegment: 0)
+        tabs.setWidth(57, forSegment: 1)
+        if !selected.isCustomized { tabs.frame.origin.x = 79 }
         tabs.selectedSegment = mode.rawValue
         tabs.target = self; tabs.action = #selector(chooseGlyphMode)
         tabs.setAccessibilityLabel("Icon type")
@@ -48,7 +51,7 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
         trash.contentTintColor = .secondaryLabelColor
         trash.target = self; trash.action = #selector(removeIcon)
         trash.toolTip = "Remove Icon"; trash.setAccessibilityLabel("Remove Icon")
-        trash.isEnabled = selected.isCustomized
+        trash.isHidden = !selected.isCustomized
         view.addSubview(trash)
 
         search.frame = NSRect(x: 11, y: 48, width: 250, height: 24)

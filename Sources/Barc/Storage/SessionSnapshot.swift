@@ -50,6 +50,9 @@ struct SessionSnapshot: Codable, Equatable {
         var importedSourceID: String? = nil
         var sidebarPosition: Int? = nil
         var favicon: PageFavicon? = nil
+        /// Optional custom sidebar symbol and the original retained page address.
+        var sidebarSymbolName: String? = nil
+        var pinnedPageURL: URL? = nil
     }
 
     struct Space: Codable, Equatable {

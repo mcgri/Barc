@@ -1,3 +1,4 @@
+// Modified for Barc: retained page anchors and custom sidebar symbols, 2026-10-24.
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import AppKit
 import Combine
@@ -363,12 +364,37 @@ final class Tab: Identifiable {
 
     /// An emoji standing in for the favicon, when the user set one.
     private(set) var emoji: String?
+    private(set) var sidebarSymbolName: String?
+    private(set) var pinnedPageURL: URL?
+
+    var sidebarIcon: SpaceIcon {
+        if let emoji { return .emoji(emoji) }
+        if let sidebarSymbolName { return .symbol(sidebarSymbolName) }
+        return .automatic
+    }
+    var isSidebarRetained: Bool { keepsInSidebar || groupID != nil || pinnedSiteID != nil }
+
+    func setSidebarIcon(_ icon: SpaceIcon) {
+        let nextEmoji: String?, nextSymbol: String?
+        switch icon {
+        case .automatic: nextEmoji = nil; nextSymbol = nil
+        case .emoji(let value): nextEmoji = Self.firstEmoji(in: value); nextSymbol = nil
+        case .symbol(let name): nextEmoji = nil; nextSymbol = name
+        case .custom: return
+        }
+        guard nextEmoji != emoji || nextSymbol != sidebarSymbolName else { return }
+        emoji = nextEmoji; sidebarSymbolName = nextSymbol
+        didChange.send()
+    }
+
+    func setPinnedPageURL(_ url: URL) {
+        guard isSidebarRetained, pinnedPageURL != url else { return }
+        pinnedPageURL = url
+        didChange.send()
+    }
 
     func setEmoji(_ text: String?) {
-        let value = Self.firstEmoji(in: text)
-        guard value != emoji else { return }
-        emoji = value
-        didChange.send()
+        setSidebarIcon(Self.firstEmoji(in: text).map(SpaceIcon.emoji) ?? .automatic)
     }
 
     /// The first character of what was typed, if it is an emoji.
@@ -579,6 +605,8 @@ final class Tab: Identifiable {
     func setGroupID(_ id: TabGroup.ID?) {
         guard id != groupID else { return }
         groupID = id
+        if id != nil { pinnedPageURL = pinnedPageURL ?? url }
+        else if !keepsInSidebar { pinnedPageURL = nil }
         didChange.send()
     }
 
@@ -616,6 +644,8 @@ final class Tab: Identifiable {
     func setKeepsInSidebar(_ keeps: Bool) {
         guard keeps != explicitlyKeepsInSidebar else { return }
         explicitlyKeepsInSidebar = keeps
+        if keeps { pinnedPageURL = pinnedPageURL ?? url }
+        else if groupID == nil { pinnedPageURL = nil }
         didChange.send()
     }
 
@@ -676,7 +706,7 @@ final class Tab: Identifiable {
     var isSidebarPlaceholder: Bool {
         StartPage.isStartPage(url) && importedSourceID == nil && groupID == nil && pinnedSiteID == nil
             && !keepsInSidebar && !keepsAwake && !isLocked && customName == nil
-            && note == nil && emoji == nil && colorTag == nil && !canGoBack && !canGoForward
+            && note == nil && emoji == nil && sidebarSymbolName == nil && colorTag == nil && !canGoBack && !canGoForward
     }
 
     init(url: URL, identity: Space.Identity) {
@@ -711,6 +741,9 @@ final class Tab: Identifiable {
         self.colorTag = snapshot.colorTag.flatMap(TabColorTag.init(rawValue:))
         self.note = snapshot.note
         self.emoji = snapshot.emoji
+        self.sidebarSymbolName = snapshot.sidebarSymbolName
+        self.pinnedPageURL = snapshot.pinnedPageURL
+            ?? ((snapshot.keepsInSidebar == true || snapshot.groupID != nil) ? snapshot.url : nil)
         self.autoReloadInterval = snapshot.autoReloadSeconds.map { TimeInterval($0) }
         TabNameStore.shared.restore(snapshot.customName, for: id)
         scheduleAutoReload()
@@ -740,7 +773,9 @@ final class Tab: Identifiable {
             emoji: emoji,
             importedSourceID: importedSourceID,
             sidebarPosition: sidebarPosition,
-            favicon: restoredFavicon.flatMap { $0.matches(url) ? $0 : nil }
+            favicon: restoredFavicon.flatMap { $0.matches(url) ? $0 : nil },
+            sidebarSymbolName: sidebarSymbolName,
+            pinnedPageURL: pinnedPageURL
         )
     }
 

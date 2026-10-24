@@ -6,12 +6,12 @@ final class FolderNameEditor: NSTextField, NSTextFieldDelegate {
     private let onFinish: (String?) -> Void
     private var finished = false
 
-    init(name: String, onFinish: @escaping (String?) -> Void) {
+    init(name: String, font: NSFont = Style.Fonts.groupHeader, placeholder: String = "Folder Title", label: String = "Folder name", onFinish: @escaping (String?) -> Void) {
         self.onFinish = onFinish
         super.init(frame: .zero)
         stringValue = name
-        placeholderString = "Folder Title"
-        font = Style.Fonts.groupHeader
+        placeholderString = placeholder
+        self.font = font
         textColor = Style.Colors.primaryText
         isBordered = false
         drawsBackground = false
@@ -21,7 +21,7 @@ final class FolderNameEditor: NSTextField, NSTextFieldDelegate {
         delegate = self
         setAccessibilityElement(true)
         setAccessibilityRole(.textField)
-        setAccessibilityLabel("Folder name")
+        setAccessibilityLabel(label)
     }
 
     required init?(coder: NSCoder) { fatalError("FolderNameEditor is created in code only") }

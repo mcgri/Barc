@@ -958,8 +958,12 @@ final class BrowserSession {
     func duplicate(_ tab: Tab) -> Tab? {
         let space = activeSpace
         guard let index = space.index(of: tab) else { return nil }
-        let copy = Tab(url: tab.url, identity: space.identity)
-        copy.setGroupID(tab.groupID)
+        // Keep the user's title, icon and retained URL. A duplicate is a
+        // separate tab, so it must not own its original's Favorite or import key.
+        var snapshot = tab.snapshot()
+        snapshot.pinnedSiteID = nil
+        snapshot.importedSourceID = nil
+        let copy = Tab(restoring: snapshot, identity: space.identity)
         insert(copy, into: space, at: index + 1, select: true)
         return copy
     }

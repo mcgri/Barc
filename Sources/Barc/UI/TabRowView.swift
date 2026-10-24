@@ -48,6 +48,7 @@ struct TabRowContent {
     var hasUnreadChange: Bool = false
     /// An emoji standing in for the favicon.
     var emoji: String? = nil
+    var sidebarSymbolName: String? = nil
 
     init(
         title: String,
@@ -65,7 +66,8 @@ struct TabRowContent {
         isMuted: Bool = false,
         colorTag: TabColorTag? = nil,
         hasUnreadChange: Bool = false,
-        emoji: String? = nil
+        emoji: String? = nil,
+        sidebarSymbolName: String? = nil
     ) {
         self.title = title
         self.address = address
@@ -83,6 +85,7 @@ struct TabRowContent {
         self.colorTag = colorTag
         self.hasUnreadChange = hasUnreadChange
         self.emoji = emoji
+        self.sidebarSymbolName = sidebarSymbolName
     }
 }
 
@@ -149,6 +152,11 @@ final class TabRowView: NSTableCellView {
     /// The emoji drawn where the favicon goes, when the tab has one.
     private let emojiLabel = NSTextField(labelWithString: "")
     var showsEmoji: Bool { !emojiLabel.isHidden }
+    private let symbolView = NSImageView()
+    var showsCustomSymbol: Bool { !symbolView.isHidden }
+    var isEditingName = false { didSet { titleLabel.alphaValue = isEditingName ? 0 : 1 } }
+    func nameEditorFrame(in view: NSView) -> NSRect { titleLabel.convert(titleLabel.bounds, to: view) }
+
     /// The colour tag on the favicon's lower trailing corner.
     private let tagDot = NSView()
     /// The unread mark on the favicon's upper trailing corner.
@@ -306,6 +314,16 @@ final class TabRowView: NSTableCellView {
             emojiLabel.centerXAnchor.constraint(equalTo: favicon.centerXAnchor),
             emojiLabel.centerYAnchor.constraint(equalTo: favicon.centerYAnchor)
         ])
+        symbolView.translatesAutoresizingMaskIntoConstraints = false
+        symbolView.contentTintColor = Style.Colors.secondaryText
+        symbolView.setAccessibilityElement(false)
+        addSubview(symbolView)
+        NSLayoutConstraint.activate([
+            symbolView.centerXAnchor.constraint(equalTo: favicon.centerXAnchor),
+            symbolView.centerYAnchor.constraint(equalTo: favicon.centerYAnchor),
+            symbolView.widthAnchor.constraint(equalToConstant: 16),
+            symbolView.heightAnchor.constraint(equalToConstant: 16)
+        ])
         for dot in [tagDot, unreadDot] {
             dot.wantsLayer = true
             dot.layer?.cornerRadius = 3.5
@@ -421,7 +439,9 @@ final class TabRowView: NSTableCellView {
 
         emojiLabel.stringValue = content.emoji ?? ""
         emojiLabel.isHidden = content.emoji == nil
-        favicon.isHidden = content.emoji != nil
+        symbolView.image = content.sidebarSymbolName.flatMap { FolderSymbols.image(named: $0) }
+        symbolView.isHidden = content.emoji != nil || symbolView.image == nil
+        favicon.isHidden = content.emoji != nil || !symbolView.isHidden
 
         effectiveAppearance.performAsCurrentDrawingAppearance {
             if let tag = content.colorTag {

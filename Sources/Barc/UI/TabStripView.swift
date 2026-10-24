@@ -1,3 +1,4 @@
+// Modified for Barc: render custom tab symbols beside page titles, 2026-10-24.
 import AppKit
 
 /// A horizontal row of the active space's tabs above the page, for people who
@@ -207,6 +208,7 @@ final class TabStripCell: NSView {
     private let title = NSTextField(labelWithString: "")
     private let audio = NSImageView()
     private let emoji = NSTextField(labelWithString: "")
+    private let customSymbol = NSImageView()
     private let close = IconButton(symbolName: "xmark", label: "Close Tab", side: 18)
     private var hovering = false
     private var tracking: NSTrackingArea?
@@ -236,13 +238,19 @@ final class TabStripCell: NSView {
         close.translatesAutoresizingMaskIntoConstraints = false
         close.setClickHandler { [weak self] in self?.onClose?() }
         close.isHidden = true
-        for view in [favicon, title, audio, close, emoji] { addSubview(view) }
+        customSymbol.translatesAutoresizingMaskIntoConstraints = false
+        customSymbol.contentTintColor = .secondaryLabelColor
+        for view in [favicon, title, audio, close, emoji, customSymbol] { addSubview(view) }
 
         NSLayoutConstraint.activate([
             favicon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             favicon.centerYAnchor.constraint(equalTo: centerYAnchor),
             favicon.widthAnchor.constraint(equalToConstant: 16),
             favicon.heightAnchor.constraint(equalToConstant: 16),
+            customSymbol.centerXAnchor.constraint(equalTo: favicon.centerXAnchor),
+            customSymbol.centerYAnchor.constraint(equalTo: favicon.centerYAnchor),
+            customSymbol.widthAnchor.constraint(equalToConstant: 16),
+            customSymbol.heightAnchor.constraint(equalToConstant: 16),
             emoji.centerXAnchor.constraint(equalTo: favicon.centerXAnchor),
             emoji.centerYAnchor.constraint(equalTo: favicon.centerYAnchor),
             title.leadingAnchor.constraint(equalTo: favicon.trailingAnchor, constant: 6),
@@ -267,7 +275,9 @@ final class TabStripCell: NSView {
         title.stringValue = tab.displayTitle
         emoji.stringValue = tab.emoji ?? ""
         emoji.isHidden = tab.emoji == nil
-        favicon.isHidden = tab.emoji != nil
+        customSymbol.image = tab.sidebarSymbolName.flatMap { FolderSymbols.image(named: $0) }
+        customSymbol.isHidden = tab.emoji != nil || customSymbol.image == nil
+        favicon.isHidden = tab.emoji != nil || !customSymbol.isHidden
         audio.isHidden = !tab.isPlayingAudio
         setAccessibilityLabel(tab.displayTitle)
         updateLook()
