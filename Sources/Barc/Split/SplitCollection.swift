@@ -125,11 +125,13 @@ struct SplitCollection: Equatable, Sendable {
         return copy
     }
 
-    /// Moves complete groups through an explicit old-page to new-page binding.
+    /// Copies complete groups through an explicit old-page to new-page binding.
     /// Partial groups and overlapping destinations are left alone. Matching
     /// URLs are never used as identity, since several panes may show one URL.
+    /// Existing group identities force fresh identities for copies. The return
+    /// value contains source group IDs, so a move can remove those originals.
     @discardableResult
-    mutating func transferCompleteGroups(from source: Self, mapping: [UUID: UUID]) -> Set<UUID> {
+    mutating func copyCompleteGroups(from source: Self, mapping: [UUID: UUID]) -> Set<UUID> {
         var transferred: Set<UUID> = []
         for original in source.layouts {
             guard let first = original.tabIDs.first,

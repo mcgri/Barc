@@ -177,7 +177,9 @@ final class SplitRowView: NSTableCellView {
             let side = min(16,max(8,bounds.width-12))
             let icon = NSRect(x:6,y:(bounds.height-side)/2,width:side,height:side)
             favicon.frame = icon; emoji.frame = icon; symbol.frame = icon
-            let right = close.isHidden ? bounds.width-6 : bounds.width-20
+            // The native label already leaves padding around its glyphs. An
+            // extra six points here discarded a whole character at 228 points.
+            let right = close.isHidden ? bounds.width : bounds.width-20
             title.frame = NSRect(x:icon.maxX+10,y:(bounds.height-18)/2,width:max(0,right-icon.maxX-10),height:18)
             close.frame = NSRect(x:bounds.width-18,y:(bounds.height-14)/2,width:14,height:14)
             paint()

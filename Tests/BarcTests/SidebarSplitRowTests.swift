@@ -158,7 +158,7 @@ struct SidebarSplitRowTests {
         host.layer?.backgroundColor = NSColor(srgbRed:0.89,green:0.57,blue:0.45,alpha:1).cgColor
         let row = SplitRowView(frame:NSRect(x:0,y:12,width:220,height:Style.Metrics.rowHeight))
         host.addSubview(row)
-        row.configure([TabRowContent(title:"mcgri/Barc",sidebarSymbolName:"globe"),TabRowContent(title:"github.com",sidebarSymbolName:"globe")],focusedIndex:0)
+        row.configure([TabRowContent(title:"mocky/Browser: This is a sample browser",sidebarSymbolName:"globe"),TabRowContent(title:"github.com",sidebarSymbolName:"globe")],focusedIndex:0)
         row.isSelected = true
         host.layoutSubtreeIfNeeded()
         #expect(row.pillRect.height == 35)

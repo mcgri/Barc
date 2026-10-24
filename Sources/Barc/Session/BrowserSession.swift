@@ -963,10 +963,28 @@ final class BrowserSession {
         }
     }
 
-    /// Duplicates a collection of tabs in batch.
+    /// A selected split duplicates as a new unit; an individually chosen pane
+    /// still produces an ordinary tab. Page bindings keep duplicate URLs distinct.
     @discardableResult
     func duplicateTabs(_ tabsToDuplicate: [Tab]) -> [Tab] {
-        tabsToDuplicate.compactMap { duplicate($0) }
+        let space = activeSpace
+        let originalSplits = space.splits
+        var bindings: [UUID: UUID] = [:]
+        var copies: [Tab] = []
+        var seen: Set<UUID> = []
+        for tab in tabsToDuplicate where seen.insert(tab.id).inserted {
+            if let copy = duplicate(tab) { copies.append(copy); bindings[tab.id] = copy.id }
+        }
+        let copied = space.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
+        if !copied.isEmpty {
+            let focusedID = copies.last.flatMap { space.splits.preferredTab(containing:$0.id) }
+            let focused = space.tabs.first { $0.id == focusedID }
+            changes.send(.structure)
+            if let focused { selectTab(focused) }
+            changes.send(.activeTab)
+            scheduleSave()
+        }
+        return copies
     }
 
     /// Pins a collection of tabs in batch.
@@ -1078,7 +1096,7 @@ final class BrowserSession {
                 bindings[tab.id] = moved.id
             }
         }
-        let transferred = target.splits.transferCompleteGroups(from:originalSplits,mapping:bindings)
+        let transferred = target.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
         // Detach normally repairs the source. An all-Favorite group needs
         // this explicit removal because none of its shared pages detached.
         for layout in originalSplits.layouts {
@@ -1132,6 +1150,7 @@ final class BrowserSession {
     @discardableResult
     func duplicateFolder(_ group: TabGroup, iconStore: SpaceIconStore = .shared) throws -> TabGroup? {
         guard !group.isLive, let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
+        let originalSplits = source.splits
         let ids = Set(([group] + FolderTree.descendants(of: group, in: source.groups)).map(\.id))
         let originals = FolderTree.ordered(source.groups).map(\.folder).filter { ids.contains($0.id) }
         let newIDs = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, UUID()) })
@@ -1158,6 +1177,7 @@ final class BrowserSession {
             siblings.indices.contains(index + 1) ? siblings[index + 1] : nil
         }
         for copy in copies { source.addGroup(copy) }
+        var bindings: [UUID: UUID] = [:]
         // Live children become regular copies of their current contents, not
         // unregistered live providers polling the same source in the background.
         for tab in FolderContents.tabs(in: group, space: source) {
@@ -1166,8 +1186,11 @@ final class BrowserSession {
             snapshot.importedSourceID = nil
             snapshot.pinnedSiteID = nil
             snapshot.interactionState = nil
-            insert(Tab(restoring: snapshot, identity: source.identity), into: source, at: source.workspaceTabs.count, select: false)
+            let copy = Tab(restoring:snapshot,identity:source.identity)
+            insert(copy,into:source,at:source.workspaceTabs.count,select:false)
+            bindings[tab.id] = copy.id
         }
+        source.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
         SidebarOrder.place(.folder(root), before: following, in: siblings, separatesOrdinaryTabs: group.parentID == nil)
         changes.send(.structure)
         scheduleSave()
