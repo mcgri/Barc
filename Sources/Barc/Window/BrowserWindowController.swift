@@ -1933,7 +1933,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         commandBar.close()
         guard let current = session.activeTab, session.activeSplit?.isFull != true else { return }
         let selected = sidebar.selectedTabs
-        if selected.count > 1 { session.splitTabs(selected, grid: grid); return }
+        if sidebar.hasMultipleSelectedRows { session.splitTabs(selected, grid: grid); return }
         sidebar.hideLibrary()
         let emptyID = UUID()
         let base = session.activeSplit

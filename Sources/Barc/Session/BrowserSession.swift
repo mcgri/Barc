@@ -1693,6 +1693,7 @@ final class BrowserSession {
             }
         }
         space.setActiveTabID(tab.id)
+        space.splits.focus(tab.id)
         changes.send(.activeTab)
         scheduleSave()
     }
@@ -1741,6 +1742,45 @@ final class BrowserSession {
         activeSpace.move(from: source, to: destination)
         changes.send(.tabs)
         scheduleSave()
+    }
+
+    /// Dragging a compact split row files and positions all of its pages as
+    /// one unit. The layout and remembered pane stay attached to that unit.
+    @discardableResult
+    func moveSidebarTab(_ tab: Tab, to index: Int, group: TabGroup?, before target: SidebarItem?, retained: Bool) -> Bool {
+        let space = activeSpace
+        guard space.tabs.contains(where: { $0 === tab }),
+              group == nil || space.groups.contains(where: { $0 === group }) else { return false }
+        let ids = space.splits.layout(containing:tab.id)?.tabIDs ?? [tab.id]
+        let members = ids.compactMap { id in space.tabs.first { $0.id == id } }
+        guard members.count == ids.count, members.allSatisfy({ $0.pinnedSiteID == nil }) else { return false }
+        if let target {
+            if ids.contains(target.id) { return true }
+            switch target {
+            case .folder(let folder):
+                guard space.groups.contains(where: { $0 === folder }), folder.parentID == group?.id else { return false }
+            case .tab(let other):
+                guard space.tabs.contains(where: { $0 === other }), other.groupID == group?.id else { return false }
+            }
+        }
+        let moving = Set(ids)
+        let boundary = min(max(0,index),space.tabs.count)
+        let insertion = space.tabs.prefix(boundary).filter { !moving.contains($0.id) }.count
+        var ordered = space.tabs.filter { !moving.contains($0.id) }
+        ordered.insert(contentsOf:members,at:insertion)
+        guard space.replaceTabs(with:ordered) else { return false }
+        for member in members {
+            member.setGroupID(group?.id)
+            if group == nil { member.setKeepsInSidebar(retained) }
+        }
+        for member in members {
+            SidebarOrder.place(.tab(member),before:target,
+                in:SidebarOrder.items(groups:space.groups,tabs:space.listedTabs,parentID:group?.id),
+                separatesOrdinaryTabs:group == nil)
+        }
+        changes.send(.structure)
+        scheduleSave()
+        return true
     }
 
     /// Reorders a top-level group, so dragging a group's header in the sidebar

@@ -5,6 +5,22 @@ import Foundation
 struct SplitCollection: Equatable, Sendable {
     private(set) var layouts: [SplitLayout] = []
     private(set) var stickyTabIDs: Set<UUID> = []
+    private var identifiers: [UUID] = []
+    private var focusedTabs: [UUID: UUID] = [:]
+
+    func identifier(containing tabID: UUID) -> UUID? {
+        layouts.firstIndex(where: { $0.contains(tabID) }).map { identifiers[$0] }
+    }
+
+    func preferredTab(containing tabID: UUID) -> UUID? {
+        guard let index = layouts.firstIndex(where: { $0.contains(tabID) }) else { return nil }
+        return focusedTabs[identifiers[index]] ?? layouts[index].tabIDs.first
+    }
+
+    mutating func focus(_ tabID: UUID) {
+        guard let id = identifier(containing: tabID) else { return }
+        focusedTabs[id] = tabID
+    }
 
     func layout(containing id: UUID?) -> SplitLayout? {
         guard let id else { return nil }
@@ -37,8 +53,16 @@ struct SplitCollection: Equatable, Sendable {
             result = created
         }
         let insertion = touched.first ?? layouts.count
-        for index in touched.reversed() { layouts.remove(at: index) }
+        let identifier = identifier(containing: unique[0]) ?? touched.first.map { identifiers[$0] } ?? UUID()
+        let focus = focusedTabs[identifier] ?? unique[0]
+        for index in touched.reversed() {
+            focusedTabs[identifiers[index]] = nil
+            identifiers.remove(at: index)
+            layouts.remove(at: index)
+        }
         layouts.insert(result, at: insertion)
+        identifiers.insert(identifier, at: insertion)
+        focusedTabs[identifier] = focus
         // A combined split has one sticky pane; keep the first group's choice.
         let sticky = result.tabIDs.first(where: stickyTabIDs.contains)
         stickyTabIDs.subtract(result.tabIDs)
@@ -58,6 +82,7 @@ struct SplitCollection: Equatable, Sendable {
         guard layout(containing: newID) == nil,
               let index = layouts.firstIndex(where: { $0.contains(oldID) }) else { return }
         layouts[index] = layouts[index].replacing(oldID, with: newID)
+        if focusedTabs[identifiers[index]] == oldID { focusedTabs[identifiers[index]] = newID }
         if stickyTabIDs.remove(oldID) != nil { stickyTabIDs.insert(newID) }
     }
 
@@ -69,8 +94,12 @@ struct SplitCollection: Equatable, Sendable {
         switch removal {
         case .dissolved:
             stickyTabIDs.subtract(layouts[index].tabIDs)
+            focusedTabs[identifiers[index]] = nil
+            identifiers.remove(at: index)
             layouts.remove(at: index)
-        case .resized(let layout): layouts[index] = layout
+        case .resized(let layout):
+            layouts[index] = layout
+            if focusedTabs[identifiers[index]] == id { focusedTabs[identifiers[index]] = layout.tabIDs.first }
         }
         return removal
     }
@@ -78,6 +107,8 @@ struct SplitCollection: Equatable, Sendable {
     mutating func dissolve(containing id: UUID) {
         guard let index = layouts.firstIndex(where: { $0.contains(id) }) else { return }
         stickyTabIDs.subtract(layouts[index].tabIDs)
+        focusedTabs[identifiers[index]] = nil
+        identifiers.remove(at: index)
         layouts.remove(at: index)
     }
 
@@ -98,11 +129,12 @@ struct SplitCollection: Equatable, Sendable {
     /// distinct and restoring a group never needs to guess a tab's identity.
     func snapshot(tabIDs: [UUID]) -> [SessionSnapshot.Split]? {
         let positions = Dictionary(tabIDs.enumerated().map { ($0.element, $0.offset) }, uniquingKeysWith: { first, _ in first })
-        let saved = layouts.compactMap { layout -> SessionSnapshot.Split? in
+        let saved = layouts.enumerated().compactMap { index, layout -> SessionSnapshot.Split? in
             let indices = layout.tabIDs.compactMap { positions[$0] }
             guard indices.count == layout.paneCount else { return nil }
             return SessionSnapshot.Split(layout: layout, tabIndices: indices,
-                stickyTabIndex: layout.tabIDs.first(where: stickyTabIDs.contains).flatMap { positions[$0] })
+                stickyTabIndex: layout.tabIDs.first(where: stickyTabIDs.contains).flatMap { positions[$0] },
+                id: identifiers[index], focusedTabIndex: focusedTabs[identifiers[index]].flatMap { positions[$0] })
         }
         return saved.isEmpty ? nil : saved
     }
@@ -118,6 +150,11 @@ struct SplitCollection: Equatable, Sendable {
             guard let layout = record.layout.mappingTabs({ bindings[$0] }),
                   layout.tabIDs.allSatisfy({ result.layout(containing: $0) == nil }) else { continue }
             result.layouts.append(layout)
+            let id = record.id.flatMap { result.identifiers.contains($0) ? nil : $0 } ?? UUID()
+            result.identifiers.append(id)
+            if let index = record.focusedTabIndex, record.tabIndices.contains(index), tabIDs.indices.contains(index) {
+                result.focusedTabs[id] = tabIDs[index]
+            }
             if let index = record.stickyTabIndex, record.tabIndices.contains(index), tabIDs.indices.contains(index) {
                 result.stickyTabIDs.insert(tabIDs[index])
             }

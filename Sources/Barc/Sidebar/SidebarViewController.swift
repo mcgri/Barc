@@ -90,11 +90,18 @@ final class SidebarViewController: NSViewController {
     var shownSpaceForLook: Space { shownSpace }
 
     /// All tabs currently selected in the sidebar table view (multi-selection).
+    var hasMultipleSelectedRows: Bool { tableView.selectedRowIndexes.count > 1 }
+
     var selectedTabs: [Tab] {
-        tableView.selectedRowIndexes.compactMap { index in
-            guard rows.indices.contains(index), case .tab(let tab, _, _) = rows[index] else { return nil }
-            return tab
-        }
+        var seen: Set<UUID> = []
+        return tableView.selectedRowIndexes.flatMap { index -> [Tab] in
+            guard rows.indices.contains(index) else { return [] }
+            switch rows[index] {
+            case .tab(let tab, _, _): return [tab]
+            case .split(let split): return split.tabs
+            default: return []
+            }
+        }.filter { seen.insert($0.id).inserted }
     }
 
     /// Stops the material showing the desktop through the window, for a
@@ -133,9 +140,18 @@ final class SidebarViewController: NSViewController {
     ///
     /// New Tab is a row rather than a button in the header, which keeps the
     /// header to one label: the thing you are browsing as.
+    private struct SidebarSplitRow {
+        let id: UUID
+        let anchor: Tab
+        let tabs: [Tab]
+        let depth: Int
+        let isEscaping: Bool
+    }
+
     private enum SidebarRow {
         case group(TabGroup, depth: Int, showsEscapedTab: Bool)
         case tab(Tab, depth: Int, isEscaping: Bool)
+        case split(SidebarSplitRow)
         case liveStatus(TabGroup, LiveFolderStatus, depth: Int)
         case newTab
 
@@ -150,6 +166,7 @@ final class SidebarViewController: NSViewController {
         enum Identity: Hashable {
             case group(TabGroup.ID)
             case tab(Tab.ID)
+            case split(UUID)
             case liveStatus(TabGroup.ID)
             case newTab
         }
@@ -158,6 +175,7 @@ final class SidebarViewController: NSViewController {
             switch self {
             case .group(let group, _, _): .group(group.id)
             case .tab(let tab, _, _): .tab(tab.id)
+            case .split(let split): .split(split.id)
             case .liveStatus(let group, _, _): .liveStatus(group.id)
             case .newTab: .newTab
             }
@@ -1337,7 +1355,7 @@ final class SidebarViewController: NSViewController {
             // A pinned shortcut is represented by its tile; listing its tab as
             // well shows the same site twice.
             tabs: kept + remaining,
-            activeTabID: space.activeTabID
+            activeTabID: space.splits.layout(containing: space.activeTabID)?.tabIDs.first ?? space.activeTabID
         ) {
             switch row {
             case .folder(let group, let depth, let showsEscapedTab):
@@ -1354,9 +1372,28 @@ final class SidebarViewController: NSViewController {
                 flattened.append(.tab(tab, depth: depth, isEscaping: isEscaping))
             }
         }
+        let visibleIDs = Set(flattened.compactMap { row -> UUID? in
+            if case .tab(let tab, _, _) = row { return tab.id }; return nil
+        })
+        var anchors: [UUID: UUID] = [:]
+        for layout in space.splits.layouts {
+            guard let first = layout.tabIDs.first, let id = space.splits.identifier(containing: first) else { continue }
+            anchors[id] = layout.tabIDs.first(where: visibleIDs.contains)
+        }
+        flattened = flattened.compactMap { row in
+            guard case .tab(let tab, let depth, let escaping) = row,
+                  let layout = space.splits.layout(containing: tab.id),
+                  let id = space.splits.identifier(containing: tab.id) else { return row }
+            guard anchors[id] == tab.id else { return nil }
+            let members = layout.tabIDs.compactMap { member in space.tabs.first { $0.id == member } }
+            return .split(SidebarSplitRow(id: id, anchor: tab, tabs: members, depth: depth, isEscaping: escaping))
+        }
         var firstOrdinaryTab = flattened.firstIndex {
-            if case .tab(let tab, let depth, _) = $0 { return depth == 0 && !tab.keepsInSidebar }
-            return false
+            switch $0 {
+            case .tab(let tab, let depth, _): return depth == 0 && !tab.keepsInSidebar
+            case .split(let split): return split.depth == 0 && !split.anchor.keepsInSidebar
+            default: return false
+            }
         } ?? flattened.count
         if space.look.pinnedSectionCollapsed {
             flattened.removeFirst(firstOrdinaryTab)
@@ -1421,8 +1458,11 @@ final class SidebarViewController: NSViewController {
 
     private func row(of tab: Tab) -> Int? {
         rows.firstIndex {
-            if case .tab(let candidate, _, _) = $0 { return candidate.id == tab.id }
-            return false
+            switch $0 {
+            case .tab(let candidate, _, _): return candidate.id == tab.id
+            case .split(let split): return split.tabs.contains { $0 === tab }
+            default: return false
+            }
         }
     }
 
@@ -1442,6 +1482,11 @@ final class SidebarViewController: NSViewController {
         for index in rows.indices {
             let cell = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? TabRowView
             cell?.isSelected = tableView.selectedRowIndexes.contains(index)
+            if case .split(let split) = rows[index],
+               let cell = tableView.view(atColumn: 0,row: index,makeIfNecessary:false) as? SplitRowView {
+                configure(cell, with: split)
+                cell.isSelected = tableView.selectedRowIndexes.contains(index)
+            }
         }
         // Which tile is active depends on the visible page, so it moves with it.
         refreshPinnedTiles()
@@ -1464,14 +1509,10 @@ final class SidebarViewController: NSViewController {
     }
 
     private func refreshRow(for tab: Tab) {
-        guard let index = row(of: tab),
-              let cell = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? TabRowView
-        else { return }
-        // The depth has to come back out of the row plan. Re-configuring with a
-        // default of 0 was un-indenting whichever row refreshed -- in practice
-        // the selected one, which refreshes on every title change -- so a tab
-        // inside a folder drifted out to sit with the loose ones.
-        configure(cell, with: tab, depth: depth(ofRow: index))
+        guard let index = row(of: tab), let cell = tableView.view(atColumn: 0,row:index,makeIfNecessary:false) else { return }
+        if case .split(let split) = rows[index], let cell = cell as? SplitRowView {
+            configure(cell,with:split)
+        } else if let cell = cell as? TabRowView { configure(cell,with:tab,depth:depth(ofRow:index)) }
     }
 
     /// How long a tab has been idle, as the badge shows it, or `nil` when there
@@ -1530,7 +1571,28 @@ final class SidebarViewController: NSViewController {
         // four points further out and running its pill into the sidebar edge.
         cell.isEditingName = tabNameEdit?.tab === tab
         cell.indentation = Style.Metrics.sidebarInset + FolderTree.indent(forDepth: depth)
-        cell.configure(TabRowContent(
+        cell.configure(rowContent(for: tab))
+        cell.onToggleMute = { [weak tab] in
+            tab?.toggleMute()
+        }
+        cell.onResetPinnedPage = { [weak self, weak tab] keepCurrent in
+            guard let self, let tab else { return false }
+            return self.session.resetSidebarPin(tab, keepingCurrentPage: keepCurrent)
+        }
+        // `tab.url` deliberately, not `displayURL`: the latter follows a typed
+        // address before it commits, which would swap one site's icon for
+        // another's mid-keystroke.
+        cell.favicon.show(for: tab.url, in: tab.currentWebView, isPrivate: tab.isPrivate, restored: tab.restoredFavicon)
+        cell.onClose = { [weak self] in
+            guard let self else { return }
+            guard !tab.isLocked else { return session.reportCloseRefused(tab) }
+            guard TabClosing.confirm(closing: tab) else { return }
+            session.closeTab(tab)
+        }
+    }
+
+    private func rowContent(for tab: Tab) -> TabRowContent {
+        TabRowContent(
             title: tab.displayTitle,
             address: tab.note.map { "\(tab.url.absoluteString)\n\($0)" } ?? tab.url.absoluteString,
             subtitle: SidebarLocalAddress.label(for: tab.url),
@@ -1549,23 +1611,35 @@ final class SidebarViewController: NSViewController {
             emoji: tab.emoji,
             sidebarSymbolName: tab.sidebarSymbolName,
             canResetPinnedPage: session.canResetSidebarPin(tab)
-        ))
-        cell.onToggleMute = { [weak tab] in
-            tab?.toggleMute()
+        )
+    }
+
+    private func configure(_ cell: SplitRowView, with split: SidebarSplitRow) {
+        let space = shownSpace
+        let focused = space.splits.preferredTab(containing: split.anchor.id)
+        cell.indentation = Style.Metrics.sidebarInset + FolderTree.indent(forDepth: split.depth)
+        cell.configure(split.tabs.map { rowContent(for: $0) }, focusedIndex: split.tabs.firstIndex { $0.id == focused })
+        for (index,tab) in split.tabs.enumerated() {
+            cell.members[index].favicon.show(for:tab.url,in:tab.currentWebView,isPrivate:tab.isPrivate,restored:tab.restoredFavicon)
+            cell.members[index].title.alphaValue = tabNameEdit?.tab === tab ? 0 : 1
         }
-        cell.onResetPinnedPage = { [weak self, weak tab] keepCurrent in
-            guard let self, let tab else { return false }
-            return self.session.resetSidebarPin(tab, keepingCurrentPage: keepCurrent)
+        cell.onSelectMember = { [weak self, weak space] index in
+            guard let self, let space, split.tabs.indices.contains(index), self.shownSpace === space,
+                  space.splits.identifier(containing: split.tabs[index].id) == split.id else { return }
+            self.session.selectTab(split.tabs[index])
         }
-        // `tab.url` deliberately, not `displayURL`: the latter follows a typed
-        // address before it commits, which would swap one site's icon for
-        // another's mid-keystroke.
-        cell.favicon.show(for: tab.url, in: tab.currentWebView, isPrivate: tab.isPrivate, restored: tab.restoredFavicon)
-        cell.onClose = { [weak self] in
-            guard let self else { return }
-            guard !tab.isLocked else { return session.reportCloseRefused(tab) }
-            guard TabClosing.confirm(closing: tab) else { return }
-            session.closeTab(tab)
+        cell.onCloseMember = { [weak self, weak space] index in
+            guard let self, let space, split.tabs.indices.contains(index), self.shownSpace === space else { return }
+            let tab = split.tabs[index]
+            guard space.splits.identifier(containing:tab.id) == split.id else { return }
+            guard !tab.isLocked else { self.session.reportCloseRefused(tab); return }
+            guard TabClosing.confirm(closing:tab) else { return }
+            self.session.closeTab(tab)
+        }
+        cell.onResetMember = { [weak self, weak space] index,keep in
+            guard let self, let space, self.shownSpace === space, split.tabs.indices.contains(index),
+                  space.splits.identifier(containing:split.tabs[index].id) == split.id else { return false }
+            return self.session.resetSidebarPin(split.tabs[index],keepingCurrentPage:keep)
         }
     }
 
@@ -2199,7 +2273,7 @@ final class SidebarViewController: NSViewController {
             if parent.isCollapsed { session.toggleCollapsed(parent) }
             ancestor = parent.parentID
         }
-        guard let row = rows.firstIndex(where: { if case .tab(let candidate, _, _) = $0 { candidate === tab } else { false } }) else { return }
+        guard let row = row(of: tab) else { return }
         let id = UUID()
         let field = FolderNameEditor(name: tab.displayTitle, font: Style.Fonts.tabTitle, placeholder: "Tab Title", label: "Tab name") {
             [weak self, weak tab, weak space] name in
@@ -2224,16 +2298,23 @@ final class SidebarViewController: NSViewController {
 
     private func positionTabNameEditor() {
         guard let edit = tabNameEdit, shownSpace === edit.space else { return }
-        guard let row = rows.firstIndex(where: { if case .tab(let candidate, _, _) = $0 { candidate === edit.tab } else { false } }),
-              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? TabRowView else { edit.field.commit(); return }
+        guard let row = row(of: edit.tab),
+              let cell = tableView.view(atColumn:0,row:row,makeIfNecessary:true) else { edit.field.commit(); return }
         cell.layoutSubtreeIfNeeded()
-        let tableFrame = cell.nameEditorFrame(in: tableView)
+        let tableFrame: NSRect
+        if let cell = cell as? TabRowView {
+            tableFrame = cell.nameEditorFrame(in:tableView)
+            cell.isEditingName = true
+        } else if let cell = cell as? SplitRowView, case .split(let split) = rows[row],
+                  let index = split.tabs.firstIndex(where: { $0 === edit.tab }), cell.members.indices.contains(index) {
+            tableFrame = cell.members[index].title.convert(cell.members[index].title.bounds,to:tableView)
+            cell.members[index].title.alphaValue = 0
+        } else { edit.field.commit(); return }
         let viewport = scrollView.contentView.convert(scrollView.contentView.bounds, to: tableView)
         if viewport.height > 0, tableFrame.minY < viewport.minY || tableFrame.maxY > viewport.maxY { edit.field.commit(); return }
         var frame = view.convert(tableFrame, from: tableView)
         frame.size.width = max(0, min(frame.width, view.bounds.width - Style.Metrics.sidebarInset - frame.minX))
         edit.field.frame = frame
-        cell.isEditingName = true
     }
 
     @objc private func newNestedFolderFromMenu(_ sender: Any?) {
@@ -2680,6 +2761,8 @@ extension SidebarViewController: NSMenuDelegate {
         let selection = selectedTabs
         if selection.count > 1, clicked >= 0, tableView.selectedRowIndexes.contains(clicked) {
             source = makeMultiTabMenu(for: selection)
+        } else if rows.indices.contains(clicked), case .split(let split) = rows[clicked] {
+            source = makeMultiTabMenu(for:split.tabs)
         } else if rows.indices.contains(clicked), case .tab(let tab, _, _) = rows[clicked] {
             source = makeTabMenu(for: tab, anchor: tableView.view(atColumn: 0, row: clicked, makeIfNecessary: true) ?? tableView)
         } else if rows.indices.contains(clicked), case .group(let group, _, _) = rows[clicked] {
@@ -2795,6 +2878,14 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             return liveStatusCell(status, depth: depth)
         case .newTab:
             return newTabRowCell()
+        case .split(let split):
+            let cell = tableView.makeView(withIdentifier:SplitRowView.reuseIdentifier,owner:self) as? SplitRowView ?? {
+                let cell = SplitRowView(); cell.identifier = SplitRowView.reuseIdentifier; return cell
+            }()
+            configure(cell,with:split)
+            cell.isSelected = tableView.selectedRowIndexes.contains(row)
+            cell.isInGroupPlate = slices.indices.contains(row) && slices[row].contains { !$0.appearance.isStandard }
+            return cell
         case .tab(let tab, let depth, _):
             let cell = tableView.makeView(
                 withIdentifier: TabRowView.reuseIdentifier,
@@ -2925,6 +3016,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
         guard rows.indices.contains(row) else { return false }
         if case .tab = rows[row] { return true }
+        if case .split = rows[row] { return true }
         return false
     }
 
@@ -2932,9 +3024,11 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard let event = NSApp.currentEvent, event.clickCount == 1,
               event.type == .leftMouseUp || event.type == .leftMouseDown,
               sender.clickedRow >= 0,
-              let cell = sender.view(atColumn: 0, row: sender.clickedRow, makeIfNecessary: false) as? TabRowView else { return }
-        cell.activatePinnedIcon(at: cell.convert(event.locationInWindow, from: nil),
-                                keepingCurrentPage: event.modifierFlags.contains(.command))
+              let cell = sender.view(atColumn:0,row:sender.clickedRow,makeIfNecessary:false) else { return }
+        let point = cell.convert(event.locationInWindow,from:nil)
+        let keep = event.modifierFlags.contains(.command)
+        if let cell = cell as? TabRowView { cell.activatePinnedIcon(at:point,keepingCurrentPage:keep) }
+        else if let cell = cell as? SplitRowView { cell.activate(at:point,keepingCurrentPage:keep) }
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
@@ -2960,13 +3054,26 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         for index in rows.indices {
             let cell = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? TabRowView
             cell?.isSelected = selectedIndexes.contains(index)
+            (tableView.view(atColumn:0,row:index,makeIfNecessary:false) as? SplitRowView)?.isSelected = selectedIndexes.contains(index)
         }
         let targetRow = tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow
-        if rows.indices.contains(targetRow), case .tab(let tab, _, _) = rows[targetRow] {
-            if session.activeTab?.id != tab.id {
-                session.selectTab(tab)
+        guard rows.indices.contains(targetRow) else { return }
+        let target: Tab?
+        switch rows[targetRow] {
+        case .tab(let tab, _, _): target = tab
+        case .split(let split):
+            if let event = NSApp.currentEvent, event.type == .leftMouseDown || event.type == .leftMouseUp,
+               let cell = tableView.view(atColumn:0,row:targetRow,makeIfNecessary:true) as? SplitRowView,
+               let member = cell.memberIndex(at:cell.convert(event.locationInWindow,from:nil)) {
+                target = split.tabs[member]
+            } else {
+                let id = shownSpace.splits.preferredTab(containing:split.anchor.id)
+                target = split.tabs.first { $0.id == id } ?? split.tabs.first
             }
+        default: target = nil
         }
+        if let target, session.activeTab !== target { session.selectTab(target) }
+
     }
 
     // Drag reordering, using AppKit's own table-view drag machinery.
@@ -2983,10 +3090,13 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             item.setString(group.id.uuidString, forType: Self.groupRowType)
             return item
         }
-        guard case .tab(let tab, _, _) = rows[row],
-              let index = session.activeSpace.index(of: tab) else {
-            return nil
+        let tab: Tab
+        switch rows[row] {
+        case .tab(let member, _, _): tab = member
+        case .split(let split): tab = split.anchor
+        default: return nil
         }
+        guard let index = session.activeSpace.index(of:tab) else { return nil }
         let item = NSPasteboardItem()
         item.setString(String(index), forType: Self.tabRowType)
         item.setString(tab.id.uuidString, forType: SidebarTabDrag.type)
@@ -3051,6 +3161,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             switch row {
             case .group(let group, let depth, _): return .folder(group, depth: depth)
             case .tab(let tab, let depth, let isEscaping): return .tab(tab, depth: depth, isEscaping: isEscaping)
+            case .split(let split): return .tab(split.anchor,depth:split.depth,isEscaping:split.isEscaping)
             case .liveStatus(_, _, let depth): return .other(depth: depth)
             case .newTab: return .other(depth: 0)
             }
@@ -3124,14 +3235,26 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     private func isTabSplitDrop(row: Int, payload: DropPayload, operation: NSTableView.DropOperation) -> Bool {
-        guard rows.indices.contains(row), case .tab(let targetTab, _, _) = rows[row] else { return false }
+        guard let targetTab = splitDropTarget(at:row), operation == .on || NSEvent.modifierFlags.contains(.option) else { return false }
         switch payload {
         case .tab(let draggedTab, _):
-            return draggedTab.id != targetTab.id && (operation == .on || NSEvent.modifierFlags.contains(.option))
+            guard draggedTab.id != targetTab.id,
+                  session.activeSpace.splits.layout(containing:targetTab.id)?.contains(draggedTab.id) != true else { return false }
+            var proposed = session.activeSpace.splits
+            return proposed.join([targetTab.id,draggedTab.id],grid:.sideBySide)
         case .link:
-            return operation == .on || NSEvent.modifierFlags.contains(.option)
+            return session.activeSpace.splits.layout(containing:targetTab.id)?.isFull != true
         case .group:
             return false
+        }
+    }
+
+    private func splitDropTarget(at row:Int) -> Tab? {
+        guard rows.indices.contains(row) else { return nil }
+        switch rows[row] {
+        case .tab(let tab, _, _): return tab
+        case .split(let split): return split.anchor
+        default: return nil
         }
     }
 
@@ -3148,6 +3271,8 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 if folder.parentID == parentID { return .folder(folder) }
             case .tab(let tab, _, _):
                 if tab.groupID == parentID { return .tab(tab) }
+            case .split(let split):
+                if split.anchor.groupID == parentID { return .tab(split.anchor) }
             default: continue
             }
         }
@@ -3193,15 +3318,15 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             }
             return true
         }
-        if dropOperation == .on, rows.indices.contains(row), case .tab(let targetTab, _, _) = rows[row] {
+        if dropOperation == .on, let targetTab = splitDropTarget(at:row) {
+            guard isTabSplitDrop(row:row,payload:payload,operation:dropOperation) else { return false }
             switch payload {
             case .tab(let draggedTab, _):
                 guard draggedTab.id != targetTab.id else { return false }
-                session.splitTabs([targetTab, draggedTab], grid: .sideBySide)
-                return true
+                return session.splitTabs([targetTab, draggedTab], grid: .sideBySide)
             case .link(let url):
                 let newTab = session.newTab(url: url, select: false)
-                session.splitTabs([targetTab, newTab], grid: .sideBySide)
+                guard session.splitTabs([targetTab, newTab], grid: .sideBySide) else { session.closeTab(newTab); return false }
                 return true
             case .group:
                 break
@@ -3213,10 +3338,9 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         let group = destination.plan.groupID.flatMap { space.group(withID: $0) }
 
         switch payload {
-        case .tab(let tab, let index):
-            session.moveTab(from: index, to: destination.plan.tabIndex)
-            session.move(tab, to: group)
-            session.positionSidebarItem(.tab(tab), before: destination.before, retained: destination.retained)
+        case .tab(let tab, _):
+            return session.moveSidebarTab(tab,to:destination.plan.tabIndex,group:group,
+                                          before:destination.before,retained:destination.retained)
         case .link(let url):
             // Made at the end and then moved, which is the one path every
             // new tab already takes, rather than a second way to insert one.

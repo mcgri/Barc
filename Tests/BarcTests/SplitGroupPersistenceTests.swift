@@ -6,6 +6,32 @@ import Testing
 @Suite("Independent split groups and session restoration", .serialized)
 @MainActor
 struct SplitGroupPersistenceTests {
+    @Test("Group identity and remembered pane survive merging, closing and file restoration")
+    func stableGroupIdentityAndFocus() throws {
+        let (session,store) = TestSession.make()
+        let pages = (0..<4).map { tab("identity-\($0)",in:session) }
+        session.splitTabs(Array(pages.prefix(2)))
+        session.selectTab(pages[1])
+        let firstID = try #require(session.activeSpace.splits.identifier(containing:pages[0].id))
+        session.splitTabs(Array(pages.suffix(2)))
+        session.selectTab(pages[3])
+        let secondID = try #require(session.activeSpace.splits.identifier(containing:pages[2].id))
+        session.saveNow()
+        let restored = reopen(store)
+        let originals = try pages.map { page in try #require(restored.activeSpace.tabs.first { $0.url == page.url }) }
+        #expect(restored.activeSpace.splits.identifier(containing:originals[0].id) == firstID)
+        #expect(restored.activeSpace.splits.preferredTab(containing:originals[0].id) == originals[1].id)
+        #expect(restored.activeSpace.splits.identifier(containing:originals[2].id) == secondID)
+        #expect(restored.activeSpace.splits.preferredTab(containing:originals[2].id) == originals[3].id)
+        // The primary group is second in storage order. It keeps its own identity.
+        #expect(restored.splitTabs([originals[2],originals[0]]))
+        #expect(restored.activeSpace.splits.identifier(containing:originals[0].id) == secondID)
+        #expect(restored.activeSpace.splits.preferredTab(containing:originals[0].id) == originals[3].id)
+        restored.closeTab(originals[2])
+        #expect(restored.activeSpace.splits.identifier(containing:originals[0].id) == secondID)
+        #expect(restored.activeSpace.splits.preferredTab(containing:originals[0].id) == originals[3].id)
+    }
+
     private func tab(_ name: String, in session: BrowserSession) -> Tab {
         session.newTab(url: URL(string: "https://split-groups.invalid/\(name)")!)
     }

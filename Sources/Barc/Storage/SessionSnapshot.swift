@@ -60,6 +60,8 @@ struct SessionSnapshot: Codable, Equatable {
         var layout: SplitLayout
         var tabIndices: [Int]
         var stickyTabIndex: Int?
+        var id: UUID? = nil
+        var focusedTabIndex: Int? = nil
     }
 
     struct Space: Codable, Equatable {
