@@ -2034,7 +2034,7 @@ final class SidebarViewController: NSViewController {
                 item.representedObject = [group, candidate]
                 item.state = candidate === owner ? .on : .off
                 item.isEnabled = true
-                item.image = candidate.dotImage(side: 16)
+                item.image = candidate.menuImage()
                 spaces.addItem(item)
             }
             spaces.addItem(.separator())

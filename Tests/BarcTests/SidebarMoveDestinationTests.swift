@@ -39,9 +39,11 @@ struct SidebarMoveDestinationTests {
             #expect(move.items.map { $0.isSeparatorItem ? "-" : $0.title } == [owner.name, other.name, "-", "New Space…"])
             #expect(!move.items.contains { $0.title == hidden.name })
             for item in move.items.prefix(2) {
-                #expect(item.isEnabled && item.image?.size == NSSize(width: 16, height: 16))
+                #expect(item.isEnabled && item.image?.size == NSSize(width: 14, height: 14))
                 #expect(item.image?.accessibilityDescription == item.title)
             }
+            #expect(move.items[0].image?.isTemplate == false)
+            #expect(move.items[1].image?.isTemplate == true)
             let current = try #require(move.items.first { $0.title == owner.name })
             #expect(current.state == .on && move.items[1].state == .off)
             try await fire(current)

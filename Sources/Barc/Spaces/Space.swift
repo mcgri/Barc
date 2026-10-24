@@ -220,6 +220,15 @@ final class Space: Identifiable {
         icon.image(color: color, title: nameForIcon, side: side)
     }
 
+    /// Menu symbols follow the selected menu text; emoji and custom pictures keep their colors.
+    func menuImage() -> NSImage {
+        let image = dotImage(side: 14)
+        if case .symbol(let name) = icon, FolderSymbols.image(named: name) != nil {
+            image.isTemplate = true
+        }
+        return image
+    }
+
     /// What VoiceOver reads for the mark. The space's own name when it has
     /// one, because "Work" says more than the colour's name does; the colour
     /// only has to stand in for an unnamed space.

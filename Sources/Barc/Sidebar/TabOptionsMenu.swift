@@ -53,7 +53,7 @@ enum TabOptionsMenu {
         for candidate in destinations {
             let item = add(candidate.name, .move(candidate.id), to: spaces)
             item.state = candidate === owner ? .on : .off
-            item.image = candidate.dotImage(side: 16)
+            item.image = candidate.menuImage()
         }
         spaces.addItem(.separator())
         add("New Space…", .newSpace, to: spaces)
