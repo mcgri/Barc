@@ -146,17 +146,24 @@ private final class ThemeEditorSurface: NSView {
     var color: NSColor = .clear { didSet { needsDisplay = true } }
     override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.withAlphaComponent(0.92).setFill()
-        NSRect(x: 0, y: 346, width: bounds.width, height: max(0, bounds.height - 346)).fill()
+        bounds.fill()
         NSGradient(starting: color.withAlphaComponent(0.015), ending: color.withAlphaComponent(0.045))?.draw(in: bounds, angle: 90)
     }
 }
 
 @MainActor
-final class ThemeColorCanvas: NSView {
+final class ThemeColorCanvas: NSVisualEffectView {
     var onSelect: ((Int) -> Void)?
     var onMove: ((Int, NSColor) -> Void)?
     private var handles: [ThemeColorHandle] = []
     override var isFlipped: Bool { true }
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        material = .popover; blendingMode = .behindWindow; state = .active
+        wantsLayer = true; layer?.cornerRadius = 8; layer?.masksToBounds = true
+        setAccessibilityElement(false)
+    }
+    required init?(coder: NSCoder) { fatalError("Created in code only") }
     func show(_ colors: [ImportedChrome.Color]) {
         while handles.count > colors.count { handles.removeLast().removeFromSuperview() }
         for (i, color) in colors.enumerated() {
@@ -185,6 +192,7 @@ final class ThemeColorCanvas: NSView {
         }
     }
     override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
         NSColor.labelColor.withAlphaComponent(0.025).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
         NSColor.labelColor.withAlphaComponent(0.18).setFill()
