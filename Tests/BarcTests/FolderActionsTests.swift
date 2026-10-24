@@ -210,10 +210,11 @@ struct FolderIconPickerTests {
     func picker() throws {
         var chosen: FolderIcon?
         let picker = FolderIconPicker(selected: .symbol("ionicon.star")) { chosen = $0 }
-        let host = UITestSupport.host(picker.view, width: 270, height: 138)
+        let host = UITestSupport.host(picker.view, width: 270, height: 144)
         host.layoutSubtreeIfNeeded()
         let buttons = UITestSupport.buttons(in: picker.view)
         #expect(buttons.count == 24)
+        #expect(buttons.allSatisfy { $0.image?.isTemplate == false && $0.image?.size == NSSize(width: 14, height: 14) })
         #expect(Set(buttons.map { $0.frame.midY }).count == 3)
         #expect(Set(buttons.map { $0.frame.midX }).count == 8)
         for choice in FolderSymbols.choices {

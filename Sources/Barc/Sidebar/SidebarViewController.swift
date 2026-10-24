@@ -502,6 +502,7 @@ final class SidebarViewController: NSViewController {
         // highlight cannot be.
         tableView.style = .plain
         tableView.selectionHighlightStyle = .none
+        tableView.focusRingType = .none
         // A row's shadow is allowed to fall on its neighbours. The scroll view
         // still clips at the list's own edges, which is right.
         tableView.clipsToBounds = false
@@ -1992,6 +1993,8 @@ final class SidebarViewController: NSViewController {
     func makeGroupMenu(for group: TabGroup) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        menu.allowsContextMenuPlugIns = false
+        if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
         let owner = session.spaces.first { $0.group(withID: group.id) === group }
         @discardableResult
         func add(_ title: String, _ selector: Selector, alternate: Bool = false) -> NSMenuItem {
@@ -2091,7 +2094,7 @@ final class SidebarViewController: NSViewController {
         }
         folderIconPopover = popover
         let anchor = header.iconPickerAnchor
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
+        popover.show(relativeTo: anchor.bounds.offsetBy(dx: 1, dy: -3), of: anchor, preferredEdge: .minY)
     }
 
     @objc private func moveGroupToSpaceFromMenu(_ sender: Any?) {
@@ -2616,6 +2619,8 @@ extension SidebarViewController: NSMenuDelegate {
         source.removeAllItems()
         menu.items = items
         menu.autoenablesItems = source.autoenablesItems
+        menu.allowsContextMenuPlugIns = source.allowsContextMenuPlugIns
+        if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = source.automaticallyInsertsWritingToolsItems }
     }
 }
 

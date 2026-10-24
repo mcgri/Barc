@@ -10,7 +10,7 @@ final class FolderIconPicker: NSViewController {
         self.selected = selected
         self.onChoose = onChoose
         super.init(nibName: nil, bundle: nil)
-        preferredContentSize = NSSize(width: 270, height: 138)
+        preferredContentSize = NSSize(width: 270, height: 144)
     }
 
     required init?(coder: NSCoder) { fatalError("Created in code only") }
@@ -30,10 +30,17 @@ final class FolderIconPicker: NSViewController {
             button.isBordered = false
             button.title = ""
             button.imagePosition = .imageOnly
-            let image = FolderSymbols.image(named: choice.storedName)?.copy() as? NSImage
-            image?.size = NSSize(width: 16, height: 16)
+            let symbol = FolderSymbols.image(named: choice.storedName)
+            // Solid gray artwork stays neutral over a colorful popover. A
+            // template button image inherits the material's vibrant tint.
+            let image = NSImage(size: NSSize(width: 14, height: 14), flipped: false) { rect in
+                symbol?.draw(in: rect)
+                NSColor.gray.setFill()
+                rect.fill(using: .sourceAtop)
+                return true
+            }
+            image.isTemplate = false
             button.image = image
-            button.contentTintColor = Style.Colors.secondaryText
             button.imageScaling = .scaleProportionallyDown
             button.toolTip = choice.title
             button.setAccessibilityLabel(choice.title)
@@ -56,9 +63,9 @@ final class FolderIconPicker: NSViewController {
         grid.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(grid)
         NSLayoutConstraint.activate([
-            title.topAnchor.constraint(equalTo: view.topAnchor, constant: 10),
+            title.topAnchor.constraint(equalTo: view.topAnchor, constant: 13),
             title.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 42),
+            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 45),
             grid.centerXAnchor.constraint(equalTo: view.centerXAnchor)
         ])
     }
