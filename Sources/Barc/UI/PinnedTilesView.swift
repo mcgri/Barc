@@ -30,28 +30,30 @@ struct PinnedTile {
 
 /// The row of shortcut tiles below the traffic lights.
 ///
-/// With no pins at all the strip shows a single dashed slot inviting the first
-/// one, so an empty band never renders. That slot is dropped the moment the
-/// first pin lands: once there is a shortcut to click, the "add one" placeholder
-/// is just noise, and a tab's Pin command is the way to add more.
+/// An empty strip explains how to add Favorites. The hint can be dismissed;
+/// it temporarily returns as a drop target while a sidebar tab is dragged.
 @MainActor
 final class PinnedTilesView: NSView {
-    /// The dashed slot was clicked.
-    var onAdd: (() -> Void)?
+    var onDismissHint: (() -> Void)?
+    var canDropTab: ((UUID) -> Bool)?
+    var onDropTab: ((UUID) -> Bool)?
     /// A tile was clicked, identified by `PinnedTile.id`.
     var onSelect: ((String) -> Void)?
     /// A tile asked to be unpinned, identified by `PinnedTile.id`.
     var onRemove: ((String) -> Void)?
 
     private var tileViews: [PinnedTileView] = []
-    private let emptySlot = EmptyTileView()
+    private let emptyHint = EmptyFavoritesHint()
+    private var showsEmptyHint = true
+    private var tabDragInProgress = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
 
-        emptySlot.onClick = { [weak self] in self?.onAdd?() }
-        addSubview(emptySlot)
+        emptyHint.onDismiss = { [weak self] in self?.onDismissHint?() }
+        addSubview(emptyHint)
+        registerForDraggedTypes([SidebarTabDrag.type])
 
         setAccessibilityRole(.group)
         setAccessibilityLabel("Pinned shortcuts")
@@ -62,7 +64,7 @@ final class PinnedTilesView: NSView {
         fatalError("PinnedTilesView is created in code only")
     }
 
-    /// Number of tiles currently shown, not counting the dashed slot. Exists
+    /// Number of tiles currently shown, not counting the hint. Exists
     /// for the layout tests, which otherwise have no way to see inside.
     private(set) var tileCount = 0
 
@@ -71,7 +73,8 @@ final class PinnedTilesView: NSView {
     ///   one. The default is the private answer rather than the common one: a
     ///   caller that has not said which kind of space this is must not have its pins
     ///   recorded on disk on the strength of a convenient default.
-    func show(_ tiles: [PinnedTile], isPrivate: Bool = true) {
+    func show(_ tiles: [PinnedTile], isPrivate: Bool = true, showsEmptyHint: Bool = true) {
+        self.showsEmptyHint = showsEmptyHint
         for view in tileViews { view.removeFromSuperview() }
         tileViews = tiles.map { tile in
             let view = PinnedTileView(tile: tile, isPrivate: isPrivate)
@@ -79,15 +82,45 @@ final class PinnedTilesView: NSView {
             view.onRemove = { [weak self] in self?.onRemove?(tile.id) }
             return view
         }
-        // Inserted below the dashed slot so the subview order matches the order
-        // they are read in: tiles first, the slot last.
-        for view in tileViews { addSubview(view, positioned: .below, relativeTo: emptySlot) }
-        // The dashed slot is the empty state, not a permanent "add" button: it
-        // shows only until the first pin exists.
-        emptySlot.isHidden = !tiles.isEmpty
+        for view in tileViews { addSubview(view, positioned: .below, relativeTo: emptyHint) }
         tileCount = tiles.count
+        refreshEmptyHint()
+    }
+
+    func setTabDragInProgress(_ dragging: Bool) {
+        tabDragInProgress = dragging
+        refreshEmptyHint()
+    }
+
+    private func refreshEmptyHint() {
+        emptyHint.isHidden = !tileViews.isEmpty || (!showsEmptyHint && !tabDragInProgress)
+        isHidden = tileViews.isEmpty && emptyHint.isHidden
         invalidateIntrinsicContentSize()
         needsLayout = true
+    }
+
+    func canAcceptDrop(from pasteboard: NSPasteboard) -> Bool {
+        guard let id = SidebarTabDrag.id(in: pasteboard) else { return false }
+        return canDropTab?(id) == true
+    }
+
+    @discardableResult
+    func acceptDrop(from pasteboard: NSPasteboard) -> Bool {
+        guard canAcceptDrop(from: pasteboard), let id = SidebarTabDrag.id(in: pasteboard) else { return false }
+        return onDropTab?(id) == true
+    }
+
+    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
+        let accepts = canAcceptDrop(from: sender.draggingPasteboard)
+        emptyHint.isDropTarget = accepts
+        return accepts ? .move : []
+    }
+    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
+    override func draggingExited(_ sender: (any NSDraggingInfo)?) { emptyHint.isDropTarget = false }
+    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { canAcceptDrop(from: sender.draggingPasteboard) }
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        defer { emptyHint.isDropTarget = false }
+        return acceptDrop(from: sender.draggingPasteboard)
     }
 
     // MARK: - Layout
@@ -103,9 +136,11 @@ final class PinnedTilesView: NSView {
     /// rather than leaving a ragged gap.
     override func layout() {
         super.layout()
-        // Once there are tiles, the dashed slot is gone, so it drops out of the
-        // grid too and the tiles fill the strip without a trailing blank cell.
-        let items = tileViews.map { $0 as NSView } + (tileViews.isEmpty ? [emptySlot] : [])
+        if tileViews.isEmpty {
+            emptyHint.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Self.emptyHintHeight)
+            return
+        }
+        let items = tileViews
         let plan = TileGrid.plan(itemCount: items.count, availableWidth: bounds.width)
 
         // The number of rows is only knowable once the width is, and the width
@@ -131,12 +166,12 @@ final class PinnedTilesView: NSView {
     }
 
     override var intrinsicContentSize: NSSize {
-        // Matches `layout`'s item count: the dashed slot counts only while it is
-        // the empty state, so a strip with tiles is sized for the tiles alone.
-        let itemCount = tileViews.isEmpty ? 1 : tileViews.count
-        let plan = TileGrid.plan(itemCount: itemCount, availableWidth: bounds.width)
+        if tileViews.isEmpty { return NSSize(width: NSView.noIntrinsicMetric, height: emptyHint.isHidden ? 0 : Self.emptyHintHeight) }
+        let plan = TileGrid.plan(itemCount: tileViews.count, availableWidth: bounds.width)
         return NSSize(width: NSView.noIntrinsicMetric, height: plan.height)
     }
+
+    static let emptyHintHeight: CGFloat = 96
 
     override func setFrameSize(_ newSize: NSSize) {
         let widthChanged = newSize.width != frame.width
@@ -364,86 +399,60 @@ private final class PinnedTileView: NSView {
     @objc private func removeFromMenu() { onRemove?() }
 }
 
-/// The dashed slot at the end of the strip.
+/// A full-width, dismissible explanation instead of an empty Favorite tile.
 @MainActor
-private final class EmptyTileView: NSView {
-    var onClick: (() -> Void)?
-
+private final class EmptyFavoritesHint: NSView {
+    var onDismiss: (() -> Void)?
+    var isDropTarget = false { didSet { needsDisplay = true } }
     private let icon = NSImageView()
-    private var trackingArea: NSTrackingArea?
-    private var isHovered = false {
-        didSet { if isHovered != oldValue { needsDisplay = true } }
-    }
+    private let title = NSTextField(labelWithString: "Drag to add Favorites")
+    private let detail = NSTextField(wrappingLabelWithString: "Favorites keep your most used sites and apps close")
+    private let dismiss = IconButton(symbolName: "xmark", label: "Dismiss Favorites Hint", side: 22, symbolSize: 11)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // The strip sets this view's frame directly, so it is laid out by
-        // frame rather than by constraints.
         translatesAutoresizingMaskIntoConstraints = true
-
-        icon.image = NSImage(systemSymbolName: "pin", accessibilityDescription: nil)
-        icon.contentTintColor = Style.Colors.tertiaryText
+        icon.image = NSImage(systemSymbolName: "star.circle.fill", accessibilityDescription: nil)
+        icon.symbolConfiguration = .init(pointSize: 16, weight: .regular)
+        icon.contentTintColor = .labelColor.withAlphaComponent(0.70)
         icon.imageScaling = .scaleProportionallyDown
-        icon.setAccessibilityElement(false)
-        icon.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(icon)
-
-        toolTip = "Pin a Shortcut"
-        setAccessibilityRole(.button)
-        setAccessibilityLabel("Pin a Shortcut")
-        setAccessibilityElement(true)
-
-        NSLayoutConstraint.activate([
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
-            icon.widthAnchor.constraint(equalToConstant: Style.Metrics.smallGlyphSide + 4),
-            icon.heightAnchor.constraint(equalToConstant: Style.Metrics.smallGlyphSide + 4)
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("EmptyTileView is created in code only")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if isHovered {
-            Style.Colors.tileFill.setFill()
-            NSBezierPath(
-                roundedRect: bounds,
-                xRadius: Style.Metrics.tileCornerRadius,
-                yRadius: Style.Metrics.tileCornerRadius
-            ).fill()
+        icon.isEnabled = false
+        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        title.textColor = .labelColor.withAlphaComponent(0.70)
+        title.alignment = .center
+        title.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        detail.font = .systemFont(ofSize: 13)
+        detail.textColor = .labelColor.withAlphaComponent(0.55)
+        detail.alignment = .center
+        detail.maximumNumberOfLines = 2
+        detail.setContentCompressionResistancePriority(.init(1), for: .horizontal)
+        dismiss.contentTintColor = .labelColor.withAlphaComponent(0.45)
+        dismiss.setClickHandler { [weak self] in self?.onDismiss?() }
+        for view in [icon, title, detail, dismiss] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
         }
-        // Inset by half the line width so the stroke lands inside the tile's
-        // own rectangle and the dashes line up with the filled tiles beside it.
-        let path = NSBezierPath(
-            roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5),
-            xRadius: Style.Metrics.tileCornerRadius,
-            yRadius: Style.Metrics.tileCornerRadius
-        )
+        NSLayoutConstraint.activate([
+            icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16),
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            title.topAnchor.constraint(equalTo: topAnchor, constant: 34),
+            detail.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12), detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            detail.topAnchor.constraint(equalTo: topAnchor, constant: 54),
+            dismiss.topAnchor.constraint(equalTo: topAnchor, constant: 4), dismiss.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4)
+        ])
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Empty Favorites")
+    }
+    required init?(coder: NSCoder) { fatalError("EmptyFavoritesHint is created in code only") }
+    override var isFlipped: Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.withAlphaComponent(isDropTarget ? 0.22 : 0.12).setFill()
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
+        path.fill()
         path.lineWidth = 1
-        path.setLineDash([3, 3], count: 2, phase: 0)
-        Style.Colors.emptySlotStroke.setStroke()
+        path.setLineDash([5, 5], count: 2, phase: 0)
+        NSColor.labelColor.withAlphaComponent(isDropTarget ? 0.65 : 0.30).setStroke()
         path.stroke()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingArea = installHoverTracking(replacing: trackingArea)
-    }
-
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
-    override func mouseExited(with event: NSEvent) { isHovered = false }
-    /// The squeeze the tile gives under a click. See `SpringPress`.
-    private lazy var press = SpringPress(view: self)
-
-    override func mouseDown(with event: NSEvent) {
-        if acceptsSpringPress { press.flick() }
-        onClick?()
-    }
-
-    override func accessibilityPerformPress() -> Bool {
-        onClick?()
-        return true
     }
 }

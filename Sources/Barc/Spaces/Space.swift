@@ -395,6 +395,9 @@ final class Space: Identifiable {
         tabs.filter { $0.pinnedSiteID == nil }
     }
 
+    /// Presentation only: the empty content owner stays in the saved session.
+    var sidebarVisibleTabs: [Tab] { listedTabs.filter { !$0.isSidebarPlaceholder } }
+
     // MARK: - Pinned sites
 
     func addPinnedSite(_ site: PinnedSite) {

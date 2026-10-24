@@ -1,3 +1,4 @@
+// Modified for Barc: imported sidebar appearance and persistent Favorites hint dismissal, 2026-10-24.
 import AppKit
 
 /// Everything about how the window looks and behaves that a space decides
@@ -51,6 +52,8 @@ struct SpaceLook: Codable, Hashable, Sendable {
     var sidebarWidth: Double?
     /// The Space heading folds the retained folders and tabs above New Tab.
     var pinnedSectionCollapsed = false
+    /// The empty Favorites hint can be dismissed without hiding real Favorites.
+    var favoritesHintDismissed = false
 
     init() {}
 
@@ -66,7 +69,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case appearance, customColorHex, importedChrome, importedChromeWasCustomized, gradient, washOpacity, allowsWebsiteThemeColor
         case alwaysShowsToolbarInFullScreen, autoShowsSidebarInFullScreen, isOpaqueInFullScreen
-        case showsBookmarksBar, bookmarksBarStyle, fonts, sidebarWidth, pinnedSectionCollapsed
+        case showsBookmarksBar, bookmarksBarStyle, fonts, sidebarWidth, pinnedSectionCollapsed, favoritesHintDismissed
     }
 
     init(from decoder: Decoder) throws {
@@ -87,6 +90,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         fonts = (try? container.decodeIfPresent(WebFonts.self, forKey: .fonts)) ?? fallback.fonts
         sidebarWidth = try? container.decodeIfPresent(Double.self, forKey: .sidebarWidth)
         pinnedSectionCollapsed = (try? container.decodeIfPresent(Bool.self, forKey: .pinnedSectionCollapsed)) ?? false
+        favoritesHintDismissed = (try? container.decodeIfPresent(Bool.self, forKey: .favoritesHintDismissed)) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -108,6 +112,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         // width of its own" survives the round trip as itself.
         try container.encodeIfPresent(sidebarWidth, forKey: .sidebarWidth)
         if pinnedSectionCollapsed { try container.encode(true, forKey: .pinnedSectionCollapsed) }
+        if favoritesHintDismissed { try container.encode(true, forKey: .favoritesHintDismissed) }
     }
 }
 

@@ -1335,7 +1335,7 @@ final class BrowserSession {
     /// the user can see; a pinned site's tab is not listed and not counted.
     /// Past the end, nine and above mean the last tab.
     func selectTab(number: Int) {
-        let tabs = activeSpace.listedTabs
+        let tabs = activeSpace.sidebarVisibleTabs
         guard !tabs.isEmpty else { return }
         let index = tabs.indices.contains(number - 1) ? number - 1
             : number >= 9 ? tabs.count - 1
@@ -1533,7 +1533,7 @@ final class BrowserSession {
     /// the list rather than showing the same site twice.
     func pin(_ tab: Tab) {
         let space = activeSpace
-        guard space.index(of: tab) != nil, !isPinned(tab) else { return }
+        guard space.index(of: tab) != nil, !isPinned(tab), space.pinnedSites.count < 12 else { return }
         let site = PinnedSite(url: tab.url, title: tab.displayTitle)
         space.addPinnedSite(site)
         tab.setPinnedSiteID(site.id)

@@ -148,7 +148,7 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
         layer?.backgroundColor = wash.map { ground.blended(withFraction: $0.alphaComponent, of: $0.withAlphaComponent(1))?.cgColor ?? ground.cgColor } ?? ground.cgColor
         grain.amount = space.chromeGrain
         for row in rows.arrangedSubviews { rows.removeArrangedSubview(row); row.removeFromSuperview() }
-        let visible = space.listedTabs.filter { !(StartPage.isStartPage($0.url) && $0.importedSourceID == nil && $0.customName == nil) }
+        let visible = space.sidebarVisibleTabs
         for row in FolderRowPlan.rows(groups: space.groups, tabs: visible, activeTabID: space.activeTabID) {
             switch row {
             case .folder(let group, let depth, _):

@@ -81,7 +81,8 @@ struct BrowserSessionTests {
     @Test("Tab numbers are one-based and nine means last")
     func selectByNumber() {
         let session = TestSession.make().0
-        let a = session.activeSpace.tabs[0]
+        let placeholder = session.activeSpace.tabs[0]
+        let a = session.newTab(url: url("https://a.example"))
         let b = session.newTab(url: url("https://b.example"))
         let c = session.newTab(url: url("https://c.example"))
 
@@ -91,6 +92,7 @@ struct BrowserSessionTests {
         #expect(session.activeTab === b)
         session.selectTab(number: 9)
         #expect(session.activeTab === c)
+        #expect(session.activeSpace.tabs.contains { $0 === placeholder }, "The hidden empty page is preserved in the model")
     }
 
     @Test("Next and previous tab wrap around")

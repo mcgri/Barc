@@ -270,7 +270,18 @@ final class SidebarViewController: NSViewController {
             session.setLook(look, for: space)
         }
 
-        pinnedTiles.onAdd = { [weak self] in self?.session.pinActiveTab() }
+        pinnedTiles.onDismissHint = { [weak self] in
+            guard let self else { return }
+            let space = shownSpace
+            var look = space.look; look.favoritesHintDismissed = true
+            session.setLook(look, for: space)
+        }
+        pinnedTiles.canDropTab = { [weak self] id in self?.canFavoriteTab(id: id) == true }
+        pinnedTiles.onDropTab = { [weak self] id in
+            guard let self, canFavoriteTab(id: id), let tab = session.activeSpace.tabs.first(where: { $0.id == id }) else { return false }
+            session.pin(tab)
+            return tab.pinnedSiteID != nil
+        }
         pinnedTiles.onSelect = { [weak self] id in
             guard let self,
                   let site = self.session.activeSpace.pinnedSites.first(where: { $0.id.uuidString == id })
@@ -405,7 +416,7 @@ final class SidebarViewController: NSViewController {
                 equalTo: contentStack.leadingAnchor,
                 constant: Style.Metrics.sidebarInset
             ),
-            pinnedTiles.trailingAnchor.constraint(lessThanOrEqualTo: contentStack.trailingAnchor),
+            pinnedTiles.trailingAnchor.constraint(equalTo: contentStack.trailingAnchor),
             identity.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             view.widthAnchor.constraint(
                 // The split item's own minimum, not a second one derived from
@@ -1058,8 +1069,17 @@ final class SidebarViewController: NSViewController {
                     favicon: space.tab(forPin: site.id)?.restoredFavicon
                 )
             },
-            isPrivate: space.isPrivate
+            isPrivate: space.isPrivate,
+            showsEmptyHint: !space.look.favoritesHintDismissed
         )
+    }
+
+    private func canFavoriteTab(id: UUID) -> Bool {
+        guard previewSpace == nil, shownSpace === session.activeSpace,
+              session.activeSpace.pinnedSites.count < 12,
+              let tab = session.activeSpace.tabs.first(where: { $0.id == id }),
+              !StartPage.isStartPage(tab.url), !session.isPinned(tab) else { return false }
+        return true
     }
     func makeSpaceOptionsMenu(for space: Space, anchor: NSView) -> NSMenu {
         let hasGitHub = space.groups.contains { group in
@@ -1258,8 +1278,8 @@ final class SidebarViewController: NSViewController {
     private func rebuildRows() {
         let space = shownSpace
         var flattened: [SidebarRow] = []
-        let kept = space.listedTabs.filter { $0.groupID == nil && $0.keepsInSidebar }
-        let remaining = space.listedTabs.filter { $0.groupID != nil || !$0.keepsInSidebar }
+        let kept = space.sidebarVisibleTabs.filter { $0.groupID == nil && $0.keepsInSidebar }
+        let remaining = space.sidebarVisibleTabs.filter { $0.groupID != nil || !$0.keepsInSidebar }
         for row in FolderRowPlan.rows(
             groups: space.groups,
             // A pinned shortcut is represented by its tile; listing its tab as
@@ -2471,7 +2491,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     /// last pill, so the card has clearance at both ends.
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return Style.Metrics.rowHeight }
-        if case .newTab = rows[row] { return Style.Metrics.rowHeight + 24 }
+        if case .newTab = rows[row] { return Style.Metrics.rowHeight + (hasVisibleRetainedRows ? 24 : 0) }
         if case .group(let group, _, _) = rows[row] {
             return Style.Metrics.groupHeaderHeight + (group.appearance.isStandard ? 0 : Style.Metrics.folderPlateGap)
                 + plateGapBelow(row: row)
@@ -2623,6 +2643,10 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     /// Separates retained tabs above from today's tabs below.
+    private var hasVisibleRetainedRows: Bool {
+        (rows.firstIndex { if case .newTab = $0 { return true }; return false } ?? 0) > 0
+    }
+
     private func newTabRowCell() -> NSView {
         let header = ActionRowView()
         header.show(symbolName: "plus", title: "New Tab")
@@ -2632,6 +2656,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         container.addSubview(header)
         let divider = NSBox()
         divider.boxType = .separator
+        divider.isHidden = !hasVisibleRetainedRows
         divider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(divider)
         NSLayoutConstraint.activate([
@@ -2644,7 +2669,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 constant: Style.Metrics.sidebarInset
             ),
             header.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: 12)
+            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: hasVisibleRetainedRows ? 12 : 0)
         ])
         return container
     }
@@ -2731,7 +2756,18 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         }
         let item = NSPasteboardItem()
         item.setString(String(index), forType: Self.tabRowType)
+        item.setString(tab.id.uuidString, forType: SidebarTabDrag.type)
         return item
+    }
+
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
+                   willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
+        pinnedTiles.setTabDragInProgress(true)
+    }
+
+    func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
+                   endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        pinnedTiles.setTabDragInProgress(false)
     }
 
     /// What is being dragged, or nil for something this list does not take.

@@ -671,6 +671,14 @@ final class Tab: Identifiable {
     /// of fact, and a page must never be able to overwrite the first.
     var customName: String? { TabNameStore.shared.name(for: id) }
 
+    /// An empty Space keeps a native start-page tab as its content owner. It
+    /// does not need a second New Tab row alongside the sidebar's action.
+    var isSidebarPlaceholder: Bool {
+        StartPage.isStartPage(url) && importedSourceID == nil && groupID == nil && pinnedSiteID == nil
+            && !keepsInSidebar && !keepsAwake && !isLocked && customName == nil
+            && note == nil && emoji == nil && colorTag == nil && !canGoBack && !canGoForward
+    }
+
     init(url: URL, identity: Space.Identity) {
         showsStartPage = StartPage.isStartPage(url)
         blankIsStartPage = showsStartPage

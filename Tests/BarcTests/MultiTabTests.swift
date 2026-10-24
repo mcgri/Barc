@@ -102,7 +102,8 @@ struct MultiTabTests {
     @Test("Sidebar selectedTabs returns matching tab models from selected row indexes")
     func testSidebarSelectedTabs() {
         let session = TestSession.make().0
-        let tab1 = session.activeTab!
+        let placeholder = session.activeTab!
+        let tab1 = session.newTab(url: url("https://example.com/tab1"))
         let tab2 = session.newTab(url: url("https://example.com/tab2"))
         let tab3 = session.newTab(url: url("https://example.com/tab3"))
 
@@ -126,5 +127,7 @@ struct MultiTabTests {
         #expect(selected.contains { $0.id == tab1.id })
         #expect(selected.contains { $0.id == tab2.id })
         #expect(selected.contains { $0.id == tab3.id })
+        #expect(!selected.contains { $0.id == placeholder.id })
+        #expect(session.activeSpace.tabs.contains { $0.id == placeholder.id })
     }
 }

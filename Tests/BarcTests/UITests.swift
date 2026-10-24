@@ -160,12 +160,12 @@ struct ContentTopBarTests {
 @Suite("Pinned tiles")
 @MainActor
 struct PinnedTilesTests {
-    /// The dashed slot is the only subview announced as "Pin a Shortcut".
+    /// The hint is separate from the real Favorite tiles.
     private func emptySlot(in strip: PinnedTilesView) -> NSView? {
-        UITestSupport.descendants(of: strip).first { $0.accessibilityLabel() == "Pin a Shortcut" }
+        UITestSupport.descendants(of: strip).first { $0.accessibilityLabel() == "Empty Favorites" }
     }
 
-    @Test("The dashed slot is shown when nothing is pinned")
+    @Test("The Favorites hint is shown when nothing is pinned")
     func emptySlotShownWhenEmpty() {
         let strip = PinnedTilesView()
         strip.show([])
@@ -173,7 +173,7 @@ struct PinnedTilesTests {
         #expect(emptySlot(in: strip)?.isHidden == false)
     }
 
-    @Test("The dashed slot disappears once the first pin is added")
+    @Test("The Favorites hint disappears once the first pin is added")
     func emptySlotHiddenOncePinned() {
         let strip = PinnedTilesView()
         strip.show([PinnedTile(id: "a", title: "Mail")])
@@ -183,7 +183,7 @@ struct PinnedTilesTests {
         #expect(emptySlot(in: strip)?.isHidden == true)
     }
 
-    @Test("Removing the last pin brings the dashed slot back")
+    @Test("Removing the last pin brings an undismissed Favorites hint back")
     func emptySlotReturnsWhenEmptied() {
         let strip = PinnedTilesView()
         strip.show([PinnedTile(id: "a", title: "Mail")])
