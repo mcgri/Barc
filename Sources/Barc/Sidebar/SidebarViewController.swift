@@ -1164,7 +1164,11 @@ final class SidebarViewController: NSViewController {
         spaceColorPopover?.close()
         spaceColorPopover = popover
         let position = anchor.convert(anchor.bounds, to: view)
-        popover.show(relativeTo: NSRect(x: view.bounds.maxX - 1, y: position.midY, width: 1, height: 1), of: view, preferredEdge: .maxX)
+        let trailing = settings.sidebarPosition == .trailing
+        let halfHeight = (popover.contentViewController?.preferredContentSize.height ?? 508) / 2
+        let y = min(view.bounds.maxY - 1, max(position.midY, view.bounds.minY + halfHeight + 52))
+        popover.show(relativeTo: NSRect(x: trailing ? view.bounds.minX : view.bounds.maxX - 1, y: y, width: 1, height: 1),
+                     of: view, preferredEdge: trailing ? .minX : .maxX)
     }
 
     /// Recomputed on every rebuild; cheap, tens of tabs.

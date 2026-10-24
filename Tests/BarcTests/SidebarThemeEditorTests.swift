@@ -30,6 +30,7 @@ struct SidebarThemeEditorTests {
         let before = session.snapshot()
         let editor = SidebarThemeEditor(session: session, space: space)
         _ = editor.view
+        #expect(editor.preferredContentSize == NSSize(width: 356, height: 508))
         #expect(editor.style.colors == [imported.color] && editor.style.intensity == 0.8 && editor.style.grain == 0.65)
         #expect(!((try button("Move to previous preset page.", in: editor)).isEnabled))
         for _ in 0..<4 { try button("Move to next preset page.", in: editor).performClick(nil) }

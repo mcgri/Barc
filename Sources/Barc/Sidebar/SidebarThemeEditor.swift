@@ -30,26 +30,26 @@ final class SidebarThemeEditor: NSViewController {
     init(session: BrowserSession, space: Space) {
         self.session = session; self.space = space; style = SidebarThemeStyle(space: space)
         super.init(nibName: nil, bundle: nil)
-        preferredContentSize = NSSize(width: 356, height: 500)
+        preferredContentSize = NSSize(width: 356, height: 508)
     }
     required init?(coder: NSCoder) { fatalError("Created in code only") }
 
     override func loadView() {
         let root = ThemeEditorSurface(frame: NSRect(origin: .zero, size: preferredContentSize))
         view = root
-        canvas.frame = NSRect(x: 10, y: 8, width: 336, height: 336)
+        canvas.frame = NSRect(x: 9, y: 8, width: 338, height: 338)
         root.addSubview(canvas)
         let symbols = ["sparkles", "sun.max.fill", "moon.stars.fill"]
         for (i, appearance) in AppearancePreference.allCases.enumerated() {
             let button = iconButton(symbols[i], label: appearance.title, action: #selector(chooseAppearance(_:)))
-            button.tag = i; button.frame = NSRect(x: 112 + CGFloat(i) * 40, y: 24, width: 32, height: 32)
+            button.tag = i; button.frame = NSRect(x: 113 + CGFloat(i) * 40, y: 23, width: 32, height: 32)
             button.wantsLayer = true; button.layer?.cornerRadius = 8
             canvas.addSubview(button); modeButtons.append(button)
         }
         configure(add, symbol: "plus", label: "Add", action: #selector(addColor))
         configure(remove, symbol: "minus", label: "Remove", action: #selector(removeColor))
-        remove.frame = NSRect(x: 134, y: 289, width: 28, height: 28)
-        add.frame = NSRect(x: 174, y: 289, width: 28, height: 28)
+        remove.frame = NSRect(x: 135, y: 294, width: 28, height: 28)
+        add.frame = NSRect(x: 175, y: 294, width: 28, height: 28)
         canvas.addSubview(remove); canvas.addSubview(add)
         canvas.onSelect = { [weak self] index in self?.selectedColor = index }
         canvas.onMove = { [weak self] index, color in
@@ -58,16 +58,16 @@ final class SidebarThemeEditor: NSViewController {
         }
         configure(previous, symbol: "chevron.left", label: "Move to previous preset page.", action: #selector(previousPage))
         configure(next, symbol: "chevron.right", label: "Move to next preset page.", action: #selector(nextPage))
-        previous.frame = NSRect(x: 12, y: 363, width: 22, height: 30)
-        next.frame = NSRect(x: 322, y: 363, width: 22, height: 30)
+        previous.frame = NSRect(x: 12, y: 364, width: 22, height: 30)
+        next.frame = NSRect(x: 322, y: 364, width: 22, height: 30)
         root.addSubview(previous); root.addSubview(next)
         for i in 0..<9 {
             let button = NSButton(); button.isBordered = false; button.imagePosition = .imageOnly
             button.tag = i; button.target = self; button.action = #selector(choosePreset(_:))
-            button.frame = NSRect(x: 48 + CGFloat(i) * 29.5, y: 365, width: 24, height: 24)
+            button.frame = NSRect(x: 48 + CGFloat(i) * 29.5, y: 367, width: 24, height: 24)
             root.addSubview(button); swatches.append(button)
         }
-        intensity.frame = NSRect(x: 12, y: 418, width: 232, height: 70)
+        intensity.frame = NSRect(x: 12, y: 416, width: 232, height: 70)
         grain.frame = NSRect(x: 260, y: 413, width: 76, height: 76)
         root.addSubview(intensity); root.addSubview(grain)
         intensity.onChange = { [weak self] value in self?.style.intensity = value; self?.commit() }
@@ -145,6 +145,8 @@ private final class ThemeEditorSurface: NSView {
     override var isFlipped: Bool { true }
     var color: NSColor = .clear { didSet { needsDisplay = true } }
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.textBackgroundColor.withAlphaComponent(0.92).setFill()
+        NSRect(x: 0, y: 346, width: bounds.width, height: max(0, bounds.height - 346)).fill()
         NSGradient(starting: color.withAlphaComponent(0.015), ending: color.withAlphaComponent(0.045))?.draw(in: bounds, angle: 90)
     }
 }
