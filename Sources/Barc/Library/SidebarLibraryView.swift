@@ -354,9 +354,13 @@ private final class LibraryCategoryButton: NSButton {
     }
     required init?(coder: NSCoder) { fatalError("Created in code only") }
     @objc private func choose() { invoke() }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
     private func updateInk() {
         glyph.contentTintColor = isChosen ? .labelColor : .secondaryLabelColor
         caption.textColor = isChosen ? .labelColor : .secondaryLabelColor
+        setAccessibilityValue(isChosen ? "Selected" : nil)
     }
     override func draw(_ dirtyRect: NSRect) {
         if isChosen { NSColor.black.withAlphaComponent(0.10).setFill(); NSBezierPath(roundedRect: bounds, xRadius: 12, yRadius: 12).fill() }

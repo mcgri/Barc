@@ -192,6 +192,9 @@ private final class LibrarySpaceRow: NSButton {
     }
     required init?(coder: NSCoder) { fatalError("Created in code only") }
     @objc private func open() { invoke() }
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil : self
+    }
 }
 
 private final class LibraryFlippedStack: NSStackView {

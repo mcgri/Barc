@@ -114,6 +114,29 @@ struct LibraryTests {
         #expect(next.category == .boosts)
     }
 
+    @Test("Category icons and captions route pointer hits to their button")
+    func categoryClickFaces() throws {
+        let directory = try folder(); defer { try? FileManager.default.removeItem(at: directory) }
+        let suite = "barc.library.hits.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite)); defer { defaults.removePersistentDomain(forName: suite) }
+        let view = SidebarLibraryView(session: TestSession.make().0,
+            downloads: DownloadManager(store: DownloadStore(fileURL: directory.appending(path: "empty.json"))),
+            boosts: BoostStore(folder: directory), defaults: defaults)
+        let host = UITestSupport.host(view, width: 417, height: 800)
+        host.layoutSubtreeIfNeeded()
+        for category in LibraryCategory.allCases {
+            let button = try #require(UITestSupport.buttons(in: view).first { $0.accessibilityLabel() == category.title })
+            let parent = try #require(button.superview)
+            let faces = button.subviews.filter { $0 is NSImageView || $0 is NSTextField }
+            #expect(faces.count == 2)
+            for face in faces {
+                let center = NSPoint(x: face.bounds.midX, y: face.bounds.midY)
+                let point = face.convert(center, to: parent)
+                #expect(button.hitTest(point) === button, "\(category.title)'s icon and caption must not swallow clicks")
+            }
+        }
+    }
+
     @Test("Header controls can transfer to the Library and back without losing the native window buttons")
     func trafficLightLifecycle() throws {
         _ = NSApplication.shared
@@ -130,6 +153,33 @@ struct LibraryTests {
         sidebar.hideLibrary(); sidebar.view.layoutSubtreeIfNeeded()
         #expect(button.superview === original)
         #expect(!sidebar.isLibraryVisible)
+    }
+
+    @Test("A saved Space tab opens from either its icon or its title")
+    func spaceTabClickFaces() throws {
+        let session = TestSession.make().0
+        let space = session.activeSpace
+        let tab = session.newTab(url: URL(string: "https://sleeping.invalid/library-hit")!, select: false)
+        let view = LibrarySpacesView(session: session)
+        var opened: [UUID] = []
+        view.onOpenTab = { selectedSpace, selectedTab in
+            #expect(selectedSpace === space)
+            opened.append(selectedTab.id)
+        }
+        let host = UITestSupport.host(view, width: 1000, height: 800)
+        host.layoutSubtreeIfNeeded()
+        let button = try #require(UITestSupport.buttons(in: view).first { $0.accessibilityLabel() == tab.displayTitle })
+        let parent = try #require(button.superview)
+        let faces = button.subviews.filter { $0 is NSImageView || $0 is NSTextField }
+        #expect(faces.count == 2)
+        for face in faces {
+            let point = face.convert(NSPoint(x: face.bounds.midX, y: face.bounds.midY), to: parent)
+            let hit = try #require(button.hitTest(point) as? NSButton)
+            #expect(hit === button)
+            hit.performClick(nil)
+        }
+        #expect(opened == [tab.id, tab.id])
+        #expect(tab.currentWebView == nil, "Selecting a Library row only invokes its owner; the card never creates a web view")
     }
 
     @Test("The rail-only Spaces layout does not inherit the hidden browser controls' minimum width")
