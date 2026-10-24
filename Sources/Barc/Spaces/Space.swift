@@ -115,6 +115,18 @@ final class Space: Identifiable {
         return look.importedChrome
     }
 
+    /// Space symbols must remain visible over the sidebar's wash. Arc keeps
+    /// their contrasting palette separately from the pale accent swatch.
+    var sidebarIconColor: NSColor {
+        guard case .symbol = icon else { return color }
+        let chrome = activeImportedChrome
+        let light = chrome?.lightMaxContrast?.nsColor ?? color
+        let dark = chrome?.darkMaxContrast?.nsColor ?? color
+        return NSColor(name:nil) { appearance in
+            appearance.bestMatch(from:[.aqua,.darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
     /// Retain Arc's semantic focus colour, which differs from its background
     /// and accent. New themes use their own colour rather than the Mac accent.
     var commandFocusColor: NSColor {

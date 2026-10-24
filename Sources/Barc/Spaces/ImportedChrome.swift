@@ -30,12 +30,15 @@ struct ImportedChrome: Codable, Hashable, Sendable {
     var darkFocus: Color? = nil
     var lightSubtitle: Color? = nil
     var darkSubtitle: Color? = nil
+    var lightMaxContrast: Color? = nil
+    var darkMaxContrast: Color? = nil
 
     var isValid: Bool {
         color.isValid && intensity.isFinite && (0...1).contains(intensity)
             && noise.isFinite && (0...1).contains(noise)
             && lightFocus?.isValid != false && darkFocus?.isValid != false
             && lightSubtitle?.isValid != false && darkSubtitle?.isValid != false
+            && lightMaxContrast?.isValid != false && darkMaxContrast?.isValid != false
     }
 
     func enrichingPalette(from source: ImportedChrome) -> ImportedChrome {
@@ -45,6 +48,8 @@ struct ImportedChrome: Codable, Hashable, Sendable {
         result.darkFocus = darkFocus ?? source.darkFocus
         result.lightSubtitle = lightSubtitle ?? source.lightSubtitle
         result.darkSubtitle = darkSubtitle ?? source.darkSubtitle
+        result.lightMaxContrast = lightMaxContrast ?? source.lightMaxContrast
+        result.darkMaxContrast = darkMaxContrast ?? source.darkMaxContrast
         return result
     }
 
@@ -84,6 +89,8 @@ struct ImportedChrome: Codable, Hashable, Sendable {
         result.darkFocus = semantic("focus", "dark")
         result.lightSubtitle = semantic("subtitle", "light")
         result.darkSubtitle = semantic("subtitle", "dark")
+        result.lightMaxContrast = semantic("maxContrastColor", "light")
+        result.darkMaxContrast = semantic("maxContrastColor", "dark")
         return result.isValid ? result : nil
     }
 }

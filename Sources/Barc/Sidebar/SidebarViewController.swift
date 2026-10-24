@@ -1009,7 +1009,7 @@ final class SidebarViewController: NSViewController {
         if previewSpace == nil {
             ensureContentAtRest()
             diaFooter.showSpaces(session.sidebarSpaces.map {
-                SpaceDockItem(id: $0.id, name: $0.name, icon: $0.icon, color: $0.color)
+                SpaceDockItem(id: $0.id, name: $0.name, icon: $0.icon, color: $0.sidebarIconColor)
             }, selectedID: session.activeSpaceID)
         }
         // One label, one concept: the space is the identity.
@@ -1024,7 +1024,7 @@ final class SidebarViewController: NSViewController {
             // a dot beside the name would be saying it a second time.
             icon: space.icon.isCustomized
                 ? space.icon.image(
-                    color: space.color,
+                    color: space.sidebarIconColor,
                     title: space.name,
                     side: MenuLabelButton.iconSide
                 )

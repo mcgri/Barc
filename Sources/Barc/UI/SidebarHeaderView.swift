@@ -152,7 +152,7 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         wantsLayer = true
         if let layer { highlight = RowHighlight(in: layer, depth: .flat) }
 
-        label.font = Style.Fonts.title
+        label.font = .systemFont(ofSize:13,weight:.semibold)
         label.delegate = self
         label.textColor = Style.Colors.primaryText
         label.lineBreakMode = .byTruncatingTail
@@ -196,7 +196,7 @@ final class MenuLabelButton: NSView, NSTextFieldDelegate {
         addSubview(icon)
 
         labelLeadingToEdge = label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6)
-        labelLeadingToIcon = label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 5)
+        labelLeadingToIcon = label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10)
         labelLeadingToEdge?.isActive = true
 
         NSLayoutConstraint.activate([

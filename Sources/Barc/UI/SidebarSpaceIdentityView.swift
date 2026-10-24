@@ -16,11 +16,11 @@ final class SidebarSpaceIdentityView: NSView {
         addSubview(moreButton)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: 32),
-            nameButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
+            nameButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             nameButton.trailingAnchor.constraint(equalTo: moreButton.leadingAnchor, constant: -2),
-            nameButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+            nameButton.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -2.5),
             moreButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
-            moreButton.centerYAnchor.constraint(equalTo: centerYAnchor)
+            moreButton.centerYAnchor.constraint(equalTo: centerYAnchor, constant: -2.5)
         ])
         moreButton.setClickHandler { [weak self] in
             guard let self else { return }

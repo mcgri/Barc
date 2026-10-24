@@ -201,12 +201,18 @@ struct FolderCommandTests {
         #expect(row.accessibilityLabel() == "Open \(path)")
         let icon = try #require(row.subviews.compactMap { $0 as? NSImageView }.first)
         #expect(icon.contentTintColor == .systemOrange)
+        let iconAlignment = icon.alignmentRect(forFrame:icon.frame)
+        #expect(iconAlignment.width == 20 && iconAlignment.height == 20)
+        #expect(abs(iconAlignment.midX-22)<0.1)
+        #expect(abs(row.convert(verb.alignmentRect(forFrame:verb.frame),from:verb.superview).minX-42)<0.1)
         row.isSelected = false
         #expect(row.subviews.filter { !$0.isHidden && $0.layer?.cornerRadius == 4 }.count == 1)
         #expect(label.textColor == Style.Colors.secondaryText)
         #expect(row.hitTest(plate.convert(NSPoint(x:10,y:10),to:row)) === row)
         row.configure(.init(id:"page",kind:.history,title:"Page",subtitle:"fixture.invalid",symbolName:"globe",
             action:.openURL(URL(string:"https://fixture.invalid")!),score:1),compact:true)
+        host.layoutSubtreeIfNeeded()
+        #expect(icon.frame.width == 16 && abs(icon.frame.midX-22)<0.1)
         #expect(label.isHiddenOrHasHiddenAncestor)
         #expect(row.accessibilityLabel() == "Page, fixture.invalid")
     }

@@ -30,6 +30,9 @@ final class CommandRowView: NSView {
     private var shortcutTrailing: NSLayoutConstraint!
     private var arrowTrailing: NSLayoutConstraint!
     private var labelsLeading: NSLayoutConstraint!
+    private var iconLeading: NSLayoutConstraint!
+    private var iconWidth: NSLayoutConstraint!
+    private var iconHeight: NSLayoutConstraint!
     private var compactLabelsTrailing: NSLayoutConstraint!
     private var showsSplitArrow = false
     private var usesIconPlate = false
@@ -133,6 +136,9 @@ final class CommandRowView: NSView {
         labelsLeading = labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Style.Metrics.rowContentSpacing)
         compactLabelsTrailing = labels.trailingAnchor.constraint(lessThanOrEqualTo:trailingAnchor,
             constant: -(CommandBarMetrics.rowInset + Style.Metrics.rowContentSpacing + CommandBarMetrics.compactResultActionSpace))
+        iconLeading = iconView.leadingAnchor.constraint(equalTo:leadingAnchor,constant:CommandBarMetrics.rowInset)
+        iconWidth = iconView.widthAnchor.constraint(equalToConstant:CommandBarMetrics.rowIconSide)
+        iconHeight = iconView.heightAnchor.constraint(equalToConstant:CommandBarMetrics.rowIconSide)
         NSLayoutConstraint.activate([
             rowHeight,
             iconPlate.widthAnchor.constraint(equalToConstant: 24), iconPlate.heightAnchor.constraint(equalToConstant: 24),
@@ -142,13 +148,9 @@ final class CommandRowView: NSView {
             arrowPlate.centerYAnchor.constraint(equalTo: centerYAnchor),
             arrowImage.centerXAnchor.constraint(equalTo: arrowPlate.centerXAnchor), arrowImage.centerYAnchor.constraint(equalTo: arrowPlate.centerYAnchor),
             arrowImage.widthAnchor.constraint(equalToConstant: 16), arrowImage.heightAnchor.constraint(equalToConstant: 16),
-            iconView.leadingAnchor.constraint(
-                equalTo: leadingAnchor,
-                constant: CommandBarMetrics.rowInset
-            ),
+            iconLeading,
             iconView.centerYAnchor.constraint(equalTo: centerYAnchor),
-            iconView.widthAnchor.constraint(equalToConstant: CommandBarMetrics.rowIconSide),
-            iconView.heightAnchor.constraint(equalToConstant: CommandBarMetrics.rowIconSide),
+            iconWidth,iconHeight,
             labelsLeading,
             labels.centerYAnchor.constraint(equalTo: centerYAnchor),
             shortcutTrailing,
@@ -186,12 +188,19 @@ final class CommandRowView: NSView {
         compactLabelsTrailing.isActive = compact
         hasWebsiteIcon = image != nil
         let symbol = NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
-        iconView.image = image ?? (isFolder ? symbol?.withSymbolConfiguration(.init(pointSize:16,weight:.regular)) : symbol)
+        let fullFolder = isFolder && arcLayout && image == nil
+        // A 16-point canvas scales the folder down even when the symbol asks
+        // for more room. Expand its well around the same center, preserving
+        // the text and selection plate positions.
+        iconLeading.constant = CommandBarMetrics.rowInset - (fullFolder ? 2 : 0)
+        iconWidth.constant = fullFolder ? 20 : CommandBarMetrics.rowIconSide
+        iconHeight.constant = fullFolder ? 20 : CommandBarMetrics.rowIconSide
+        iconView.image = image ?? (isFolder ? symbol?.withSymbolConfiguration(.init(pointSize:fullFolder ? 13 : 16,weight:.regular)) : symbol)
         titleLabel.stringValue = isFolder ? "Open" : result.title
         subtitleLabel.stringValue = result.subtitle
         subtitleLabel.isHidden = isFolder || compact || splitChoice
         rowHeight.constant = arcLayout ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
-        labelsLeading.constant = arcLayout ? 12 : Style.Metrics.rowContentSpacing
+        labelsLeading.constant = arcLayout ? (fullFolder ? 10 : 12) : Style.Metrics.rowContentSpacing
         let titleFont = arcLayout ? NSFont.systemFont(ofSize:13,weight:.semibold) : Style.Fonts.body
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
