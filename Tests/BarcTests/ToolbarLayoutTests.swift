@@ -101,6 +101,26 @@ struct ToolbarLayoutTests {
         #expect(bar.utilitiesButton.accessibilityLabel() == "Page Utilities")
     }
 
+    @Test("Sidebar navigation follows the Arc reference while keeping utilities in the same row", arguments: [190.0, 214.0, 228.0, 300.0])
+    func sidebarNavigation(width: Double) throws {
+        let bar = ContentTopBar()
+        let header = SidebarHeaderView()
+        header.installNavigation(bar.takeNavigationRow())
+        let host = UITestSupport.host(header, width: width, height: 100)
+        host.layoutSubtreeIfNeeded()
+        let controls = [bar.sidebarToggle, bar.utilitiesButton, bar.backButton, bar.forwardButton, bar.reloadButton]
+        let frames = controls.map { $0.convert($0.bounds, to: header) }
+        #expect(frames.allSatisfy { $0.minX >= 0 && $0.maxX <= width && abs($0.midY - frames[0].midY) < 0.5 })
+        for pair in zip(frames, frames.dropFirst()) { #expect(pair.0.maxX <= pair.1.minX) }
+        if width == 228 {
+            // Centers measured from the user's 2x Arc reference image.
+            #expect(abs(frames[0].midX - 92.5) <= 3)
+            #expect(abs(frames[2].midX - 137.5) <= 1)
+            #expect(abs(frames[3].midX - 172.5) <= 1)
+            #expect(abs(frames[4].midX - 205) <= 1)
+        }
+    }
+
     @Test("Dragging a button several places takes it there, keeping the rest in order")
     func moveToAnAbsolutePlace() {
         // A swap would have been enough while the arrows were the only way to

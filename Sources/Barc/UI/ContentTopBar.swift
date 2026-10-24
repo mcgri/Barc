@@ -33,7 +33,7 @@ final class ContentTopBar: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        navigation.setButtons([sidebarToggle, backButton, forwardButton, reloadButton, utilitiesButton])
+        navigation.setButtons([sidebarToggle, utilitiesButton, backButton, forwardButton, reloadButton])
         utilitiesButton.isEnabled = false
         utilitiesButton.setClickHandler { [weak self] in self?.showUtilitiesMenu() }
         let stack = NSStackView(views: [navigation, addressField])
@@ -168,6 +168,16 @@ private final class WrappingControlsView: NSView {
         for (index, origin) in origins.enumerated() {
             origin.x.constant = CGFloat(index % columns) * (side + gap)
             origin.y.constant = CGFloat(index / columns) * (side + gap)
+        }
+        if buttons.count == 5, columns >= 5 {
+            // Keep the sidebar toggle and utility menu together, leaving Arc's
+            // back/forward/reload positions across the remaining top band.
+            // Narrow sidebars still use the wrapped layout above.
+            let last = max(4 * side, width - side - 11)
+            let navigationStep = (last - 2 * side) / 2
+            for (index, origin) in origins.enumerated() {
+                origin.x.constant = index < 2 ? CGFloat(index) * side : 2 * side + CGFloat(index - 2) * navigationStep
+            }
         }
     }
 }
