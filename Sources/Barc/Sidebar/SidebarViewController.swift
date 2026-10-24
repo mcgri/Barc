@@ -62,6 +62,7 @@ final class SidebarViewController: NSViewController {
     var tabListTableView: NSTableView { tableView }
 
     var onNewTab: (() -> Void)?
+    var onChooseSplitPage: (() -> Void)?
 
     /// Told which space is in front, so the window can wash the strip beside
     /// the page card with its colour and draw its border as well. The sidebar
@@ -2373,12 +2374,8 @@ final class SidebarViewController: NSViewController {
             session.splitTabs([current, tab], grid: .sideBySide)
             return
         }
-        guard let index = tabs.firstIndex(where: { $0 === tab }) else { return }
-        let partner = tabs.indices.contains(index + 1) ? tabs[index + 1]
-            : tabs.indices.contains(index - 1) ? tabs[index - 1]
-            : nil
-        guard let partner else { return }
-        session.splitTabs([tab, partner], grid: .sideBySide)
+        guard tabs.contains(where: { $0 === tab }) else { return }
+        onChooseSplitPage?()
     }
 
     @objc private func duplicateTabFromMenu(_ sender: Any?) {

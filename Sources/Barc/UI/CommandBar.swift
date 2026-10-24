@@ -58,6 +58,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     var resultsProvider: (@MainActor (String) async -> [CommandResult])?
     var resultImageProvider: ((CommandResult) -> NSImage?)?
     var onClose: (() -> Void)?
+    var onCancel: (() -> Void)?
 
     /// Performs a chosen row, or the address the user typed. The bar resolves
     /// text into a `URL` itself so that the caller has one case to handle
@@ -80,8 +81,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private var fieldHeight: NSLayoutConstraint!
     private var fieldLeading: NSLayoutConstraint!
     private weak var addressAnchor: NSView?
+    private weak var splitAnchor: NSView?
+    private weak var centerHost: NSView?
     private var initialAddressResults: [CommandResult] = []
+    private var initialSplitResults: [CommandResult] = []
     private(set) var isAddressMode = false
+    private(set) var isSplitMode = false
 
     private var queryTask: Task<Void, Never>?
     /// Whatever held focus when the bar opened -- in practice the page. Weak
@@ -275,6 +280,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// area *is* the dismiss target: a click anywhere outside the panel closes
     /// the bar, and a view cannot receive a click it does not cover.
     func install(in host: NSView, centeredIn centerHost: NSView? = nil) {
+        self.centerHost = centerHost ?? self
         host.addSubview(self)
         if let centerHost {
             NSLayoutConstraint.deactivate(centeredConstraints)
@@ -303,6 +309,26 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         if !text.isEmpty { scheduleQuery(for: text) }
     }
 
+    /// A split chooser starts with recent tabs and stays above its empty pane.
+    func openSplit(recentResults: [CommandResult], anchor: NSView? = nil) {
+        configurePresentation(address: false)
+        splitAnchor = anchor
+        isSplitMode = true
+        initialSplitResults = recentResults
+        preferredWidth.constant = 765
+        fieldHeight.constant = 64
+        fieldLeading.constant = 52
+        addressIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
+        addressIcon.contentTintColor = Style.Colors.primaryText
+        addressIcon.isHidden = false
+        present(text: "", openInNewTab: true)
+        field.placeholderString = "Search or Enter URL…"
+        field.setAccessibilityLabel("Search or Enter URL…")
+        setResults(recentResults)
+        select(0)
+        updateSplitPosition()
+    }
+
     /// Editing an existing URL stays beside the sidebar, with local recent tabs ready immediately.
     func openAddress(text: String, anchor: NSView, image: NSImage? = nil, recentResults: [CommandResult] = []) {
         addressAnchor = anchor
@@ -319,12 +345,18 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func configurePresentation(address: Bool) {
         NSLayoutConstraint.deactivate(isAddressMode ? addressConstraints : centeredConstraints)
         isAddressMode = address
+        isSplitMode = false
+        initialSplitResults = []
+        splitAnchor = nil
+        centeredConstraints[0].constant = 0
+        centeredConstraints[1].constant = 0
         preferredWidth.constant = address ? CommandBarMetrics.addressPanelWidth : CommandBarMetrics.panelWidth
         fieldHeight.constant = address ? CommandBarMetrics.addressFieldHeight : CommandBarMetrics.fieldHeight
         fieldLeading.constant = address ? 44 : CommandBarMetrics.fieldInset
         field.font = .systemFont(ofSize: address ? 14 : CommandBarMetrics.queryFontSize)
         addressIcon.isHidden = !address
         field.setAccessibilityLabel(address ? "Edit Address" : "Search, enter address, or type a command")
+        field.placeholderString = address ? "Search or Enter URL…" : "Search, enter address, or type a command"
         setAccessibilityLabel(address ? "Address popup" : "Command Bar")
         if !address { addressAnchor = nil; initialAddressResults = [] }
         updateAddressPosition()
@@ -350,7 +382,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// Hides the bar and gives focus back. Everything typed is discarded: the
     /// bar is a question, and a question that is dismissed has no answer worth
     /// keeping until next time.
-    func close() {
+    func close(committing: Bool = false) {
         guard isOpen else { return }
         isNewTabMode = false
         queryTask?.cancel()
@@ -358,6 +390,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         isHidden = true
         field.stringValue = ""
         setResults([])
+        if !committing { onCancel?() }
         restoreResponder()
         onClose?()
     }
@@ -428,7 +461,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         for (index, result) in visibleResults.enumerated() {
             let row = CommandRowView()
-            row.configure(result, image: resultImageProvider?(result), compact: isAddressMode)
+            row.configure(result, image: resultImageProvider?(result), compact: isAddressMode, splitChoice: isSplitMode)
             row.onHover = { [weak self] in self?.select(index) }
             row.onClick = { [weak self] in self?.run(at: index) }
             rowsStack.addArrangedSubview(row)
@@ -442,15 +475,16 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// A launcher whose list runs off the screen is worse than a
     /// shorter list, and this is cheaper and steadier than a scroll view for a
     /// list that is capped at eight rows anyway.
-    static func maximumVisibleRows(inHeight height: CGFloat) -> Int {
+    static func maximumVisibleRows(inHeight height: CGFloat, rowHeight: CGFloat = CommandBarMetrics.rowHeight,
+                                   fieldHeight: CGFloat = CommandBarMetrics.fieldHeight) -> Int {
         let chrome = CommandBarMetrics.verticalGap * 2
-            + CommandBarMetrics.fieldHeight
+            + fieldHeight
             + CommandBarMetrics.dividerHeight
             + CommandBarMetrics.listInset * 2
             + CommandBarMetrics.bottomGap
         let available = height - chrome
         guard available > 0 else { return 0 }
-        let pitch = CommandBarMetrics.rowHeight + CommandBarMetrics.rowSpacing
+        let pitch = rowHeight + CommandBarMetrics.rowSpacing
         return max(0, Int((available + CommandBarMetrics.rowSpacing) / pitch))
     }
 
@@ -458,9 +492,22 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// a taller window keeps a truncated list forever.
     override func layout() {
         super.layout()
+        updateSplitPosition()
         updateAddressPosition()
         let expected = min(maximumRows, results.count)
         if expected != visibleResults.count { rebuildRows() }
+    }
+
+    private func updateSplitPosition() {
+        if let anchor = splitAnchor, let centerHost {
+            let rect = convert(anchor.bounds, from: anchor)
+            let center = convert(centerHost.bounds, from: centerHost)
+            let width = min(preferredWidth.constant, max(0, center.width - 2 * CommandBarMetrics.minimumSideGap))
+            let inset = min(80, max(0, (bounds.width - width) / 2))
+            let x = min(max(rect.midX, bounds.minX + inset + width / 2), bounds.maxX - inset - width / 2)
+            centeredConstraints[0].constant = x - center.midX
+            centeredConstraints[1].constant = rect.midY - center.midY
+        }
     }
 
     private func updateAddressPosition() {
@@ -475,7 +522,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     private var maximumRows: Int {
-        guard isAddressMode else { return Self.maximumVisibleRows(inHeight: bounds.height) }
+        guard isAddressMode else {
+            return Self.maximumVisibleRows(inHeight: bounds.height, rowHeight: isSplitMode ? 48 : CommandBarMetrics.rowHeight,
+                                           fieldHeight: isSplitMode ? 64 : CommandBarMetrics.fieldHeight)
+        }
         let available = bounds.height - addressTop.constant - CommandBarMetrics.addressFieldHeight
             - CommandBarMetrics.bottomGap - CommandBarMetrics.dividerHeight - CommandBarMetrics.listInset * 2
         return max(0, min(8, Int((available + CommandBarMetrics.rowSpacing)
@@ -524,7 +574,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         guard visibleResults.indices.contains(index) else { return }
         let action = visibleResults[index].action
         let openInNewTab = isNewTabMode
-        close()
+        close(committing: true)
         onRun?(action, openInNewTab)
     }
 
@@ -543,7 +593,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             isNewTabMode = true
         }
         let openInNewTab = isNewTabMode
-        close()
+        close(committing: true)
         onRun?(.openURL(url), openInNewTab)
     }
 
@@ -600,6 +650,13 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     // MARK: - NSTextFieldDelegate
 
     func controlTextDidChange(_ obj: Notification) {
+        if isSplitMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            queryTask?.cancel()
+            queryTask = nil
+            setResults(initialSplitResults)
+            select(0)
+            return
+        }
         if isAddressMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryTask?.cancel()
             queryTask = nil

@@ -23,7 +23,8 @@ final class WebContentViewController: NSViewController {
     private lazy var splitContainer: SplitContainerView = {
         let container = SplitContainerView()
         container.onFocusPane = { [weak self] id in
-            guard let self, let tab = self.session.activeSpace.tabs.first(where: { $0.id == id }) else { return }
+            guard let self, self.splitPreview == nil,
+                  let tab = self.session.activeSpace.tabs.first(where: { $0.id == id }) else { return }
             self.session.selectTab(tab)
         }
         container.onClosePane = { [weak self] id in
@@ -46,6 +47,39 @@ final class WebContentViewController: NSViewController {
         return container
     }()
     private var cancellables: Set<AnyCancellable> = []
+    private var splitPreview: (layout: SplitLayout, emptyID: Tab.ID)?
+    private let emptySplitPane = NSVisualEffectView()
+    private let emptySplitTint = TintView()
+
+    func showSplitPreview(_ layout: SplitLayout, emptyID: Tab.ID) -> NSView? {
+        emptySplitPane.material = .sidebar
+        emptySplitPane.blendingMode = .withinWindow
+        emptySplitPane.state = .active
+        if emptySplitTint.superview == nil {
+            emptySplitPane.addSubview(emptySplitTint)
+            NSLayoutConstraint.activate([
+                emptySplitTint.topAnchor.constraint(equalTo: emptySplitPane.topAnchor),
+                emptySplitTint.bottomAnchor.constraint(equalTo: emptySplitPane.bottomAnchor),
+                emptySplitTint.leadingAnchor.constraint(equalTo: emptySplitPane.leadingAnchor),
+                emptySplitTint.trailingAnchor.constraint(equalTo: emptySplitPane.trailingAnchor)
+            ])
+        }
+        emptySplitTint.wash = contentContainer.spaceWash
+        emptySplitTint.gradientWash = contentContainer.spaceGradient
+        emptySplitPane.setAccessibilityElement(true)
+        emptySplitPane.setAccessibilityRole(.group)
+        emptySplitPane.setAccessibilityLabel("Empty split pane")
+        splitPreview = (layout, emptyID)
+        showActiveTab()
+        view.layoutSubtreeIfNeeded()
+        return splitContainer.paneView(for: emptyID)
+    }
+
+    func dismissSplitPreview() {
+        guard splitPreview != nil else { return }
+        splitPreview = nil
+        showActiveTab()
+    }
 
     init(session: BrowserSession) {
         self.session = session
@@ -244,6 +278,14 @@ final class WebContentViewController: NSViewController {
         // the visible tab's web view, on every exit path (single, split, none).
         defer { session.updateMediaSuspension() }
         updateTopBar()
+
+        if let preview = splitPreview {
+            container.show(nil, failure: nil, url: nil, onRetry: nil)
+            if splitContainer.superview == nil { contentContainer.setPage(splitContainer) }
+            splitContainer.show(tabs: session.activeSpace.tabs, layout: preview.layout, focused: preview.emptyID,
+                                placeholder: (preview.emptyID, emptySplitPane))
+            return
+        }
 
         if let split = session.activeSplit {
             // Releasing the single-page view first matters: a tab cannot be a

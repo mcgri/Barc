@@ -1,3 +1,4 @@
+// Modified for Barc: transient split chooser surfaces and focus preservation, 2026-10-24.
 import AppKit
 import WebKit
 
@@ -155,6 +156,18 @@ final class SplitPaneView: NSView {
     /// A tab's document viewer, shown over its page while the tab has one.
     private weak var documentView: NSView?
 
+    /// A chooser's empty pane has no Tab or web process behind it.
+    func adoptPlaceholder(_ view: NSView) {
+        releaseWebView()
+        documentView = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view, positioned: .below, relativeTo: unsplitButton)
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: topAnchor), view.bottomAnchor.constraint(equalTo: bottomAnchor),
+            view.leadingAnchor.constraint(equalTo: leadingAnchor), view.trailingAnchor.constraint(equalTo: trailingAnchor)
+        ])
+    }
+
     /// Hands the web view back without unloading it, so a tab leaving a split
     /// keeps its page for whatever shows it next.
     func releaseWebView() {
@@ -168,7 +181,7 @@ final class SplitPaneView: NSView {
         guard focused != isFocused else { return }
         isFocused = focused
         layer?.borderColor = focused ? SplitMetrics.focusOutlineColor.cgColor : NSColor.clear.cgColor
-        if focused { window?.makeFirstResponder(webView) }
+        if focused, let webView { window?.makeFirstResponder(webView) }
     }
 
     func setSticky(_ sticky: Bool) {

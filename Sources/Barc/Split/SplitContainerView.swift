@@ -1,3 +1,4 @@
+// Modified for Barc: transient empty split panes without persisted placeholder tabs, 2026-10-24.
 import AppKit
 import WebKit
 
@@ -45,9 +46,6 @@ final class SplitContainerView: NSView {
     /// delegate. Without this the applied shares would be read straight back out
     /// and reported as if the user had dragged something.
     private var isApplyingShares = false
-    /// Split views whose divider the user is currently dragging, identified in
-    /// `constrainSplitPosition`, which AppKit calls only for a real drag.
-    private var draggingSplitViews: Set<ObjectIdentifier> = []
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -65,9 +63,10 @@ final class SplitContainerView: NSView {
     /// Tabs missing from `tabs` are ignored rather than drawn empty: the only
     /// way that can happen is a model change racing a redraw, and an empty pane
     /// would be exactly the fake state that must never be shown.
-    func show(tabs: [Tab], layout: SplitLayout, focused: Tab.ID?, isSticky: ((Tab.ID) -> Bool)? = nil) {
+    func show(tabs: [Tab], layout: SplitLayout, focused: Tab.ID?, isSticky: ((Tab.ID) -> Bool)? = nil,
+              placeholder: (id: Tab.ID, view: NSView)? = nil) {
         let byID = Dictionary(uniqueKeysWithValues: tabs.map { ($0.id, $0) })
-        guard layout.tabIDs.allSatisfy({ byID[$0] != nil }) else { return }
+        guard layout.tabIDs.allSatisfy({ byID[$0] != nil || $0 == placeholder?.id }) else { return }
 
         self.splitLayout = layout
         self.isStickyChecker = isSticky
@@ -81,6 +80,10 @@ final class SplitContainerView: NSView {
         // suspended member comes back, and the reason `visibleTabIDs` must
         // report all of them.
         for id in layout.tabIDs {
+            if let placeholder, id == placeholder.id {
+                panes[id]?.adoptPlaceholder(placeholder.view)
+                continue
+            }
             guard let pane = panes[id], let tab = byID[id] else { continue }
             tab.markActive()
             pane.adopt(tab.webView(), document: tab.contentOverlay)
@@ -90,6 +93,8 @@ final class SplitContainerView: NSView {
         setFocused(focused)
         needsLayout = true
     }
+
+    func paneView(for id: Tab.ID) -> NSView? { panes[id] }
 
     /// Called when the split goes away, so each tab keeps its page for whatever
     /// shows it next. The web views are not unloaded: a tab leaving a split is
@@ -204,7 +209,7 @@ final class SplitContainerView: NSView {
     }
 
     private func readShares(from splitView: PaneSplitView) {
-        guard let splitLayout else { return }
+        guard let splitLayout, splitViews.contains(where: { $0 === splitView }) else { return }
         let sizes = splitView.arrangedSubviews.map { splitView.isVertical ? $0.frame.width : $0.frame.height }
         let total = sizes.reduce(0, +)
         guard total > 0 else { return }
@@ -272,15 +277,14 @@ private extension NSPoint {
 
 extension SplitContainerView: NSSplitViewDelegate {
 
-    /// Called only while a divider is actually being dragged, which is what
-    /// makes it a reliable signal that the next resize is the user's doing and
-    /// not a window resize or our own `setPosition`.
+    /// AppKit also asks while laying out and applying saved positions. Only a
+    /// real divider pointer sequence may snap or write the saved proportions.
     func splitView(
         _ splitView: NSSplitView,
         constrainSplitPosition proposedPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        draggingSplitViews.insert(ObjectIdentifier(splitView))
+        guard let pane = splitView as? PaneSplitView, pane.isTrackingDivider else { return proposedPosition }
         // Smart snapping: Snap to exact 50/50 center when within 14pt threshold
         let total = splitView.isVertical ? splitView.bounds.width : splitView.bounds.height
         let center = total / 2.0
@@ -327,7 +331,7 @@ extension SplitContainerView: NSSplitViewDelegate {
     func splitViewDidResizeSubviews(_ notification: Notification) {
         guard !isApplyingShares,
               let splitView = notification.object as? PaneSplitView,
-              draggingSplitViews.remove(ObjectIdentifier(splitView)) != nil
+              splitView.isTrackingDivider
         else { return }
         readShares(from: splitView)
     }
@@ -341,6 +345,7 @@ private final class PaneSplitView: NSSplitView {
     let path: [Int]
     private let gap: CGFloat
     var onEqualize: (([Int]) -> Void)?
+    private(set) var isTrackingDivider = false
 
     init(axis: SplitLayout.Axis, path: [Int]) {
         self.path = path
@@ -395,6 +400,8 @@ private final class PaneSplitView: NSSplitView {
             onEqualize?(path)
             return
         }
+        isTrackingDivider = true
+        defer { isTrackingDivider = false }
         super.mouseDown(with: event)
     }
 }

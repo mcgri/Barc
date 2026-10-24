@@ -17,6 +17,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private let content: WebContentViewController
     /// Shared URL editor: beside the sidebar for Cmd-L, centered over the page for New Tab.
     private let commandBar = CommandBar()
+    private var splitSelection: (space: Space, source: Tab, grid: SplitLayout.Grid, base: SplitLayout?)?
     /// Held while shown so it is not deallocated mid-display.
     private var siteSettingsPopover: NSPopover?
     private var shieldPopover: NSPopover?
@@ -129,6 +130,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         sidebar.installBrowserControls(content.sidebarControls)
         wireTopBar()
         sidebar.onNewTab = { [weak self] in self?.newTab(nil) }
+        sidebar.onChooseSplitPage = { [weak self] in self?.splitSideBySide(nil) }
         sidebar.onLibraryChange = { [weak self] visible, category in self?.applyLibraryLayout(visible: visible, category: category) }
         sidebar.onLibraryOpen = { [weak self] in self?.openLibraryEntry($0) }
         DownloadManager.shared.showLibrary = { [weak self] in
@@ -1186,6 +1188,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private func wireCommandBar() {
         commandBar.install(in: root.view, centeredIn: content.view)
         commandBar.onClose = { [weak self] in self?.updateCompactSidebarForCommandBar() }
+        commandBar.onCancel = { [weak self] in self?.cancelSplitSelection() }
         commandBar.resultImageProvider = { [weak self] result in
             switch result.action {
             case .switchToTab(let id):
@@ -1265,6 +1268,26 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
         commandBar.onRun = { [weak self] action, openInNewTab in
             guard let self else { return }
+            let split = self.splitSelection
+            self.cancelSplitSelection()
+            if let split, self.session.activeSpace === split.space,
+               split.space.tabs.contains(where: { $0 === split.source }),
+               self.session.split(split.space) == split.base {
+                switch action {
+                case .openURL(let url):
+                    self.session.openNewPageInSplit(url, from: split.source, grid: split.grid)
+                    return
+                case .switchToTab(let id):
+                    if let partner = split.space.tabs.first(where: { $0.id == id }),
+                       partner !== split.source {
+                        if self.session.splitTabs([split.source, partner], grid: split.grid) {
+                            self.session.selectTab(partner)
+                        }
+                        return
+                    }
+                default: break
+                }
+            }
             switch action {
             case .switchToTab(let id):
                 // A tab in another space needs that space selected first;
@@ -1300,6 +1323,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         session.changes
             .sink { [weak self] change in
                 guard let self else { return }
+                if let request = self.splitSelection,
+                   self.session.activeSpace !== request.space || self.session.activeTab !== request.source
+                    || self.session.split(request.space) != request.base {
+                    self.commandBar.close()
+                }
                 switch change {
                 case .activeTab, .tabs:
                     self.updateTitle()
@@ -1414,6 +1442,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func openLocation(_ sender: Any?) {
+        if splitSelection != nil { commandBar.close() }
         sidebar.hideLibrary()
         if commandBar.isOpen && commandBar.isAddressMode {
             commandBar.focusField()
@@ -1798,9 +1827,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
     }
 
-    /// With no multi-selection, the pair to split is the selected tab and the
-    /// one after it. `SplitLayout` refuses a split of one, which is the right
-    /// answer for a space with a single tab.
+    /// An explicit multi-selection already names the pages. Otherwise ask for
+    /// the second page, with a transient empty pane that never enters a session.
     @objc func splitSideBySide(_ sender: Any?) { beginSplit(.sideBySide) }
     @objc func splitStacked(_ sender: Any?) { beginSplit(.stacked) }
     @objc func splitGrid(_ sender: Any?) { beginSplit(.grid) }
@@ -1810,14 +1838,32 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     @objc func equalizeSplitPanes(_ sender: Any?) { session.equalizeSplit() }
 
     private func beginSplit(_ grid: SplitLayout.Grid) {
-        let tabs = session.activeSpace.tabs
-        guard let current = session.activeTab,
-              let index = tabs.firstIndex(where: { $0.id == current.id }) else { return }
-        let partner = tabs.indices.contains(index + 1) ? tabs[index + 1]
-            : tabs.indices.contains(index - 1) ? tabs[index - 1]
-            : nil
-        guard let partner else { return }
-        session.splitTabs([current, partner], grid: grid)
+        commandBar.close()
+        guard let current = session.activeTab, session.activeSplit?.isFull != true else { return }
+        let selected = sidebar.selectedTabs
+        if selected.count > 1 { session.splitTabs(selected, grid: grid); return }
+        sidebar.hideLibrary()
+        let emptyID = UUID()
+        let base = session.activeSplit
+        guard let preview = base?.adding(emptyID) ?? SplitLayout(tabs: [current.id, emptyID], grid: grid) else { return }
+        splitSelection = (session.activeSpace, current, grid, session.split(session.activeSpace))
+        let anchor = content.showSplitPreview(preview, emptyID: emptyID)
+        root.view.layoutSubtreeIfNeeded()
+        root.view.layoutSubtreeIfNeeded()
+        let excluded = Set(base?.tabIDs ?? [current.id])
+        let recent = session.activeSpace.tabs.filter { !excluded.contains($0.id) && !$0.isSidebarPlaceholder }
+            .sorted { $0.lastActiveAt > $1.lastActiveAt }.prefix(5).map {
+                CommandResult(id: "tab:\($0.id)", kind: .openTab, title: $0.displayTitle,
+                              subtitle: "Switch to Tab", symbolName: "globe", action: .switchToTab($0.id), score: 0)
+            }
+        commandBar.openSplit(recentResults: recent, anchor: anchor)
+        updateCompactSidebarForCommandBar()
+    }
+
+    private func cancelSplitSelection() {
+        guard splitSelection != nil else { return }
+        splitSelection = nil
+        content.dismissSplitPreview()
     }
     @objc func reopenClosedTab(_ sender: Any?) {
         session.reopenClosedTab()
@@ -1845,6 +1891,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func newTab(_ sender: Any?) {
+        if splitSelection != nil { commandBar.close() }
         sidebar.hideLibrary()
         if let overview = tabOverviewController, overview.isOpen {
             overview.dismissOverview { [weak self] in self?.newTab(nil) }
@@ -1860,6 +1907,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
     }
     @objc func closeTab(_ sender: Any?) {
+        if splitSelection != nil { commandBar.close(); return }
         let multiSelected = sidebar.selectedTabs
         if multiSelected.count > 1 {
             session.closeTabs(multiSelected)
@@ -2702,7 +2750,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             return session.spaces.indices.contains(menuItem.tag - 1)
         case #selector(stopLoading(_:)): return session.activeTab?.isLoading ?? false
         case #selector(splitSideBySide(_:)), #selector(splitStacked(_:)), #selector(splitGrid(_:)):
-            return session.activeSpace.tabs.count > 1
+            return session.activeTab != nil && session.activeSplit?.isFull != true
         case #selector(unsplit(_:)): return session.activeSplit != nil
         case #selector(toggleStickyPane(_:)):
             if let activeTab = session.activeTab, session.isSticky(activeTab.id) {

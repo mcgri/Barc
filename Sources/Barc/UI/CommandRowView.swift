@@ -20,6 +20,7 @@ final class CommandRowView: NSView {
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
     private var hasWebsiteIcon = false
+    private var rowHeight: NSLayoutConstraint!
 
     var isSelected = false {
         didSet {
@@ -67,8 +68,9 @@ final class CommandRowView: NSView {
         addSubview(labels)
         addSubview(shortcutLabel)
 
+        rowHeight = heightAnchor.constraint(equalToConstant: CommandBarMetrics.rowHeight)
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: CommandBarMetrics.rowHeight),
+            rowHeight,
             iconView.leadingAnchor.constraint(
                 equalTo: leadingAnchor,
                 constant: CommandBarMetrics.rowInset
@@ -104,13 +106,19 @@ final class CommandRowView: NSView {
         fatalError("CommandRowView is created in code only")
     }
 
-    func configure(_ result: CommandResult, image: NSImage? = nil, compact: Bool = false) {
+    func configure(_ result: CommandResult, image: NSImage? = nil, compact: Bool = false, splitChoice: Bool = false) {
         hasWebsiteIcon = image != nil
         iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
         titleLabel.stringValue = result.title
         subtitleLabel.stringValue = result.subtitle
-        subtitleLabel.isHidden = compact
-        if let shortcut = result.shortcut, !shortcut.isEmpty {
+        subtitleLabel.isHidden = compact || splitChoice
+        rowHeight.constant = splitChoice ? 48 : CommandBarMetrics.rowHeight
+        shortcutLabel.font = splitChoice ? .systemFont(ofSize: 13, weight: .medium) : .monospacedSystemFont(ofSize: 11, weight: .medium)
+        if splitChoice, case .switchToTab = result.action {
+            shortcutLabel.stringValue = "Switch to Tab →"
+            shortcutLabel.isHidden = false
+            setAccessibilityLabel("\(result.title), Switch to Tab")
+        } else if let shortcut = result.shortcut, !shortcut.isEmpty {
             shortcutLabel.stringValue = shortcut
             shortcutLabel.isHidden = false
             setAccessibilityLabel("\(result.title), \(result.subtitle), shortcut \(shortcut)")

@@ -2065,6 +2065,19 @@ final class BrowserSession {
         scheduleSave()
     }
 
+    /// A split's new page is explicitly placed next to its source, so it uses
+    /// that Space's identity rather than applying new-tab domain routing.
+    @discardableResult
+    func openNewPageInSplit(_ url: URL, from source: Tab, grid: SplitLayout.Grid) -> Tab? {
+        guard activeTab === source, activeSpace.tabs.contains(where: { $0 === source }),
+              activeSplit?.isFull != true else { return nil }
+        let tab = Tab(url: url, identity: activeSpace.identity)
+        insert(tab, into: activeSpace, at: activeSpace.tabs.count, select: false)
+        guard splitTabs([source, tab], grid: grid) else { closeTab(tab); return nil }
+        selectTab(tab)
+        return tab
+    }
+
     /// Opens a link in the other pane of an existing split, or splits side-by-side with a new tab.
     func openLinkInSplit(_ url: URL, from sourceTab: Tab) {
         recordSplitUndoState()
