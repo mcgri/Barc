@@ -148,17 +148,18 @@ final class CommandRowView: NSView {
     func configure(_ result: CommandResult, image: NSImage? = nil, compact: Bool = false,
                    splitChoice: Bool = false, locationChoice: Bool = false) {
         let launcher = splitChoice || locationChoice
+        let arcLayout = launcher || compact
         hasWebsiteIcon = image != nil
         iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
         titleLabel.stringValue = result.title
         subtitleLabel.stringValue = result.subtitle
         subtitleLabel.isHidden = compact || splitChoice
-        rowHeight.constant = launcher ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
-        labelsLeading.constant = launcher ? 12 : Style.Metrics.rowContentSpacing
-        titleLabel.font = launcher ? .systemFont(ofSize: 13, weight: .semibold) : Style.Fonts.body
+        rowHeight.constant = arcLayout ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
+        labelsLeading.constant = arcLayout ? 12 : Style.Metrics.rowContentSpacing
+        titleLabel.font = arcLayout ? .systemFont(ofSize: 13, weight: .semibold) : Style.Fonts.body
         subtitleLabel.font = .systemFont(ofSize: locationChoice ? 13 : CommandBarMetrics.subtitleFontSize, weight: .medium)
         subtitleLabel.setContentCompressionResistancePriority(locationChoice ? .init(751) : .defaultLow, for: .horizontal)
-        usesIconPlate = launcher
+        usesIconPlate = arcLayout
         showsSplitArrow = launcher && !result.isCurrentPage && { if case .switchToTab = result.action { return true }; return false }()
         if showsSplitArrow { subtitleLabel.isHidden = true }
         arrowPlate.isHidden = !showsSplitArrow

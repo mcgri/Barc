@@ -4,6 +4,7 @@ import Foundation
 struct BrowserTopSite: Codable, Equatable, Sendable {
     var url: URL
     var title: String
+    var favicon: PageFavicon? = nil
 
     var isValid: Bool { ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil }
 }

@@ -229,11 +229,18 @@ final class ArcImportCoordinator {
             if options.history, FileManager.default.fileExists(atPath: profileURL.appending(path: "Top Sites").path) {
                 do {
                     let sites = try await Task.detached { try ArcProfileReader.topSites(profileURL) }.value
+                    let beforeIcons = Set((session.profiles.first(where: { $0.identity == identity })?.preferences.arcTopSites ?? [])
+                        .filter { $0.favicon != nil }.map(\.url))
                     let added = session.enrichArcTopSites(sites, for: identity)
                     let actual = session.profiles.first(where: { $0.identity == identity })?.preferences.arcTopSites ?? []
                     let matched = sites.filter { actual.contains($0) }.count
                     result.counts["Top Sites"] = .init(source: sites.count, imported: added,
                         existing: max(0, matched - added), skipped: sites.count - matched, verified: matched)
+                    let sourceIcons = sites.filter { $0.favicon != nil }
+                    let matchedIcons = sourceIcons.filter { site in actual.contains { $0.url == site.url && $0.favicon == site.favicon } }
+                    let existingIcons = matchedIcons.filter { beforeIcons.contains($0.url) }.count
+                    result.counts["Top Sites icons"] = .init(source: sourceIcons.count, imported: matchedIcons.count - existingIcons,
+                        existing: existingIcons, skipped: sourceIcons.count - matchedIcons.count, verified: matchedIcons.count)
                 } catch { result.notes.append("Top Sites: " + error.localizedDescription) }
             }
             if !expectedIcons.isEmpty {

@@ -200,6 +200,32 @@ struct FaviconDecoderTests {
 
 @Suite("Arc's cached page icons")
 struct ArcFaviconReaderTests {
+    @Test("Ranked shortcuts carry their cached icons and older rankings still decode without images")
+    func rankedShortcutIcons() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = URL(string: "https://ranked-icons.invalid/")!
+        do {
+            let db = try SQLiteDatabase(path: directory.appending(path: "Top Sites").path)
+            try db.execute("CREATE TABLE top_sites(url TEXT,title TEXT,url_rank INTEGER);")
+            try db.run("INSERT INTO top_sites VALUES(?, 'Ranked site', 0);", [.text(url.absoluteString)])
+            try db.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            let icons = try SQLiteDatabase(path: directory.appending(path: "Favicons").path)
+            try icons.execute("CREATE TABLE icon_mapping(page_url TEXT,icon_id INTEGER); CREATE TABLE favicon_bitmaps(id INTEGER PRIMARY KEY,icon_id INTEGER,image_data BLOB,width INTEGER,height INTEGER);")
+            try icons.run("INSERT INTO icon_mapping VALUES(?,1);", [.text(url.absoluteString)])
+            try icons.run("INSERT INTO favicon_bitmaps VALUES(1,1,?,32,32);", [.blob(try ICOFixture.png(side: 32, channel: .green))])
+            try icons.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        }
+        let site = try #require(try ArcProfileReader.topSites(directory).first)
+        let icon = try #require(site.favicon)
+        #expect(icon.matches(url) && site.title == "Ranked site")
+        #expect(try ICOFixture.dominantChannel(of: icon.data) == .green)
+        #expect(try JSONDecoder().decode(BrowserTopSite.self, from: JSONEncoder().encode(site)) == site)
+        let old = Data("{\"url\":\"https://ranked-icons.invalid/\",\"title\":\"Ranked site\"}".utf8)
+        #expect(try JSONDecoder().decode(BrowserTopSite.self, from: old).favicon == nil)
+    }
+
     @Test("Only requested pages are read, and the closest usable bitmap is retained")
     func selectedPages() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)

@@ -1,5 +1,7 @@
 // Modified for Barc: separate keyboard/pointer URL entry and profile-local ranked suggestions, 2026-10-24.
 import AppKit
+import ImageIO
+import UniformTypeIdentifiers
 import Testing
 @testable import Barc
 
@@ -16,6 +18,17 @@ struct URLEditorTests {
     }
     private func close(_ controller: BrowserWindowController) {
         controller.window?.delegate = nil; controller.window?.close()
+    }
+    private func png(_ color: NSColor) throws -> Data {
+        let context = try #require(CGContext(data: nil, width: 32, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(color.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 32))
+        let output = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try #require(context.makeImage()), nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return output as Data
     }
 
     @Test("Command-L centres a selected full URL while clicking Address opens the sidebar popup")
@@ -48,6 +61,14 @@ struct URLEditorTests {
         let address = try #require(UITestSupport.descendants(of: root).compactMap { $0 as? AddressField }.first)
         address.onOpen?()
         #expect(command.isAddressMode && !command.isLocationMode && !command.isNewTabMode)
+        #expect(command.results.map(\.title).suffix(3) == ["second", "first", "third"])
+        root.layoutSubtreeIfNeeded(); root.layoutSubtreeIfNeeded()
+        let rows = UITestSupport.descendants(of: command).compactMap { $0 as? CommandRowView }
+        #expect(rows.count == 4 && rows.allSatisfy { abs($0.frame.height - 46) < 0.5 })
+        let title = try #require(UITestSupport.descendants(of: rows[1]).compactMap { $0 as? NSTextField }.first { $0.stringValue == "second" })
+        let titleRect = try #require(title.superview).convert(title.alignmentRect(forFrame: title.frame), to: panel)
+        #expect(abs(titleRect.minX - 52) < 0.5)
+        #expect(abs(abs(rows[1].frame.midY - rows[0].frame.midY) - 50) < 0.5)
         command.cancelOperation(nil)
         #expect(session.activeTab === source && session.allTabs.count == count)
         controller.openLocation(nil)
@@ -137,6 +158,53 @@ struct URLEditorTests {
         #expect(session.enrichArcTopSites([site("replacement")], for: first.identity) == 0)
         session.clearHistory()
         #expect(other.profile.preferences.arcTopSites == [], "Profile shortcuts are removed even when its history database is unavailable")
+    }
+
+    @Test("Missing shortcut icons can be enriched without replacing labels, ranks or a chosen icon")
+    func enrichImages() throws {
+        let session = TestSession.make().0, identity = session.activeSpace.identity
+        var first = site("first"), second = site("second")
+        second.favicon = .init(pageURL: second.url, data: try png(.blue))
+        session.enrichArcTopSites([first, second], for: identity)
+        var incoming = first; incoming.title = "Changed source label"
+        incoming.favicon = .init(pageURL: first.url, data: try png(.red))
+        var replacement = second; replacement.favicon = .init(pageURL: second.url, data: try png(.green))
+        #expect(session.enrichArcTopSites([replacement, incoming], for: identity) == 0)
+        first.favicon = incoming.favicon
+        #expect(session.activeSpace.profile.preferences.arcTopSites == [first, second])
+    }
+
+    @Test("Shortcut and sleeping-tab icons render immediately from the correct profile without loading their pages")
+    func profileImages() throws {
+        _ = NSApplication.shared
+        let session = TestSession.make().0
+        var red = site("same-image-url"), blue = red
+        red.favicon = .init(pageURL: red.url, data: try png(.red))
+        blue.favicon = .init(pageURL: blue.url, data: try png(.blue))
+        let sleeping = session.newTab(url: red.url, select: false)
+        sleeping.restoredFavicon = red.favicon
+        session.activeSpace.profile.preferences.arcTopSites = [red]
+        let controller = BrowserWindowController(session: session)
+        defer { close(controller) }
+        let bar = try command(controller)
+        let result = CommandResult(id: "shortcut", kind: .history, title: "Site", subtitle: "", symbolName: "globe", action: .openURL(red.url), score: 0)
+        func color(_ result: CommandResult) throws -> NSColor {
+            let image = try #require(bar.resultImageProvider?(result))
+            let rep = try #require(image.tiffRepresentation.flatMap(NSBitmapImageRep.init(data:)))
+            return try #require(rep.colorAt(x: 0, y: 0)?.usingColorSpace(.sRGB))
+        }
+        let first = try color(result)
+        #expect(first.redComponent > first.blueComponent + 0.5, "\(first)")
+        let tabResult = CommandResult(id: "sleeping", kind: .openTab, title: "Site", subtitle: "", symbolName: "globe", action: .switchToTab(sleeping.id), score: 0)
+        let sleepingColor = try color(tabResult)
+        #expect(sleepingColor.redComponent > sleepingColor.blueComponent + 0.5 && !sleeping.isLoaded, "\(sleepingColor)")
+        let other = session.addSpace(named: "Other")
+        other.profile.preferences.arcTopSites = [blue]
+        let second = try color(result)
+        #expect(second.blueComponent > second.redComponent + 0.5, "\(second)")
+        blue.favicon = .init(pageURL: site("wrong-page").url, data: try png(.red))
+        other.profile.preferences.arcTopSites = [blue]
+        #expect(bar.resultImageProvider?(result) == nil)
     }
 
 }

@@ -10,7 +10,7 @@ enum ArcProfileReader {
         let historyFile = profile.appending(path: "History")
         let history = FileManager.default.fileExists(atPath: historyFile.path) ? try? SQLiteDatabase(readingOnly: historyFile.path) : nil
         var seen = Set<URL>()
-        return try db.query("SELECT url, title FROM top_sites ORDER BY url_rank, url LIMIT 100;") { row -> BrowserTopSite? in
+        var sites = try db.query("SELECT url, title FROM top_sites ORDER BY url_rank, url LIMIT 100;") { row -> BrowserTopSite? in
             guard let url = ArcURL.parse(row.text(0) ?? ""), seen.insert(url).inserted else { return nil }
             // Top Sites supplies the rank; its cached title can lag behind
             // History, which Arc uses for the current suggestion label.
@@ -19,6 +19,13 @@ enum ArcProfileReader {
             let site = BrowserTopSite(url: url, title: title ?? row.text(1) ?? "")
             return site.isValid ? site : nil
         }.compactMap { $0 }
+        let icons = (try? ArcFaviconReader.read(profile, pages: sites.map(\.url)))?.icons ?? [:]
+        for index in sites.indices {
+            if let key = PageFavicon.key(for: sites[index].url), let data = icons[key] {
+                sites[index].favicon = PageFavicon(pageURL: sites[index].url, data: data)
+            }
+        }
+        return sites
     }
 
     struct Visit: Sendable {

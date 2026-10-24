@@ -355,15 +355,19 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         field.font = .systemFont(ofSize: CommandBarMetrics.queryFontSize, weight: .medium)
         fieldLeading.constant = 52
         addressIconLeading.constant = 24
-        resultsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 12, right: 10)
-        for width in listWidths { width.constant = -20 }
-        rowsStack.spacing = CommandBarMetrics.splitRowSpacing
-        dividerHeight.constant = 0.5
+        configureArcResultGeometry()
         addressIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         addressIcon.contentTintColor = Style.Colors.primaryText
         addressIcon.isHidden = false
         field.placeholderString = "Search or Enter URL…"
         field.setAccessibilityLabel("Search or Enter URL…")
+    }
+
+    private func configureArcResultGeometry() {
+        resultsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 12, right: 10)
+        for width in listWidths { width.constant = -20 }
+        rowsStack.spacing = CommandBarMetrics.splitRowSpacing
+        dividerHeight.constant = 0.5
     }
 
     /// Command-L edits the current page in the large, centred launcher.
@@ -382,20 +386,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         superview?.layoutSubtreeIfNeeded()
         select(0)
         updateSplitPosition()
-        if let loadSuggestions {
-            queryTask = Task { [weak self] in
-                let found = await loadSuggestions()
-                guard !Task.isCancelled, let self, self.isOpen, self.isLocationMode,
-                      self.queryText == text else { return }
-                self.initialLocationResults = found
-                self.setResults(found)
-                self.select(0)
-            }
-        }
+        loadInitialSuggestions(loadSuggestions, for: text)
     }
 
     /// Editing an existing URL stays beside the sidebar, with local recent tabs ready immediately.
-    func openAddress(text: String, anchor: NSView, image: NSImage? = nil, recentResults: [CommandResult] = []) {
+    func openAddress(text: String, anchor: NSView, image: NSImage? = nil, recentResults: [CommandResult] = [],
+                     loadSuggestions: (@MainActor () async -> [CommandResult])? = nil) {
         addressAnchor = anchor
         initialAddressResults = recentResults
         addressIcon.image = image ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
@@ -405,6 +401,21 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         setResults(recentResults)
         superview?.layoutSubtreeIfNeeded()
         select(0)
+        loadInitialSuggestions(loadSuggestions, for: text)
+    }
+
+    private func loadInitialSuggestions(_ loader: (@MainActor () async -> [CommandResult])?, for text: String) {
+        guard let loader else { return }
+        let address = isAddressMode, location = isLocationMode
+        queryTask = Task { [weak self] in
+            let found = await loader()
+            guard !Task.isCancelled, let self, self.isOpen,
+                  self.isAddressMode == address, self.isLocationMode == location, self.queryText == text else { return }
+            if address { self.initialAddressResults = found }
+            else { self.initialLocationResults = found }
+            self.setResults(found)
+            self.select(0)
+        }
     }
 
     private func configurePresentation(address: Bool) {
@@ -434,6 +445,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         field.setAccessibilityLabel(address ? "Edit Address" : "Search, enter address, or type a command")
         field.placeholderString = address ? "Search or Enter URL…" : "Search, enter address, or type a command"
         setAccessibilityLabel(address ? "Address popup" : "Command Bar")
+        if address {
+            fieldLeading.constant = 52
+            addressIconLeading.constant = 24
+            configureArcResultGeometry()
+        }
         if !address { addressAnchor = nil; initialAddressResults = [] }
         updateAddressPosition()
         NSLayoutConstraint.activate(address ? addressConstraints : centeredConstraints)
@@ -622,9 +638,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
                 rowSpacing: usesLauncherRows ? CommandBarMetrics.splitRowSpacing : CommandBarMetrics.rowSpacing)
         }
         let available = bounds.height - addressTop.constant - CommandBarMetrics.addressFieldHeight
-            - CommandBarMetrics.bottomGap - CommandBarMetrics.dividerHeight - CommandBarMetrics.listInset * 2
-        return max(0, min(8, Int((available + CommandBarMetrics.rowSpacing)
-                                / (CommandBarMetrics.rowHeight + CommandBarMetrics.rowSpacing))))
+            - CommandBarMetrics.bottomGap - 0.5 - CommandBarMetrics.listInset - 12
+        return max(0, min(8, Int((available + CommandBarMetrics.splitRowSpacing)
+                                / (CommandBarMetrics.splitRowHeight + CommandBarMetrics.splitRowSpacing))))
     }
 
     // MARK: - Selection

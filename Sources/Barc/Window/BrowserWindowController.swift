@@ -19,6 +19,12 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private let commandBar = CommandBar()
     private var splitSelection: (space: Space, source: Tab, grid: SplitLayout.Grid, base: SplitLayout?)?
     private var locationContext: (space: Space, tab: Tab?)?
+    private let commandIconImages: NSCache<NSData, NSImage> = {
+        let cache = NSCache<NSData, NSImage>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 512 * 1024
+        return cache
+    }()
     /// Held while shown so it is not deallocated mid-display.
     private var siteSettingsPopover: NSPopover?
     private var shieldPopover: NSPopover?
@@ -1194,11 +1200,16 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
         commandBar.onCancel = { [weak self] in self?.cancelSplitSelection() }
         commandBar.resultImageProvider = { [weak self] result in
+            guard let self else { return nil }
             switch result.action {
             case .switchToTab(let id):
-                guard let tab = self?.session.spaces.lazy.flatMap(\.tabs).first(where: { $0.id == id }) else { return nil }
-                return FaviconService.shared.cachedImage(for: tab.displayURL)
-            case .openURL(let url): return FaviconService.shared.cachedImage(for: url)
+                guard let tab = self.session.spaces.lazy.flatMap(\.tabs).first(where: { $0.id == id }) else { return nil }
+                return self.commandImage(tab.restoredFavicon, for: tab.displayURL)
+                    ?? FaviconService.shared.cachedImage(for: tab.displayURL)
+            case .openURL(let url):
+                let icon = self.session.activeSpace.profile.preferences.arcTopSites?
+                    .first { PageFavicon.key(for: $0.url) == PageFavicon.key(for: url) }?.favicon
+                return self.commandImage(icon, for: url) ?? FaviconService.shared.cachedImage(for: url)
             default: return nil
             }
         }
@@ -1319,6 +1330,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 }
             }
         }
+    }
+
+    /// Imported images stay in their profile's records. This cache only
+    /// decodes bytes supplied by that record and never requests a website.
+    private func commandImage(_ icon: PageFavicon?, for url: URL) -> NSImage? {
+        guard let icon, icon.matches(url) else { return nil }
+        let key = icon.data as NSData
+        if let image = commandIconImages.object(forKey: key) { return image }
+        guard let png = try? FaviconDecoder.normalize(icon.data), let image = NSImage(data: png) else { return nil }
+        commandIconImages.setObject(image, forKey: key, cost: png.count + 4096)
+        return image
     }
 
     /// The window title follows the visible page, which is what Mission Control
@@ -1450,9 +1472,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func openLocation(_ sender: Any?) {
+        openURLEditor(centred: true)
+    }
+
+    private func openSidebarAddress() {
+        openURLEditor(centred: false)
+    }
+
+    private func openURLEditor(centred: Bool) {
         if splitSelection != nil { commandBar.close() }
         sidebar.hideLibrary()
-        if commandBar.isOpen && commandBar.isLocationMode {
+        if commandBar.isOpen && (centred ? commandBar.isLocationMode : commandBar.isAddressMode) {
             commandBar.focusField()
         } else {
             let space = session.activeSpace, tab = session.activeTab
@@ -1483,37 +1513,15 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                     return suggestions(sites.map { BrowserTopSite(url: $0.url, title: $0.title) })
                 }
             }
-            commandBar.openLocation(text: tab.map { $0.showsStartPage ? "" : $0.displayURL.absoluteString } ?? "",
-                image: tab.flatMap { FaviconService.shared.cachedImage(for: $0.displayURL) },
-                suggestions: initial, loadSuggestions: load)
-        }
-        updateCompactSidebarForCommandBar()
-    }
-
-    private func openSidebarAddress() {
-        if splitSelection != nil { commandBar.close() }
-        sidebar.hideLibrary()
-        if commandBar.isOpen && commandBar.isAddressMode {
-            commandBar.focusField()
-        } else {
-            let tab = session.activeTab
-            locationContext = (session.activeSpace, tab)
-            let initialText = tab.map { $0.showsStartPage ? "" : $0.displayURL.absoluteString } ?? ""
-            let recentTabs = Settings.shared.suggestionSources.openTabs ? session.activeSpace.tabs
-                .filter { !$0.showsStartPage }
-                .sorted {
-                    if ($0.id == tab?.id) != ($1.id == tab?.id) { return $0.id == tab?.id }
-                    if $0.lastActiveAt != $1.lastActiveAt { return $0.lastActiveAt > $1.lastActiveAt }
-                    return $0.id.uuidString < $1.id.uuidString
-                } : []
-            let recentResults = recentTabs.prefix(5).map {
-                CommandResult(id: "tab:\($0.id)", kind: .openTab, title: $0.displayTitle,
-                              subtitle: AddressFormatter.display($0.displayURL), symbolName: "globe",
-                              action: .switchToTab($0.id), score: 0)
+            let text = tab.map { $0.showsStartPage ? "" : $0.displayURL.absoluteString } ?? ""
+            let image = tab.flatMap { commandImage($0.restoredFavicon, for: $0.displayURL)
+                ?? FaviconService.shared.cachedImage(for: $0.displayURL) }
+            if centred {
+                commandBar.openLocation(text: text, image: image, suggestions: initial, loadSuggestions: load)
+            } else {
+                commandBar.openAddress(text: text, anchor: content.topBar.addressField, image: image,
+                    recentResults: initial, loadSuggestions: load)
             }
-            commandBar.openAddress(text: initialText, anchor: content.topBar.addressField,
-                                   image: tab.flatMap { FaviconService.shared.cachedImage(for: $0.displayURL) },
-                                   recentResults: recentResults)
         }
         updateCompactSidebarForCommandBar()
     }

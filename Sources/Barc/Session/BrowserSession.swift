@@ -2209,9 +2209,19 @@ final class BrowserSession {
 
     @discardableResult
     func enrichArcTopSites(_ sites: [BrowserTopSite], for identity: Space.Identity) -> Int {
-        guard !identity.isPrivate, let profile = profiles.first(where: { $0.identity == identity }),
-              profile.preferences.arcTopSites == nil else { return 0 }
+        guard !identity.isPrivate, let profile = profiles.first(where: { $0.identity == identity }) else { return 0 }
         let valid = sites.filter(\.isValid)
+        if var existing = profile.preferences.arcTopSites {
+            var changed = false
+            for index in existing.indices where existing[index].favicon == nil {
+                guard let candidate = valid.first(where: { $0.url == existing[index].url }),
+                      let icon = candidate.favicon, icon.matches(existing[index].url) else { continue }
+                existing[index].favicon = icon
+                changed = true
+            }
+            if changed { profile.preferences.arcTopSites = existing; saveNow() }
+            return 0
+        }
         profile.preferences.arcTopSites = valid
         saveNow()
         return valid.count
