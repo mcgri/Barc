@@ -836,9 +836,11 @@ final class BrowserSession {
 
     /// Every tab after this one in the space's order.
     func closeTabs(below tab: Tab) {
-        let space = activeSpace
-        guard let index = space.index(of: tab) else { return }
-        for other in space.tabs[(index + 1)...] { closeTab(other) }
+        changes.batch {
+            let space = activeSpace
+            guard let index = space.index(of: tab) else { return }
+            for other in space.tabs[(index + 1)...] { closeTab(other) }
+        }
     }
 
     /// Closes a collection of tabs in batch.
@@ -1173,52 +1175,54 @@ final class BrowserSession {
     /// selected page or importing the copy again on the next Arc migration.
     @discardableResult
     func duplicateFolder(_ group: TabGroup, iconStore: SpaceIconStore = .shared) throws -> TabGroup? {
-        guard !group.isLive, let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
-        let originalSplits = source.splits
-        let ids = Set(([group] + FolderTree.descendants(of: group, in: source.groups)).map(\.id))
-        let originals = FolderTree.ordered(source.groups).map(\.folder).filter { ids.contains($0.id) }
-        let newIDs = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, UUID()) })
-        var pictures: [UUID: String] = [:]
-        do {
-            for folder in originals {
-                if let name = folder.iconFileName { pictures[folder.id] = try iconStore.duplicateIcon(named: name) }
+        return try changes.batch {
+            guard !group.isLive, let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
+            let originalSplits = source.splits
+            let ids = Set(([group] + FolderTree.descendants(of: group, in: source.groups)).map(\.id))
+            let originals = FolderTree.ordered(source.groups).map(\.folder).filter { ids.contains($0.id) }
+            let newIDs = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, UUID()) })
+            var pictures: [UUID: String] = [:]
+            do {
+                for folder in originals {
+                    if let name = folder.iconFileName { pictures[folder.id] = try iconStore.duplicateIcon(named: name) }
+                }
+            } catch {
+                for name in pictures.values { iconStore.remove(named: name) }
+                throw error
             }
-        } catch {
-            for name in pictures.values { iconStore.remove(named: name) }
-            throw error
+            let copies = originals.map { folder in
+                TabGroup(id: newIDs[folder.id]!, name: folder.name, emoji: folder.emoji,
+                    tint: folder.tint, appearance: folder.appearance, isCollapsed: folder.isCollapsed,
+                    parentID: folder === group ? group.parentID.flatMap { ids.contains($0) ? nil : $0 } : folder.parentID.flatMap { newIDs[$0] },
+                    symbolName: folder.symbolName, iconFileName: pictures[folder.id],
+                    isLocked: folder.isLocked, sidebarPosition: folder.sidebarPosition,
+                    badgeIcon: folder.badgeIcon, hasUserChosenIcon: folder.hasUserChosenIcon)
+            }
+            guard let root = copies.first(where: { $0.id == newIDs[group.id] }) else { return nil }
+            let siblings = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs, parentID: group.parentID)
+            let following = siblings.firstIndex { $0.id == group.id }.flatMap { index in
+                siblings.indices.contains(index + 1) ? siblings[index + 1] : nil
+            }
+            for copy in copies { source.addGroup(copy) }
+            var bindings: [UUID: UUID] = [:]
+            // Live children become regular copies of their current contents, not
+            // unregistered live providers polling the same source in the background.
+            for tab in FolderContents.tabs(in: group, space: source) {
+                var snapshot = tab.snapshot()
+                snapshot.groupID = snapshot.groupID.flatMap { newIDs[$0] }
+                snapshot.importedSourceID = nil
+                snapshot.pinnedSiteID = nil
+                snapshot.interactionState = nil
+                let copy = Tab(restoring:snapshot,identity:source.identity)
+                insert(copy,into:source,at:source.workspaceTabs.count,select:false)
+                bindings[tab.id] = copy.id
+            }
+            source.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
+            SidebarOrder.place(.folder(root), before: following, in: siblings, separatesOrdinaryTabs: group.parentID == nil)
+            changes.send(.structure)
+            scheduleSave()
+            return root
         }
-        let copies = originals.map { folder in
-            TabGroup(id: newIDs[folder.id]!, name: folder.name, emoji: folder.emoji,
-                tint: folder.tint, appearance: folder.appearance, isCollapsed: folder.isCollapsed,
-                parentID: folder === group ? group.parentID.flatMap { ids.contains($0) ? nil : $0 } : folder.parentID.flatMap { newIDs[$0] },
-                symbolName: folder.symbolName, iconFileName: pictures[folder.id],
-                isLocked: folder.isLocked, sidebarPosition: folder.sidebarPosition,
-                badgeIcon: folder.badgeIcon, hasUserChosenIcon: folder.hasUserChosenIcon)
-        }
-        guard let root = copies.first(where: { $0.id == newIDs[group.id] }) else { return nil }
-        let siblings = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs, parentID: group.parentID)
-        let following = siblings.firstIndex { $0.id == group.id }.flatMap { index in
-            siblings.indices.contains(index + 1) ? siblings[index + 1] : nil
-        }
-        for copy in copies { source.addGroup(copy) }
-        var bindings: [UUID: UUID] = [:]
-        // Live children become regular copies of their current contents, not
-        // unregistered live providers polling the same source in the background.
-        for tab in FolderContents.tabs(in: group, space: source) {
-            var snapshot = tab.snapshot()
-            snapshot.groupID = snapshot.groupID.flatMap { newIDs[$0] }
-            snapshot.importedSourceID = nil
-            snapshot.pinnedSiteID = nil
-            snapshot.interactionState = nil
-            let copy = Tab(restoring:snapshot,identity:source.identity)
-            insert(copy,into:source,at:source.workspaceTabs.count,select:false)
-            bindings[tab.id] = copy.id
-        }
-        source.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
-        SidebarOrder.place(.folder(root), before: following, in: siblings, separatesOrdinaryTabs: group.parentID == nil)
-        changes.send(.structure)
-        scheduleSave()
-        return root
     }
 
     /// Promotes a folder's contents into a Space with the same profile. Existing
