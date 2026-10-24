@@ -384,13 +384,14 @@ final class SidebarViewController: NSViewController {
             }
         }
 
-        let stack = NSStackView(views: [diaHeader, browserControls, contentStack, nowPlayingView, diaFooter])
+        let stack = NSStackView(views: [diaHeader, browserControls, contentStack, nowPlayingView])
         stack.orientation = .vertical
         stack.spacing = Style.Metrics.elementSeparation
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setCustomSpacing(2, after: diaHeader)
         view.addSubview(stack)
+        view.addSubview(diaFooter)
         normalStack = stack
 
         // The header owns the traffic-light strip, so the stack starts at the
@@ -406,13 +407,15 @@ final class SidebarViewController: NSViewController {
                 equalTo: view.trailingAnchor,
                 constant: -Style.Metrics.sidebarInset
             ),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            stack.bottomAnchor.constraint(equalTo:diaFooter.topAnchor,constant:-Style.Metrics.elementSeparation),
+            diaFooter.leadingAnchor.constraint(equalTo:view.leadingAnchor),
+            diaFooter.trailingAnchor.constraint(equalTo:view.trailingAnchor),
+            diaFooter.bottomAnchor.constraint(equalTo:view.bottomAnchor),
 
             contentStack.widthAnchor.constraint(equalTo: stack.widthAnchor),
             nowPlayingView.widthAnchor.constraint(equalTo: stack.widthAnchor),
             diaHeader.widthAnchor.constraint(equalTo: stack.widthAnchor),
             browserControls.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            diaFooter.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scrollView.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             archiveList.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
             pinnedTiles.leadingAnchor.constraint(
@@ -450,6 +453,7 @@ final class SidebarViewController: NSViewController {
         diaHeader.hostsTrafficLights = false
         NSLayoutConstraint.deactivate(normalStackConstraints)
         normalStack?.removeFromSuperview()
+        diaFooter.removeFromSuperview()
         view.addSubview(library)
         NSLayoutConstraint.activate([
             library.topAnchor.constraint(equalTo: view.topAnchor), library.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -467,7 +471,10 @@ final class SidebarViewController: NSViewController {
         library.setPresented(false)
         library.removeFromSuperview()
         isLibraryVisible = false
-        if let stack = normalStack { view.addSubview(stack); NSLayoutConstraint.activate(normalStackConstraints) }
+        if let stack = normalStack {
+            view.addSubview(stack);view.addSubview(diaFooter)
+            NSLayoutConstraint.activate(normalStackConstraints)
+        }
         diaHeader.hostsTrafficLights = wantsHeaderTrafficLights
         refreshWash()
         view.needsLayout = true

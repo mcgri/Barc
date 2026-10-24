@@ -3,14 +3,14 @@ import AppKit
 
 @MainActor
 final class SidebarFooterView: NSView {
-    static let height: CGFloat = 40
+    static let height: CGFloat = SpaceDockLayout.height
     var onSelectSpace: ((UUID) -> Void)?
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
     var spaceMenuProvider: ((UUID, NSView) -> NSMenu)?
     var addMenuProvider: (() -> NSMenu)?
     var onOpenLibrary: (() -> Void)?
     let homeButton = IconButton(symbolName: "archivebox.fill", label: "Home", side: 24, symbolSize: 18)
-    let addButton = IconButton(symbolName: "plus", label: "Add", side: 24)
+    let addButton = IconButton(symbolName: "plus", label: "Add", side: 24, symbolSize: 16)
     private let dock = SpaceDockView()
     private var leadingActions: [(String, IconButton)] = []
     private var trailingActions: [(String, IconButton)] = []
@@ -19,6 +19,7 @@ final class SidebarFooterView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
+        homeButton.setGlyph(SidebarHomeGlyph.image(),label:"Home")
         addSubview(homeButton)
         addSubview(dock)
         addSubview(addButton)
@@ -36,9 +37,9 @@ final class SidebarFooterView: NSView {
         dock.menuProvider = { [weak self] id, anchor in self?.spaceMenuProvider?(id, anchor) ?? NSMenu() }
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
-            homeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            homeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             homeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            addButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            addButton.trailingAnchor.constraint(equalTo: trailingAnchor,constant:-12),
             addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             dock.leadingAnchor.constraint(equalTo: homeButton.trailingAnchor),
             dock.trailingAnchor.constraint(equalTo: addButton.leadingAnchor),

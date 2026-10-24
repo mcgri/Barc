@@ -130,7 +130,12 @@ final class IconButton: NSButton {
     /// button that changes meaning -- reload becoming stop -- can never end up
     /// showing one thing and announcing another.
     func setSymbol(_ symbolName: String, label: String) {
-        glyph.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
+        setGlyph(NSImage(systemSymbolName:symbolName,accessibilityDescription:label),label:label)
+    }
+
+    /// Vector artwork shares the same hover, target and accessible name as a symbol.
+    func setGlyph(_ image: NSImage?, label: String) {
+        glyph.image = image
         self.label = label
         toolTip = label
         setAccessibilityLabel(label)

@@ -85,6 +85,27 @@ struct SidebarSpaceAppearanceTests {
         #expect(space.look.importedChrome == nil && space.sidebarIconColor == space.color)
     }
 
+    @Test("A dock symbol resolves its own appearance and refreshes cached artwork after the window changes appearance")
+    func dockAppearanceCache() throws {
+        let color = NSColor(name:nil) { appearance in
+            appearance.bestMatch(from:[.aqua,.darkAqua]) == .darkAqua
+                ? NSColor(srgbRed:0.9,green:0.8,blue:0.7,alpha:1) : NSColor(srgbRed:0.6,green:0.2,blue:0.1,alpha:1)
+        }
+        let button = SpaceDockButton(id:UUID())
+        button.appearance = NSAppearance(named:.aqua)
+        button.configure(.init(id:button.id,name:"Space",icon:.symbol("ionicon.planet"),color:color),selected:true)
+        for (appearance,drawAppearance,red,green) in [(NSAppearance.Name.aqua,NSAppearance.Name.darkAqua,0.6,0.2),(.darkAqua,.aqua,0.9,0.8)] {
+            button.appearance = NSAppearance(named:appearance)
+            button.viewDidChangeEffectiveAppearance()
+            let image = try #require(UITestSupport.descendants(of:button).compactMap { $0 as? NSImageView }.first?.image)
+            var sampled:Result<NSColor,Error>?
+            NSAppearance(named:drawAppearance)!.performAsCurrentDrawingAppearance { sampled = Result { try opaqueColor(image) } }
+            let value = try #require(sampled).get()
+            #expect(abs(value.redComponent-red)<0.01 && abs(value.greenComponent-green)<0.01)
+            #expect(button.isSelectedSpace && button.accessibilityValue() as? String == "Selected")
+        }
+    }
+
     @Test("The Space mark starts at 18 points and the 13-point name at 44, without moving the rename editor")
     func headerGeometry() throws {
         let name = MenuLabelButton()

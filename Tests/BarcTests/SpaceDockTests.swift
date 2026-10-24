@@ -14,6 +14,36 @@ struct SpaceDockTests {
         for _ in 0..<30 { dock.advanceMagnification(by: 1.0 / 60) }
     }
 
+    @Test("At Arc's 228-point width the full footer places six Space targets 24 points apart")
+    func sourceFooterGeometry() throws {
+        let session = TestSession.make().0
+        for index in 1..<6 { session.addSpace(named:"Space \(index+1)") }
+        session.selectSpace(session.spaces[0])
+        let sidebar = SidebarViewController(session:session),root = sidebar.view
+        let host = UITestSupport.host(root,width:228,height:1027)
+        host.layoutSubtreeIfNeeded()
+        let footer = try #require(UITestSupport.descendants(of:root).compactMap { $0 as? SidebarFooterView }.first)
+        let dock = try #require(UITestSupport.descendants(of:footer).compactMap { $0 as? SpaceDockView }.first)
+        let bounds = footer.convert(footer.bounds,to:root)
+        let home = footer.homeButton.convert(footer.homeButton.bounds,to:root)
+        let add = footer.addButton.convert(footer.addButton.bounds,to:root)
+        #expect(bounds.width == 228 && bounds.height == 50)
+        #expect(abs(home.midX-24)<0.1 && abs(add.midX-204)<0.1)
+        #expect(abs(home.midY-25)<0.1 && abs(add.midY-25)<0.1)
+        let centers = dock.buttons.map { $0.convert($0.bounds,to:root).midX }
+        #expect(centers == [54,78,102,126,150,174])
+        #expect(dock.buttons.allSatisfy { $0.frame.width == 24 && $0.iconSize == 18 })
+        let ids = dock.buttons.map(\.id),frames = dock.buttons.map(\.frame)
+        dock.setPointer(frames[2].midX);settle(dock)
+        #expect(dock.buttons.map(\.frame) == frames && dock.buttons.map(\.id) == ids)
+        sidebar.showLibrary(category:.spaces);host.layoutSubtreeIfNeeded()
+        #expect(!footer.isDescendant(of:root))
+        sidebar.hideLibrary();host.layoutSubtreeIfNeeded()
+        #expect(footer.isDescendant(of:root))
+        #expect(footer.convert(footer.bounds,to:root) == bounds)
+        #expect(dock.buttons.map { $0.convert($0.bounds,to:root).midX } == centers)
+    }
+
     @Test("Moving the pointer never shifts click targets or changes the scrollable width")
     func hoverKeepsRowStationary() {
         for (count, width) in [(8, CGFloat(221)), (24, CGFloat(95))] {

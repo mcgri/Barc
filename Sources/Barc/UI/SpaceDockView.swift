@@ -10,10 +10,11 @@ struct SpaceDockItem {
 
 /// Fixed cells keep pointer tracking, click targets and scrolling independent of magnification.
 enum SpaceDockLayout {
-    static let iconSide: CGFloat = 13
-    static let enlargedSide: CGFloat = 20
+    static let iconSide: CGFloat = 18
+    static let enlargedSide: CGFloat = 22
+    static let cellSide: CGFloat = 24
     static let inset: CGFloat = 2
-    static let height: CGFloat = 40
+    static let height: CGFloat = 50
 
     struct Plan {
         var frames: [NSRect]
@@ -23,11 +24,11 @@ enum SpaceDockLayout {
 
     static func plan(count: Int, availableWidth: CGFloat, pointerX: CGFloat?, reduceMotion: Bool) -> Plan {
         guard count > 0 else { return Plan(frames: [], iconSizes: [], width: max(0, availableWidth)) }
-        let rowWidth = CGFloat(count) * enlargedSide + inset * 2
+        let rowWidth = CGFloat(count) * cellSide + inset * 2
         let width = max(availableWidth, rowWidth)
         let start = (width - rowWidth) / 2 + inset
         let frames = (0..<count).map { index in
-            NSRect(x: start + CGFloat(index) * enlargedSide, y: 0, width: enlargedSide, height: height)
+            NSRect(x: start + CGFloat(index) * cellSide, y: 0, width: cellSide, height: height)
         }
         let sizes = (0..<count).map { index -> CGFloat in
             guard !reduceMotion, let pointerX, pointerX.isFinite else { return iconSide }
@@ -286,16 +287,39 @@ final class SpaceDockButton: NSButton {
         setAccessibilityLabel(item.name)
         setAccessibilityValue(selected ? "Selected" : "")
         toolTip = "\(item.name)\nClick to switch. Right-click for Space options."
-        glyph.image = item.icon == .automatic ? Self.initialImage(item) : item.icon.image(color: item.color, title: item.name, side: 60)
+        refreshGlyph()
         needsDisplay = true
     }
 
     func apply(frame: NSRect, iconSize: CGFloat) {
         self.iconSize = iconSize
-        let imageFrame = NSRect(x: (frame.width - iconSize) / 2, y: 13.5, width: iconSize, height: iconSize)
+        let symbolInset: CGFloat = {
+            guard let item, case .symbol = item.icon else { return 0 }
+            return 2
+        }()
+        let drawnSide = max(0,iconSize-symbolInset)
+        let baseline = (SpaceDockLayout.height-(SpaceDockLayout.iconSide-symbolInset))/2
+        let imageFrame = NSRect(x:(frame.width-drawnSide)/2,y:baseline,width:drawnSide,height:drawnSide)
         glyph.alphaValue = isSelectedSpace || iconSize > SpaceDockLayout.iconSide + 0.2 ? 1 : 0.58
         if self.frame != frame { self.frame = frame }
         if glyph.frame != imageFrame { glyph.frame = imageFrame }
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshGlyph()
+    }
+
+    private func refreshGlyph() {
+        guard let item else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            // Resolve before creating the cached image. Otherwise its first
+            // draw can use the app's previous appearance instead of this dock.
+            let color = item.color.usingColorSpace(.extendedSRGB) ?? item.color
+            let resolved = SpaceDockItem(id:item.id,name:item.name,icon:item.icon,color:color)
+            glyph.image = item.icon == .automatic ? Self.initialImage(resolved)
+                : item.icon.image(color:color,title:item.name,side:60)
+        }
     }
 
     @objc private func selectSpace() { onSelect?() }
