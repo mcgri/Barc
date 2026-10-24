@@ -167,8 +167,9 @@ final class CommandRowView: NSView {
         let titleFont = arcLayout ? NSFont.systemFont(ofSize:13,weight:.semibold) : Style.Fonts.body
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byTruncatingTail
-        titleLabel.attributedStringValue = NSAttributedString(string:result.title,
-            attributes:[.font:titleFont,.kern:arcLayout ? -0.1 : 0,.paragraphStyle:paragraph])
+        var titleAttributes: [NSAttributedString.Key:Any] = [.font:titleFont,.paragraphStyle:paragraph]
+        if arcLayout { titleAttributes[.tracking] = 0.075 }
+        titleLabel.attributedStringValue = NSAttributedString(string:result.title,attributes:titleAttributes)
         subtitleLabel.font = .systemFont(ofSize: locationChoice ? 13 : CommandBarMetrics.subtitleFontSize, weight: .medium)
         subtitleLabel.setContentCompressionResistancePriority(locationChoice ? .init(751) : .defaultLow, for: .horizontal)
         usesIconPlate = arcLayout
