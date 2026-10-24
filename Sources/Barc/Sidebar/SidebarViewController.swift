@@ -45,7 +45,7 @@ final class SidebarViewController: NSViewController {
     /// is what the sidebar is displaying. Weak: the footer owns it, and rebuilds
     /// it whenever its actions are set.
     private weak var archiveButton: IconButton?
-    private let tableView = NSTableView()
+    private let tableView = SidebarTableView()
     private let scrollView = NSScrollView()
     private var spaceColorPopover: NSPopover?
     private var normalStack: NSStackView?
@@ -510,11 +510,9 @@ final class SidebarViewController: NSViewController {
         tableView.allowsMultipleSelection = true
         tableView.dataSource = self
         tableView.delegate = self
-        // A secondary click on a tab row gets the tab's menu; anywhere else
-        // in the sidebar -- a folder header, the space under the list, the
-        // tile strip -- gets the sidebar's. One menu object, refilled
-        // just before it opens, because the table only reports which row was
-        // clicked once the menu has been asked for.
+        // Resolve the event's row without AppKit's square contextual highlight.
+        tableView.menuForRow = { [weak self] row in self?.makeRowMenu(at: row) ?? NSMenu() }
+        // The space around the list keeps the generic sidebar menu.
         let menu = NSMenu()
         menu.delegate = self
         tableView.menu = menu
@@ -1097,7 +1095,8 @@ final class SidebarViewController: NSViewController {
             return false
         }
         return SpaceOptionsMenu.make(canDelete: session.spaces.count > 1, hasGitHubFolder: hasGitHub,
-                                     profiles: session.profiles, selectedProfileID: space.profile.id, allowsProfileChange: !space.isPrivate) {
+                                     profiles: session.profiles, selectedProfileID: space.profile.id, allowsProfileChange: !space.isPrivate,
+                                     exportSource: space, exportDestinations: session.spaces) {
             [weak self, weak space, weak anchor] action in
             guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
             if isLibraryVisible, [.rename, .newFolder, .github].contains(action) { hideLibrary() }
@@ -1135,6 +1134,13 @@ final class SidebarViewController: NSViewController {
                     }
                     menu.popUp(positioning: nil, at: NSPoint(x: 0, y: origin.bounds.maxY), in: origin)
                 case .theme: showSpaceColorEditor(for: space, anchor: anchor ?? spaceIdentity.moreButton)
+                case .exportInto(let id):
+                    guard let target = session.spaces.first(where: { $0.id == id }) else { return }
+                    do {
+                        if try session.exportSpace(space, intoFolderIn: target) != nil { session.selectSpace(target) }
+                    } catch {
+                        if let window = view.window { NSAlert(error: error).beginSheetModal(for: window) }
+                    }
                 case .newFolder: newGroupFromMenu()
                 case .github: newGitHubGroup(scope: .pullRequests)
                 case .manage: showSpaceSettings()
@@ -2601,7 +2607,11 @@ final class SidebarViewController: NSViewController {
 
 extension SidebarViewController: NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
-        let clicked = tableView.clickedRow
+        let source = makeContextMenu()
+        replaceItems(in: menu, from: source)
+    }
+
+    func makeRowMenu(at clicked: Int) -> NSMenu {
         let source: NSMenu
         let selection = selectedTabs
         if selection.count > 1, clicked >= 0, tableView.selectedRowIndexes.contains(clicked) {
@@ -2613,6 +2623,10 @@ extension SidebarViewController: NSMenuDelegate {
         } else {
             source = makeContextMenu()
         }
+        return source
+    }
+
+    private func replaceItems(in menu: NSMenu, from source: NSMenu) {
         // Items belong to one menu at a time, so they are moved rather than
         // shared.
         let items = source.items

@@ -6,10 +6,12 @@ enum SpaceOptionsMenu {
     enum Action: Equatable {
         case icon, rename, theme, newFolder, github, manage, delete, newProfile
         case profile(UUID)
+        case exportInto(UUID)
     }
 
     static func make(canDelete: Bool, hasGitHubFolder: Bool, profiles: [BrowserProfile] = [],
                      selectedProfileID: UUID? = nil, allowsProfileChange: Bool = true,
+                     exportSource: Space? = nil, exportDestinations: [Space] = [],
                      perform: @escaping (Action) -> Void) -> NSMenu {
         let menu = NSMenu(title: "Space Options")
         menu.autoenablesItems = false
@@ -45,6 +47,17 @@ enum SpaceOptionsMenu {
         live.submenu = providers
         menu.addItem(live)
         menu.addItem(.separator())
+        if let source = exportSource {
+            let export = NSMenuItem(title: "Export “\(source.name)” into Folder", action: nil, keyEquivalent: "")
+            let destinations = NSMenu(); destinations.autoenablesItems = false
+            for space in exportDestinations {
+                let item = add(space.name, .exportInto(space.id), to: destinations)
+                item.isEnabled = space !== source
+            }
+            export.submenu = destinations
+            export.isEnabled = exportDestinations.contains { $0 !== source }
+            menu.addItem(export)
+        }
         _ = add("Manage Spaces…", .manage, to: menu)
         add("Delete Space", .delete, to: menu).isEnabled = canDelete
         return menu

@@ -65,8 +65,8 @@ final class FolderIconPicker: NSViewController {
         NSLayoutConstraint.activate([
             title.topAnchor.constraint(equalTo: view.topAnchor, constant: 13),
             title.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 45),
-            grid.centerXAnchor.constraint(equalTo: view.centerXAnchor)
+            grid.topAnchor.constraint(equalTo: view.topAnchor, constant: 48),
+            grid.centerXAnchor.constraint(equalTo: view.centerXAnchor, constant: 1)
         ])
     }
 

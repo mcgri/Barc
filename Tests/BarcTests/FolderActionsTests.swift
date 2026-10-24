@@ -201,6 +201,27 @@ struct FolderActionsTests {
         #expect(NSApp.sendAction(try #require(convert.action), to: convert.target, from: convert))
         #expect(session.activeSpace.name == "Project" && session.activeSpace !== owner)
     }
+
+    @Test("Native event coordinates target the folder menu without changing selection")
+    func contextMenuEvent() throws {
+        let (session, _, root, _, _) = fixture()
+        let sidebar = SidebarViewController(session: session)
+        let host = UITestSupport.host(sidebar.view, width: 228, height: 760)
+        host.layoutSubtreeIfNeeded()
+        let table = try #require(sidebar.tabListTableView as? SidebarTableView)
+        let row = try #require((0..<table.numberOfRows).first { row in
+            sidebar.makeRowMenu(at: row).items.contains { ($0.representedObject as? TabGroup) === root }
+        })
+        let selected = table.selectedRowIndexes
+        let rect = table.rect(ofRow: row)
+        let point = table.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        let event = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: point,
+            modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        let menu = try #require(table.menu(for: event))
+        #expect(menu.items.contains { $0.title == "Change Icon…" && ($0.representedObject as? TabGroup) === root })
+        #expect(table.selectedRowIndexes == selected && menu.delegate == nil)
+        #expect(!sidebar.makeRowMenu(at: -1).items.contains { ($0.representedObject as? TabGroup) === root })
+    }
 }
 
 @Suite("Compact folder icon chooser")
