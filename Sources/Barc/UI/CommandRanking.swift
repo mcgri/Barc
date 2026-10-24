@@ -182,6 +182,7 @@ enum CommandRanker {
         bookmarks: [BookmarkCandidate] = [],
         search: SearchCandidate? = nil,
         sources: CommandSources = CommandSources(),
+        preferredFolderID: UUID? = nil,
         limit: Int = defaultLimit
     ) -> [CommandResult] {
         let normalisedQuery = matchKey(query)
@@ -238,7 +239,8 @@ enum CommandRanker {
                 .compactMap({ scoreText(query: normalisedQuery, in: $0) }).max() else { continue }
             results.append(CommandResult(id:"folder:\(folder.spaceID):\(folder.id)",kind:.folder,
                 title:title,subtitle:folder.path,symbolName:"folder",
-                action:.openFolder(spaceID:folder.spaceID,folderID:folder.id),score:score + spaceBonus,
+                action:.openFolder(spaceID:folder.spaceID,folderID:folder.id),
+                score:score + spaceBonus + (folder.id == preferredFolderID ? 1 : 0),
                 completionText:query.trimmingCharacters(in:.whitespacesAndNewlines)))
         }
 

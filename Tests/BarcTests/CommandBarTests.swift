@@ -335,7 +335,7 @@ struct CommandBarViewTests {
         #expect(bar.selectedIndex == nil)
         var destination: CommandAction?
         var newTab = true
-        bar.onRun = { destination = $0; newTab = $1 }
+        bar.onRun = { destination = $0; newTab = $1; _ = $2 }
         bar.submit()
         #expect(destination == .openURL(URL(string: "https://replacement.example/path")!))
         #expect(!newTab)
@@ -364,7 +364,7 @@ struct CommandBarViewTests {
         let bar = bar()
         var destination: CommandAction?
         var opensNewTab = false
-        bar.onRun = { action, newTab in
+        bar.onRun = { action, newTab, _ in
             destination = action
             opensNewTab = newTab
         }
@@ -483,7 +483,7 @@ struct CommandBarViewTests {
     func returnWithoutSelectionNavigates() {
         let bar = bar()
         var performed: CommandAction?
-        bar.onRun = { action, _ in performed = action }
+        bar.onRun = { action, _, _ in performed = action }
         bar.open(text: "example.com")
         bar.submit()
         #expect(performed == .openURL(URL(string: "https://example.com")!))
@@ -493,7 +493,7 @@ struct CommandBarViewTests {
     func returnWithSelectionRunsTheRow() {
         let bar = bar()
         var performed: CommandAction?
-        bar.onRun = { action, _ in performed = action }
+        bar.onRun = { action, _, _ in performed = action }
         bar.open(text: "example.com")
         bar.setResults(results(3))
         bar.moveSelection(by: 1)
@@ -505,7 +505,7 @@ struct CommandBarViewTests {
     @Test("Running a row closes the bar, and closing clears what was typed")
     func runningClosesTheBar() {
         let bar = bar()
-        bar.onRun = { _, _ in }
+        bar.onRun = { _, _, _ in }
         bar.open(text: "example.com")
         #expect(bar.isOpen)
         bar.setResults(results(2))
@@ -518,7 +518,7 @@ struct CommandBarViewTests {
     func escapeDismisses() {
         let bar = bar()
         var performed: CommandAction?
-        bar.onRun = { action, _ in performed = action }
+        bar.onRun = { action, _, _ in performed = action }
         bar.open(text: "example.com")
         bar.cancelOperation(nil)
         #expect(!bar.isOpen)
@@ -543,7 +543,7 @@ struct CommandBarViewTests {
     func emptyReturnDoesNothing() {
         let bar = bar()
         var ran = false
-        bar.onRun = { _, _ in ran = true }
+        bar.onRun = { _, _, _ in ran = true }
         bar.open()
         bar.submit()
         #expect(!ran)

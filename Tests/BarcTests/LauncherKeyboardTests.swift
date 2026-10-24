@@ -161,7 +161,7 @@ struct LauncherKeyboardTests {
         #expect(bar.queryText == "bbc.co.uk" && editor.selectedRange() == NSRange(location:0,length:9))
         bar.moveSelection(by:-1)
         var action:CommandAction?
-        bar.onRun = { action = $0; _ = $1 }
+        bar.onRun = { action = $0; _ = $1; _ = $2 }
         bar.moveSelection(by:1);bar.submit()
         #expect(action == site.action && !bar.isOpen)
     }
@@ -197,7 +197,7 @@ struct LauncherKeyboardTests {
         #expect(bar.visibleResults[try #require(bar.selectedIndex)].kind == .search)
         #expect(bar.queryText == "project" && editor.selectedRange() == NSRange(location:7,length:0))
         var action:CommandAction?
-        bar.onRun = { action = $0;_ = $1 };bar.submit()
+        bar.onRun = { action = $0;_ = $1;_ = $2 };bar.submit()
         #expect(action == .openURL(search.url) && !bar.isOpen)
     }
 
@@ -220,7 +220,7 @@ struct LauncherKeyboardTests {
         #expect(bar.queryText == bar.visibleResults[selected].completionText)
         let expected = bar.visibleResults[selected].action
         var action:CommandAction?
-        bar.onRun = { action = $0;_ = $1 };bar.submit()
+        bar.onRun = { action = $0;_ = $1;_ = $2 };bar.submit()
         #expect(action == expected)
     }
 

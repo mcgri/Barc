@@ -2309,13 +2309,15 @@ final class SidebarViewController: NSViewController {
         }
     }
 
-    func revealFolder(_ group: TabGroup, in space: Space) {
+    @discardableResult
+    func revealFolder(_ group: TabGroup, in space: Space) -> Bool {
         _ = view
-        guard session.openFolder(group,in:space) else { return }
+        guard session.openFolder(group,in:space) else { return false }
         hideLibrary()
         setArchiveVisible(false)
         view.layoutSubtreeIfNeeded()
         if let row = groupRow(of:group) { tableView.scrollRowToVisible(row) }
+        return true
     }
 
     private func tab(from sender: Any?) -> Tab? {

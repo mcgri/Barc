@@ -1288,11 +1288,12 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                     bookmarks: sources.bookmarks,
                     searchEngine: sources.searchEngine,
                     topHits: sources.topHits
-                )
+                ),
+                preferredFolderID: self.session.preferredFolderCommand(for:query,profile:profile)
             )
         }
 
-        commandBar.onRun = { [weak self] action, openInNewTab in
+        commandBar.onRun = { [weak self] action, openInNewTab, query in
             guard let self else { return }
             let split = self.splitSelection
             self.cancelSplitSelection()
@@ -1329,7 +1330,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             case .openFolder(let spaceID, let folderID):
                 guard let space = self.commandSpaces.first(where: { $0.id == spaceID }),
                       let folder = space.group(withID:folderID) else { return }
-                self.sidebar.revealFolder(folder,in:space)
+                let origin = self.session.activeSpace.profile
+                if self.sidebar.revealFolder(folder,in:space) {
+                    self.session.rememberFolderCommand(folder,in:space,query:query,profile:origin)
+                }
             case .runCommand(let commandId):
                 self.executeCommand(commandId)
             case .openURL(let url):

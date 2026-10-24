@@ -94,7 +94,7 @@ struct URLEditorTests {
         #expect(bar.queryText.isEmpty && bar.visibleResults == [current] && bar.selectedIndex == 0)
         editor.insertText("replacement.invalid", replacementRange: NSRange(location: NSNotFound, length: 0))
         var action: CommandAction?, newTab = true
-        bar.onRun = { action = $0; newTab = $1 }
+        bar.onRun = { action = $0; newTab = $1; _ = $2 }
         bar.submit()
         #expect(action == .openURL(URL(string: "https://replacement.invalid")!) && !newTab)
     }

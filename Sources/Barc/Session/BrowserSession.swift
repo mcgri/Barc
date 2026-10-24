@@ -13,6 +13,8 @@ import WebKit
 /// every keystroke of a page title.
 @MainActor
 final class BrowserSession {
+    /// Private query choices live only for this session, never in preferences.
+    private var privateFolderCommands: [UUID:FolderCommandHistory] = [:]
     enum Change {
         /// The set of spaces, or which space is active, changed.
         case spaces
@@ -1823,6 +1825,24 @@ final class BrowserSession {
         return true
     }
 
+    func preferredFolderCommand(for query: String, profile: BrowserProfile) -> UUID? {
+        let history = profile.identity.isPrivate ? privateFolderCommands[profile.id] : profile.preferences.folderCommandHistory
+        return history?.preferredFolder(for:query)
+    }
+
+    func rememberFolderCommand(_ group: TabGroup, in space: Space, query: String, profile: BrowserProfile) {
+        guard profiles.contains(where: { $0 === profile }), spaces.contains(where: { $0 === space }),
+              space.group(withID:group.id) === group,
+              profile.identity.isPrivate == space.isPrivate,
+              !profile.identity.isPrivate || space.profile === profile else { return }
+        var history = (profile.identity.isPrivate ? privateFolderCommands[profile.id] : profile.preferences.folderCommandHistory)
+            ?? FolderCommandHistory()
+        history.record(group.id,for:query)
+        guard history.count > 0 else { return }
+        if profile.identity.isPrivate { privateFolderCommands[profile.id] = history }
+        else { profile.preferences.folderCommandHistory = history; scheduleSave() }
+    }
+
     /// Puts an emoji, a symbol or a picture on a folder -- or takes it off.
     ///
     /// The same three choices a space has, from the same menu and out of the
@@ -2259,6 +2279,10 @@ final class BrowserSession {
     func clearHistory() {
         let profile = activeSpace.profile
         profile.preferences.arcTopSites = []
+        if profile.preferences.folderCommandHistory != nil {
+            profile.preferences.folderCommandHistory = profile.identity.isPrivate ? nil : FolderCommandHistory()
+        }
+        privateFolderCommands[profile.id] = nil
         saveNow()
         guard let database else { return }
         Task {
@@ -2367,7 +2391,13 @@ final class BrowserSession {
     /// work, not the web's residue.
     func resetBrowsingData() async {
         closedTabs.removeAll()
-        for profile in profiles { profile.preferences.arcTopSites = [] }
+        for profile in profiles {
+            profile.preferences.arcTopSites = []
+            if profile.preferences.folderCommandHistory != nil {
+                profile.preferences.folderCommandHistory = profile.identity.isPrivate ? nil : FolderCommandHistory()
+            }
+        }
+        privateFolderCommands.removeAll()
         saveNow()
         for identity in Set(storedIdentities) {
             guard let database = database(for: identity) else { continue }

@@ -232,7 +232,7 @@ struct LauncherAppearanceTests {
         #expect(rows[0].isAccessibilitySelected() && !rows[2].isAccessibilitySelected())
         table.setAccessibilitySelectedRows([NSView()])
         #expect(bar.selectedIndex == 0)
-        var action:CommandAction?;bar.onRun = { action = $0;_ = $1 }
+        var action:CommandAction?;bar.onRun = { action = $0;_ = $1;_ = $2 }
         #expect(rows[0].accessibilityPerformPress())
         #expect(action == choices[0].action && !bar.isOpen)
         #expect(table.accessibilityRowCount() == 0 && rows.allSatisfy { !$0.isAccessibilitySelected() })

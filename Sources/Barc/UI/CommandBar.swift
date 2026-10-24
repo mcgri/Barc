@@ -79,7 +79,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// Performs a chosen row, or the address the user typed. The bar resolves
     /// text into a `URL` itself so that the caller has one case to handle
     /// rather than two, but it never navigates: it has no session to navigate.
-    var onRun: ((CommandAction, Bool) -> Void)?
+    /// The final argument is the original query, before any URL preview.
+    var onRun: ((CommandAction, Bool, String) -> Void)?
 
     private let shadowHost = NSView()
     private let panel = CommandPanelView()
@@ -712,8 +713,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         if usesLauncherRows || isAddressMode {
             let image = resultImageProvider?(result)
-            addressIcon.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
-            addressIcon.contentTintColor = image == nil ? Style.Colors.secondaryText : nil
+            let symbol = NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
+            addressIcon.image = image ?? (result.kind == .folder ? symbol?.withSymbolConfiguration(.init(pointSize:16,weight:.regular)) : symbol)
+            addressIcon.contentTintColor = image == nil ? (result.kind == .folder ? .labelColor : Style.Colors.secondaryText) : nil
         }
     }
 
@@ -745,8 +747,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         guard visibleResults.indices.contains(index) else { return }
         let action = visibleResults[index].action
         let openInNewTab = isNewTabMode
+        let query = typedQuery
         close(committing: true)
-        onRun?(action, openInNewTab)
+        onRun?(action, openInNewTab, query)
     }
 
     /// Return. A selected row wins; otherwise the typed text is resolved the
@@ -765,7 +768,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         let openInNewTab = isNewTabMode
         close(committing: true)
-        onRun?(.openURL(url), openInNewTab)
+        onRun?(.openURL(url), openInNewTab, text)
     }
 
     // MARK: - Querying

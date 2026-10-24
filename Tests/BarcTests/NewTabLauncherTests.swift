@@ -59,7 +59,7 @@ struct NewTabLauncherTests {
         #expect(command.queryText.isEmpty && command.visibleResults == Array(recent.prefix(4)) && command.selectedIndex == 0)
         editor.insertText("replacement.invalid/path", replacementRange: NSRange(location: NSNotFound, length: 0))
         var action: CommandAction?, newTab = false
-        command.onRun = { action = $0; newTab = $1 }
+        command.onRun = { action = $0; newTab = $1; _ = $2 }
         command.submit()
         #expect(action == .openURL(URL(string: "https://replacement.invalid/path")!) && newTab)
         #expect(!command.isOpen)

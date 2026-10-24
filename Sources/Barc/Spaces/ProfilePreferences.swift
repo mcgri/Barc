@@ -23,4 +23,5 @@ struct ProfilePreferences: Codable, Equatable {
     /// Arc's ranked local shortcuts. Nil is an older import; an empty list
     /// records that browsing history was deliberately cleared.
     var arcTopSites: [BrowserTopSite]?
+    var folderCommandHistory: FolderCommandHistory?
 }

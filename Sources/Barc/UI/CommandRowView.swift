@@ -99,8 +99,8 @@ final class CommandRowView: NSView {
         NSLayoutConstraint.activate([
             folderPathLabel.leadingAnchor.constraint(equalTo:folderPathPlate.leadingAnchor,constant:7),
             folderPathLabel.trailingAnchor.constraint(equalTo:folderPathPlate.trailingAnchor,constant:-7),
-            folderPathLabel.topAnchor.constraint(equalTo:folderPathPlate.topAnchor,constant:2),
-            folderPathLabel.bottomAnchor.constraint(equalTo:folderPathPlate.bottomAnchor,constant:-2)
+            folderPathLabel.centerYAnchor.constraint(equalTo:folderPathPlate.centerYAnchor),
+            folderPathPlate.heightAnchor.constraint(equalToConstant:24)
         ])
         folderPathPlate.isHidden = true
         labels.setViews([titleLabel, subtitleLabel, folderPathPlate],in:.leading)
@@ -185,7 +185,8 @@ final class CommandRowView: NSView {
         titleLabel.setContentCompressionResistancePriority(isFolder ? .required : .defaultHigh,for:.horizontal)
         compactLabelsTrailing.isActive = compact
         hasWebsiteIcon = image != nil
-        iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
+        let symbol = NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
+        iconView.image = image ?? (isFolder ? symbol?.withSymbolConfiguration(.init(pointSize:16,weight:.regular)) : symbol)
         titleLabel.stringValue = isFolder ? "Open" : result.title
         subtitleLabel.stringValue = result.subtitle
         subtitleLabel.isHidden = isFolder || compact || splitChoice
@@ -233,12 +234,12 @@ final class CommandRowView: NSView {
         titleLabel.textColor = isSelected ? .white : Self.normalText
         subtitleLabel.textColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText
         shortcutLabel.textColor = isSelected ? .white : Self.hintText
-        folderPathLabel.textColor = isSelected ? .white : Self.hintText
+        folderPathLabel.textColor = isSelected ? .white : Style.Colors.secondaryText
         iconView.contentTintColor = hasWebsiteIcon ? nil : (isSelected
             ? (usesIconPlate ? selectionColor : .alternateSelectedControlTextColor) : Style.Colors.secondaryText)
-        iconPlate.isHidden = !usesIconPlate || !isSelected
+        iconPlate.isHidden = !usesIconPlate || (!isSelected && !isFolder)
         effectiveAppearance.performAsCurrentDrawingAppearance {
-            iconPlate.layer?.backgroundColor = NSColor.white.cgColor
+            iconPlate.layer?.backgroundColor = (isSelected ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
             arrowPlate.layer?.backgroundColor = (isSelected ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
             folderPathPlate.layer?.backgroundColor = (isSelected
                 ? NSColor.white.withAlphaComponent(0.12) : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
