@@ -40,13 +40,27 @@ struct LauncherKeyboardTests {
         #expect(same.first?.action == .switchToTab(tabID))
     }
 
+    @Test("Web completion removes display-only prefixes while keeping explicit schemes, ports, paths and encoded hosts")
+    func completionFormatting() {
+        let root = URL(string:"https://www.portal.example/")!
+        #expect(AddressFormatter.completion(root) == "portal.example")
+        #expect(AddressFormatter.completion(root,matching:"portal") == "portal.example")
+        #expect(AddressFormatter.completion(root,matching:"www.portal") == "www.portal.example")
+        #expect(AddressFormatter.completion(root,matching:"https://www.portal") == root.absoluteString)
+        #expect(AddressFormatter.completion(root,matching:"portal.example/") == "portal.example/")
+        #expect(AddressFormatter.completion(URL(string:"http://localhost:1000/path?q=1#part")!) == "localhost:1000/path?q=1#part")
+        #expect(AddressFormatter.completion(URL(string:"https://www.xn--nave-6pa.com/path")!) == "xn--nave-6pa.com/path")
+        #expect(AddressFormatter.completion(URL(string:"https://www.example.invalid/?q=1")!) == "example.invalid/?q=1")
+        #expect(AddressFormatter.completion(URL(string:"file:///tmp/report.pdf")!) == "file:///tmp/report.pdf")
+    }
+
     @Test("Arrow previews retain the typed prefix, wrap, and never requery until the user edits", .timeLimit(.minutes(1)))
     func completionAndWrapping() async throws {
         let window = window(); defer { window.close() }
         let bar = CommandBar(); bar.install(in:try #require(window.contentView))
         let id = UUID()
         let rows = CommandRanker.rank(query:"portal",tabs:[.init(id:id,title:"A matching tab",
-            address:"portal.example",url:URL(string:"https://portal.example/")!,isActive:false)],history:[],
+            address:"www.portal.example/",url:URL(string:"https://www.portal.example/")!,isActive:false)],history:[],
             search:.init(engineName:"Fixture",url:URL(string:"https://search.invalid/?q=portal")!))
         var calls = [String]()
         let (arrivals, continuation) = AsyncStream<Void>.makeStream()

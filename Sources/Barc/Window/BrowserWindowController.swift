@@ -1504,7 +1504,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                     CommandResult(id: "top-site:\(site.url.absoluteString)", kind: .history,
                         title: site.title.isEmpty ? AddressFormatter.display(site.url) : site.title,
                         subtitle: "— " + (site.url.host()?.replacingOccurrences(of: "www.", with: "", options: .anchored) ?? ""),
-                        symbolName: "globe", action: .openURL(site.url), score: 0, completionText: AddressFormatter.display(site.url))
+                        symbolName: "globe", action: .openURL(site.url), score: 0, completionText: AddressFormatter.completion(site.url))
                 }
             }
             let useHistory = sources.history && sources.topHits && !space.isPrivate

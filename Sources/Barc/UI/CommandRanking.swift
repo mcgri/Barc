@@ -199,7 +199,7 @@ enum CommandRanker {
                 symbolName: "macwindow",
                 action: .switchToTab(tab.id),
                 score: score + openTabBonus,
-                shortcut: "Jump", completionText: tab.address
+                shortcut: "Jump", completionText: AddressFormatter.completion(tab.url, matching: query)
             ))
         }
 
@@ -260,7 +260,7 @@ enum CommandRanker {
                 subtitle: entry.key,
                 symbolName: "clock",
                 action: .openURL(entry.url),
-                score: score + min(max(entry.visitCount, 0), maximumFrequencyBonus), completionText: entry.key
+                score: score + min(max(entry.visitCount, 0), maximumFrequencyBonus), completionText: AddressFormatter.completion(entry.url, matching: query)
             ))
         }
 
@@ -279,7 +279,7 @@ enum CommandRanker {
                 subtitle: bookmark.key,
                 symbolName: "bookmark",
                 action: .openURL(bookmark.url),
-                score: score, completionText: bookmark.key
+                score: score, completionText: AddressFormatter.completion(bookmark.url, matching: query)
             ))
         }
 
