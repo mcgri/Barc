@@ -92,7 +92,9 @@ struct SplitDuplicationTests {
         let session = TestSession.make().0
         let pages = (0..<2).map { session.newTab(url:URL(string:"https://split-copy.invalid/partial-\($0)")!) }
         let folder = session.createGroup(named:"Partial",containing:[pages[0]])
-        session.splitTabs(pages)
+        // Older snapshots may contain a split whose panes have different
+        // parents. New session-level joins now file the whole unit together.
+        session.activeSpace.splits.join(pages.map(\.id),grid:.grid)
         let before = session.activeSpace.splits
         let copy = try #require(try session.duplicateFolder(folder))
         let copied = session.activeSpace.tabs(in:copy)

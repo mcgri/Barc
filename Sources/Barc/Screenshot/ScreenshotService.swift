@@ -1,4 +1,4 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: application identity and isolated screenshot test inputs, 2026-10-24.
 import AppKit
 import Foundation
 import WebKit
@@ -90,13 +90,13 @@ public enum ScreenshotService {
         return bitmap.representation(using: .png, properties: [:])
     }
 
-    /// Copies an `NSImage` to `NSPasteboard.general`.
-    public static func copyImageToClipboard(image: NSImage) {
-        let pboard = NSPasteboard.general
-        pboard.clearContents()
-        pboard.writeObjects([image])
+    /// Copies image and PNG data to the destination; browser actions use the
+    /// system clipboard, while a test can supply its own named pasteboard.
+    public static func copyImageToClipboard(image: NSImage, pasteboard: NSPasteboard = .general) {
+        pasteboard.clearContents()
+        pasteboard.writeObjects([image])
         if let png = pngData(from: image) {
-            pboard.setData(png, forType: .png)
+            pasteboard.setData(png, forType: .png)
         }
     }
 
@@ -107,18 +107,20 @@ public enum ScreenshotService {
     ///   - tabTitle: Page title used to name the file.
     ///   - url: URL used as fallback name.
     ///   - customDirectory: Optional directory override.
+    ///   - timestamp: The capture time used to name the file.
     /// - Returns: URL of the written file.
     public static func saveImageToDownloads(
         image: NSImage,
         tabTitle: String?,
         url: URL?,
-        customDirectory: URL? = nil
+        customDirectory: URL? = nil,
+        timestamp: Date = Date()
     ) throws -> URL {
         let dir = customDirectory
             ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
 
-        let initialFilename = generateFilename(title: tabTitle ?? url?.host() ?? "Page")
+        let initialFilename = generateFilename(title: tabTitle ?? url?.host() ?? "Page", timestamp: timestamp)
         var targetURL = dir.appendingPathComponent(initialFilename)
 
         if FileManager.default.fileExists(atPath: targetURL.path) {

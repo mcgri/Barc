@@ -56,7 +56,7 @@ struct ScreenshotTests {
         }
     }
 
-    @Test("Copying screenshot to clipboard sets image and PNG data on general pasteboard")
+    @Test("Copying a screenshot sets image and PNG data on an isolated destination pasteboard")
     func testClipboardCopy() {
         let image = NSImage(size: NSSize(width: 20, height: 20))
         image.lockFocus()
@@ -64,9 +64,9 @@ struct ScreenshotTests {
         NSRect(x: 0, y: 0, width: 20, height: 20).fill()
         image.unlockFocus()
 
-        ScreenshotService.copyImageToClipboard(image: image)
-
-        let pboard = NSPasteboard.general
+        let pboard = NSPasteboard(name: .init("barc.screenshot-test.\(UUID())"))
+        defer { pboard.releaseGlobally() }
+        ScreenshotService.copyImageToClipboard(image: image, pasteboard: pboard)
         let types = pboard.types ?? []
         #expect(types.contains(.png) || types.contains(.tiff))
     }
@@ -83,21 +83,24 @@ struct ScreenshotTests {
         NSRect(x: 0, y: 0, width: 40, height: 40).fill()
         image.unlockFocus()
 
+        let timestamp = Date(timeIntervalSince1970: 1700000000)
         let file1 = try ScreenshotService.saveImageToDownloads(
             image: image,
             tabTitle: "CollisionTest",
             url: nil,
-            customDirectory: tempDir
+            customDirectory: tempDir,
+            timestamp: timestamp
         )
         #expect(FileManager.default.fileExists(atPath: file1.path))
         #expect(((try? Data(contentsOf: file1))?.count ?? 0) > 0)
 
-        // Save again with same title: must create unique name with (1)
+        // Force the same base name regardless of whether the wall clock ticks.
         let file2 = try ScreenshotService.saveImageToDownloads(
             image: image,
             tabTitle: "CollisionTest",
             url: nil,
-            customDirectory: tempDir
+            customDirectory: tempDir,
+            timestamp: timestamp
         )
         #expect(file1 != file2)
         #expect(FileManager.default.fileExists(atPath: file2.path))

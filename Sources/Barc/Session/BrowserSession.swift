@@ -1814,8 +1814,24 @@ final class BrowserSession {
         let ids = space.splits.layout(containing:tab.id)?.tabIDs ?? [tab.id]
         let members = ids.compactMap { id in space.tabs.first { $0.id == id } }
         guard members.count == ids.count, members.allSatisfy({ $0.pinnedSiteID == nil }) else { return false }
+        if let target, ids.contains(target.id) { return true }
+        guard placeSidebarTabs(members,in:space,at:index,group:group,before:target,
+                               retained:group == nil ? retained : nil) else { return false }
+        changes.send(.structure)
+        scheduleSave()
+        return true
+    }
+
+    /// Places a unit in both the page array and the mixed folder/tab order.
+    /// A nil retention choice preserves each page's explicit pin setting.
+    private func placeSidebarTabs(_ members: [Tab], in space: Space, at index: Int,
+                                  group: TabGroup?, before target: SidebarItem?, retained: Bool?) -> Bool {
+        let moving = Set(members.map(\.id))
+        guard !members.isEmpty, moving.count == members.count,
+              members.allSatisfy({ member in space.workspaceTabs.contains { $0 === member } }),
+              group == nil || space.groups.contains(where: { $0 === group }) else { return false }
         if let target {
-            if ids.contains(target.id) { return true }
+            guard !moving.contains(target.id) else { return false }
             switch target {
             case .folder(let folder):
                 guard space.groups.contains(where: { $0 === folder }), folder.parentID == group?.id else { return false }
@@ -1823,7 +1839,6 @@ final class BrowserSession {
                 guard space.tabs.contains(where: { $0 === other }), other.groupID == group?.id else { return false }
             }
         }
-        let moving = Set(ids)
         let boundary = min(max(0,index),space.tabs.count)
         let insertion = space.tabs.prefix(boundary).filter { !moving.contains($0.id) }.count
         var ordered = space.tabs.filter { !moving.contains($0.id) }
@@ -1831,16 +1846,31 @@ final class BrowserSession {
         guard space.replaceTabs(with:ordered) else { return false }
         for member in members {
             member.setGroupID(group?.id)
-            if group == nil { member.setKeepsInSidebar(retained) }
+            if let retained { member.setKeepsInSidebar(retained) }
         }
         for member in members {
             SidebarOrder.place(.tab(member),before:target,
                 in:SidebarOrder.items(groups:space.groups,tabs:space.listedTabs,parentID:group?.id),
                 separatesOrdinaryTabs:group == nil)
         }
-        changes.send(.structure)
-        scheduleSave()
         return true
+    }
+
+    private func normalizeSplitSidebar(_ layout: SplitLayout, primary: Tab, previous: SplitLayout?) {
+        let space = activeSpace
+        // Favorites belong to the profile. Only the Space's own pages acquire
+        // the split's sidebar position and folder/retention attributes.
+        let members = layout.tabIDs.compactMap { id in space.workspaceTabs.first { $0.id == id } }
+        let primaryIDs = previous?.tabIDs ?? [primary.id]
+        guard let anchor = primaryIDs.compactMap({ id in members.first { $0.id == id } }).first ?? members.first,
+              let index = space.index(of:anchor) else { return }
+        let group = anchor.groupID.flatMap { space.group(withID:$0) }
+        let siblings = SidebarOrder.items(groups:space.groups,tabs:space.listedTabs,parentID:group?.id)
+        let moving = Set(members.map(\.id))
+        let following = siblings.firstIndex(where: { $0.id == anchor.id }).flatMap { position in
+            siblings.dropFirst(position+1).first { !moving.contains($0.id) }
+        }
+        _ = placeSidebarTabs(members,in:space,at:index,group:group,before:following,retained:anchor.keepsInSidebar)
     }
 
     /// Reorders a top-level group, so dragging a group's header in the sidebar
@@ -2267,15 +2297,15 @@ final class BrowserSession {
         let space = activeSpace
         guard let first = tabs.first,
               tabs.allSatisfy({ candidate in space.tabs.contains { $0 === candidate } }) else { return false }
+        let previous = space.splits.layout(containing:first.id)
         var updated = space.splits
-        guard updated.join(tabs.map(\.id), grid: grid) else { return false }
+        guard updated.join(tabs.map(\.id), grid: grid), let formed = updated.layout(containing:first.id) else { return false }
         guard updated != space.splits else { return true }
         recordSplitUndoState()
         space.splits = updated
-        if let formed = space.splits.layout(containing:first.id) {
-            if let activeTab, formed.contains(activeTab.id) { space.splits.focus(activeTab.id) }
-            else { selectTab(first) }
-        }
+        normalizeSplitSidebar(formed,primary:first,previous:previous)
+        if let activeTab, formed.contains(activeTab.id) { space.splits.focus(activeTab.id) }
+        else { selectTab(first) }
         changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
@@ -2320,8 +2350,11 @@ final class BrowserSession {
     }
 
     func unsplit() {
-        guard let active = activeTab, activeSplit != nil else { return }
+        guard let active = activeTab, let layout = activeSplit else { return }
         recordSplitUndoState()
+        // Older snapshots may still have separated pane rows. Keep the unit's
+        // location when those pages become independent, just as for new splits.
+        normalizeSplitSidebar(layout,primary:active,previous:layout)
         activeSpace.splits.dissolve(containing: active.id)
         changes.send(.structure)
         changes.send(.activeTab)
