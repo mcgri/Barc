@@ -44,7 +44,7 @@ final class BrowserSession {
 
     /// Rules that decide which space a URL opens in. Loaded once; inert until
     /// the user writes a rule.
-    let routing = SpaceRoutingService()
+    let routing: SpaceRoutingService
 
     /// Keeps live folders' contents up to date. Owned here because the sidebar
     /// draws its state and the application services its requests, and both need
@@ -92,10 +92,12 @@ final class BrowserSession {
     /// delay collapses a burst of changes into one write.
     private static let saveDelay = Duration.seconds(1)
 
-    init(database: BrowserDatabase?, sessionStore: SessionStore = SessionStore(), settings: Settings = .shared) {
+    init(database: BrowserDatabase?, sessionStore: SessionStore = SessionStore(), settings: Settings = .shared,
+         routing: SpaceRoutingService = SpaceRoutingService()) {
         self.mainDatabase = database
         self.sessionStore = sessionStore
         self.settings = settings
+        self.routing = routing
 
         let restored = settings.restoresSession ? sessionStore.load() : nil
 
@@ -1808,17 +1810,81 @@ final class BrowserSession {
     /// one unit. The layout and remembered pane stay attached to that unit.
     @discardableResult
     func moveSidebarTab(_ tab: Tab, to index: Int, group: TabGroup?, before target: SidebarItem?, retained: Bool) -> Bool {
+        moveSidebarTabs([tab],to:index,group:group,before:target,retained:retained)
+    }
+
+    @discardableResult
+    func moveSidebarTabs(_ tabs: [Tab], to index: Int, group: TabGroup?, before target: SidebarItem?, retained: Bool) -> Bool {
         let space = activeSpace
-        guard space.tabs.contains(where: { $0 === tab }),
-              group == nil || space.groups.contains(where: { $0 === group }) else { return false }
-        let ids = space.splits.layout(containing:tab.id)?.tabIDs ?? [tab.id]
-        let members = ids.compactMap { id in space.tabs.first { $0.id == id } }
-        guard members.count == ids.count, members.allSatisfy({ $0.pinnedSiteID == nil }) else { return false }
-        if let target, ids.contains(target.id) { return true }
+        guard let members = sidebarUnitMembers(for:tabs), members.allSatisfy({ $0.pinnedSiteID == nil }),
+              sidebarDestinationIsValid(in:space,group:group,before:target) else { return false }
+        if let target, members.contains(where: { $0.id == target.id }) { return true }
         guard placeSidebarTabs(members,in:space,at:index,group:group,before:target,
                                retained:group == nil ? retained : nil) else { return false }
         changes.send(.structure)
         scheduleSave()
+        return true
+    }
+
+    /// Copies selected rows, including every pane of a split, into the requested
+    /// location. Capture the old insertion boundary before duplication changes indices.
+    @discardableResult
+    func duplicateSidebarTabs(_ tabs: [Tab], to index: Int, group: TabGroup?, before target: SidebarItem?, retained: Bool) -> Bool {
+        let space = activeSpace
+        guard let members = sidebarUnitMembers(for:tabs),
+              sidebarDestinationIsValid(in:space,group:group,before:target) else { return false }
+        let boundary = min(max(0,index),space.tabs.count)
+        let following = space.tabs.indices.contains(boundary) ? space.tabs[boundary] : nil
+        let copies = duplicateTabs(members)
+        guard copies.count == members.count else { return false }
+        let insertion = following.flatMap { space.index(of:$0) } ?? space.tabs.count
+        return moveSidebarTabs(copies,to:insertion,group:group,before:target,retained:retained)
+    }
+
+    private func sidebarUnitMembers(for tabs: [Tab]) -> [Tab]? {
+        let space = activeSpace
+        guard !tabs.isEmpty, tabs.allSatisfy({ tab in space.tabs.contains { $0 === tab } }) else { return nil }
+        var seen: Set<UUID> = []
+        var members: [Tab] = []
+        for tab in tabs {
+            for id in space.splits.layout(containing:tab.id)?.tabIDs ?? [tab.id] where seen.insert(id).inserted {
+                guard let member = space.tabs.first(where: { $0.id == id }) else { return nil }
+                members.append(member)
+            }
+        }
+        return members
+    }
+
+    private func sidebarDestinationIsValid(in space: Space, group: TabGroup?, before target: SidebarItem?) -> Bool {
+        guard group == nil || space.groups.contains(where: { $0 === group }) else { return false }
+        guard let target else { return true }
+        switch target {
+        case .folder(let folder):
+            return space.groups.contains(where: { $0 === folder }) && folder.parentID == group?.id
+        case .tab(let other):
+            return space.workspaceTabs.contains(where: { $0 === other }) && other.groupID == group?.id
+        }
+    }
+
+    /// A drop is an explicit placement in this Space and profile. Domain rules
+    /// apply to ordinary new destinations, not a location the user has chosen.
+    @discardableResult
+    func openSidebarLink(_ url: URL, to index: Int, group: TabGroup?, before target: SidebarItem?, retained: Bool) -> Bool {
+        let space = activeSpace
+        guard sidebarDestinationIsValid(in:space,group:group,before:target) else { return false }
+        let tab = Tab(url:url,identity:space.identity)
+        insert(tab,into:space,at:space.tabs.count,select:false)
+        return moveSidebarTab(tab,to:index,group:group,before:target,retained:retained)
+    }
+
+    @discardableResult
+    func openSidebarLink(_ url: URL, splitting target: Tab) -> Bool {
+        let space = activeSpace
+        guard space.tabs.contains(where: { $0 === target }),
+              space.splits.layout(containing:target.id)?.isFull != true else { return false }
+        let tab = Tab(url:url,identity:space.identity)
+        insert(tab,into:space,at:space.tabs.count,select:false)
+        guard splitTabs([target,tab],grid:.sideBySide) else { closeTab(tab); return false }
         return true
     }
 
@@ -1829,16 +1895,8 @@ final class BrowserSession {
         let moving = Set(members.map(\.id))
         guard !members.isEmpty, moving.count == members.count,
               members.allSatisfy({ member in space.workspaceTabs.contains { $0 === member } }),
-              group == nil || space.groups.contains(where: { $0 === group }) else { return false }
-        if let target {
-            guard !moving.contains(target.id) else { return false }
-            switch target {
-            case .folder(let folder):
-                guard space.groups.contains(where: { $0 === folder }), folder.parentID == group?.id else { return false }
-            case .tab(let other):
-                guard space.tabs.contains(where: { $0 === other }), other.groupID == group?.id else { return false }
-            }
-        }
+              sidebarDestinationIsValid(in:space,group:group,before:target),
+              target.map({ !moving.contains($0.id) }) ?? true else { return false }
         let boundary = min(max(0,index),space.tabs.count)
         let insertion = space.tabs.prefix(boundary).filter { !moving.contains($0.id) }.count
         var ordered = space.tabs.filter { !moving.contains($0.id) }

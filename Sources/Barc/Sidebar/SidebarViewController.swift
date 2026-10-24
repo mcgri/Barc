@@ -545,8 +545,8 @@ final class SidebarViewController: NSViewController {
         view.menu = menu
         // Rows from this list, and addresses from anywhere: a link dragged
         // off a page or out of the address bar becomes a tab where it lands.
-        tableView.registerForDraggedTypes([Self.tabRowType, Self.groupRowType, .URL])
-        tableView.setDraggingSourceOperationMask(.move, forLocal: true)
+        tableView.registerForDraggedTypes([SidebarTabDrag.type, Self.tabRowType, Self.groupRowType, .URL])
+        tableView.setDraggingSourceOperationMask([.copy,.move], forLocal: true)
 
         scrollView.documentView = tableView
         scrollView.hasVerticalScroller = true
@@ -3078,8 +3078,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     // Drag reordering, using AppKit's own table-view drag machinery.
 
-    /// The dragged payload is the tab's index in the Space, not the visual row:
-    /// group headers make the two differ, and the Space is what a move acts on.
+    /// Stable page IDs survive table reloads and Space tab-array reordering.
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
         guard rows.indices.contains(row) else { return nil }
         // A top-level group header is draggable to reorder the groups. Only a
@@ -3115,32 +3114,47 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     /// What is being dragged, or nil for something this list does not take.
     private enum DropPayload {
-        case tab(Tab, index: Int)
+        case tabs([Tab])
         case link(URL)
         case group(TabGroup)
     }
 
     private func dropPayload(from info: any NSDraggingInfo) -> DropPayload? {
         let pasteboard = info.draggingPasteboard
-        if let id = pasteboard.pasteboardItems?
-            .compactMap({ $0.string(forType: Self.groupRowType) })
-            .compactMap(UUID.init(uuidString:))
-            .first,
-           let group = session.activeSpace.group(withID: id) {
+        let items = pasteboard.pasteboardItems ?? []
+        if items.contains(where: { $0.types.contains(Self.groupRowType) }) {
+            guard items.count == 1, let raw = items[0].string(forType:Self.groupRowType),
+                  let id = UUID(uuidString:raw), let group = session.activeSpace.group(withID:id) else { return nil }
             return .group(group)
         }
-        if let index = pasteboard.pasteboardItems?
-            .compactMap({ $0.string(forType: Self.tabRowType) })
-            .compactMap(Int.init)
-            .first {
-            let tabs = session.activeSpace.tabs
-            guard tabs.indices.contains(index) else { return nil }
-            return .tab(tabs[index], index: index)
+        if items.contains(where: { $0.types.contains(SidebarTabDrag.type) || $0.types.contains(Self.tabRowType) }) {
+            var tabs: [Tab] = []
+            var seen: Set<UUID> = []
+            for item in items {
+                guard let raw = item.string(forType:SidebarTabDrag.type), let id = UUID(uuidString:raw),
+                      let tab = session.activeSpace.tabs.first(where: { $0.id == id }),
+                      !tab.isSidebarPlaceholder else { return nil }
+                if seen.insert(id).inserted { tabs.append(tab) }
+            }
+            return tabs.isEmpty ? nil : .tabs(tabs)
         }
         if let url = (pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL])?.first {
             return .link(url)
         }
         return nil
+    }
+
+    private func allowedDropOperation(for payload:DropPayload, source:NSDragOperation) -> NSDragOperation {
+        switch payload {
+        case .tabs:
+            if source.contains(.move) { return .move }
+            return source.contains(.copy) ? .copy : []
+        case .group:
+            return source.contains(.move) ? .move : []
+        case .link:
+            if source.contains(.copy) { return .copy }
+            return source.contains(.link) ? .link : []
+        }
     }
 
     /// Where dropping the dragged group would put it: just before this root
@@ -3198,7 +3212,15 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
            let header = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) {
             let zonePayload: FolderDragPayload
             switch payload {
-            case .tab(let tab, _): zonePayload = .tab(tab)
+            case .tabs(let tabs):
+                guard let tab = tabs.first else { return nil }
+                if allowedDropOperation(for:payload,source:info.draggingSourceOperationMask) == .copy {
+                    // New copies have no existing parent to reject. A move of
+                    // mixed rows is fileable when any member is outside here.
+                    zonePayload = .link
+                } else {
+                    zonePayload = .tab(tabs.first(where: { $0.groupID != folder.id }) ?? tab)
+                }
             case .link: zonePayload = .link
             // A dragged group reorders the groups; it is handled before this is
             // ever reached, and never files itself into a folder.
@@ -3235,13 +3257,14 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     }
 
     private func isTabSplitDrop(row: Int, payload: DropPayload, operation: NSTableView.DropOperation) -> Bool {
-        guard let targetTab = splitDropTarget(at:row), operation == .on || NSEvent.modifierFlags.contains(.option) else { return false }
+        guard let targetTab = splitDropTarget(at:row), operation == .on else { return false }
         switch payload {
-        case .tab(let draggedTab, _):
-            guard draggedTab.id != targetTab.id,
-                  session.activeSpace.splits.layout(containing:targetTab.id)?.contains(draggedTab.id) != true else { return false }
+        case .tabs(let tabs):
+            guard !tabs.contains(where: { tab in
+                tab.id == targetTab.id || session.activeSpace.splits.layout(containing:tab.id)?.contains(targetTab.id) == true
+            }) else { return false }
             var proposed = session.activeSpace.splits
-            return proposed.join([targetTab.id,draggedTab.id],grid:.sideBySide)
+            return proposed.join([targetTab.id]+tabs.map(\.id),grid:.sideBySide)
         case .link:
             return session.activeSpace.splits.layout(containing:targetTab.id)?.isFull != true
         case .group:
@@ -3285,21 +3308,26 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         proposedRow row: Int,
         proposedDropOperation dropOperation: NSTableView.DropOperation
     ) -> NSDragOperation {
-        guard let payload = dropPayload(from: info) else { return [] }
+        guard shownSpace === session.activeSpace, let payload = dropPayload(from: info) else { return [] }
+        let operation = allowedDropOperation(for:payload,source:info.draggingSourceOperationMask)
+        guard !operation.isEmpty else { return [] }
         // A group drag reorders the top-level groups: the line goes between
         // rows and the move is always allowed (a drop on itself is a no-op).
         if case .group = payload {
             tableView.setDropRow(max(0, row), dropOperation: .above)
             return .move
         }
+        if case .tabs = payload, operation == .copy {
+            guard dropDestination(info,payload:payload,row:row,operation:.above) != nil else { return [] }
+            return .copy
+        }
         if isTabSplitDrop(row: row, payload: payload, operation: dropOperation) {
             tableView.setDropRow(row, dropOperation: .on)
-            return .move
+            return operation
         }
         guard dropDestination(info, payload: payload, row: row, operation: dropOperation) != nil
         else { return [] }
-        if case .link = payload { return .copy }
-        return .move
+        return operation
     }
 
     func tableView(
@@ -3308,7 +3336,9 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         row: Int,
         dropOperation: NSTableView.DropOperation
     ) -> Bool {
-        guard let payload = dropPayload(from: info) else { return false }
+        guard shownSpace === session.activeSpace, let payload = dropPayload(from: info) else { return false }
+        let operation = allowedDropOperation(for:payload,source:info.draggingSourceOperationMask)
+        guard !operation.isEmpty else { return false }
         // A group drag reorders the top-level groups rather than moving a tab.
         if case .group(let dragged) = payload {
             if dragged.parentID == nil {
@@ -3318,16 +3348,19 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             }
             return true
         }
+        if case .tabs(let tabs) = payload, operation == .copy {
+            guard let destination = dropDestination(info,payload:payload,row:row,operation:.above) else { return false }
+            let group = destination.plan.groupID.flatMap { session.activeSpace.group(withID:$0) }
+            return session.duplicateSidebarTabs(tabs,to:destination.plan.tabIndex,group:group,
+                                                before:destination.before,retained:destination.retained)
+        }
         if dropOperation == .on, let targetTab = splitDropTarget(at:row) {
             guard isTabSplitDrop(row:row,payload:payload,operation:dropOperation) else { return false }
             switch payload {
-            case .tab(let draggedTab, _):
-                guard draggedTab.id != targetTab.id else { return false }
-                return session.splitTabs([targetTab, draggedTab], grid: .sideBySide)
+            case .tabs(let tabs):
+                return session.splitTabs([targetTab]+tabs, grid: .sideBySide)
             case .link(let url):
-                let newTab = session.newTab(url: url, select: false)
-                guard session.splitTabs([targetTab, newTab], grid: .sideBySide) else { session.closeTab(newTab); return false }
-                return true
+                return session.openSidebarLink(url,splitting:targetTab)
             case .group:
                 break
             }
@@ -3338,18 +3371,12 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         let group = destination.plan.groupID.flatMap { space.group(withID: $0) }
 
         switch payload {
-        case .tab(let tab, _):
-            return session.moveSidebarTab(tab,to:destination.plan.tabIndex,group:group,
-                                          before:destination.before,retained:destination.retained)
+        case .tabs(let tabs):
+            return session.moveSidebarTabs(tabs,to:destination.plan.tabIndex,group:group,
+                                           before:destination.before,retained:destination.retained)
         case .link(let url):
-            // Made at the end and then moved, which is the one path every
-            // new tab already takes, rather than a second way to insert one.
-            let tab = session.newTab(url: url, select: false)
-            if let index = space.index(of: tab) {
-                session.moveTab(from: index, to: destination.plan.tabIndex)
-            }
-            session.move(tab, to: group)
-            session.positionSidebarItem(.tab(tab), before: destination.before, retained: destination.retained)
+            return session.openSidebarLink(url,to:destination.plan.tabIndex,group:group,
+                                           before:destination.before,retained:destination.retained)
         case .group:
             // Handled above, before the tab destination is resolved.
             return true
