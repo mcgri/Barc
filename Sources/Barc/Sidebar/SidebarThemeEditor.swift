@@ -156,12 +156,15 @@ final class ThemeColorCanvas: NSVisualEffectView {
     var onSelect: ((Int) -> Void)?
     var onMove: ((Int, NSColor) -> Void)?
     private var handles: [ThemeColorHandle] = []
+    private let dotGrid = ThemeDotGridView()
     override var isFlipped: Bool { true }
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         material = .popover; blendingMode = .behindWindow; state = .active
         wantsLayer = true; layer?.cornerRadius = 8; layer?.masksToBounds = true
         setAccessibilityElement(false)
+        dotGrid.frame = bounds; dotGrid.autoresizingMask = [.width, .height]
+        dotGrid.setAccessibilityElement(false); addSubview(dotGrid)
     }
     required init?(coder: NSCoder) { fatalError("Created in code only") }
     func show(_ colors: [ImportedChrome.Color]) {
@@ -170,7 +173,7 @@ final class ThemeColorCanvas: NSVisualEffectView {
             let handle: ThemeColorHandle
             let isNew = !handles.indices.contains(i)
             if handles.indices.contains(i) { handle = handles[i] }
-            else { handle = ThemeColorHandle(); handles.append(handle); addSubview(handle, positioned: .below, relativeTo: subviews.first) }
+            else { handle = ThemeColorHandle(); handles.append(handle); addSubview(handle, positioned: .above, relativeTo: dotGrid) }
             let colorChanged = handle.color != color.nsColor
             handle.color = color.nsColor
             handle.setAccessibilityLabel("Color \(i + 1)")
@@ -191,8 +194,13 @@ final class ThemeColorCanvas: NSVisualEffectView {
             if !handle.isDragging && (isNew || colorChanged) { handle.frame = NSRect(x: center.x - 22, y: center.y - 22, width: 44, height: 44) }
         }
     }
+}
+
+@MainActor
+private final class ThemeDotGridView: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
         NSColor.labelColor.withAlphaComponent(0.025).setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
         NSColor.labelColor.withAlphaComponent(0.18).setFill()
