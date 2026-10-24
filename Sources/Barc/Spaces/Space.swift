@@ -73,6 +73,7 @@ final class Space: Identifiable {
     var name: String
     private(set) var profile: BrowserProfile
     var identity: Identity { profile.identity }
+    var favoritesHintDismissed: Bool { profile.preferences.favoritesHintDismissed ?? look.favoritesHintDismissed }
     /// What the window looks like while this space is the one in front.
     var theme: SpaceTheme
     /// The rim around the window while this space is in front. Per space,

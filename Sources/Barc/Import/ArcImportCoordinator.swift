@@ -227,6 +227,13 @@ final class ArcImportCoordinator {
                 }
             }
             let applied = try session.applyArcSpaces(incoming)
+            if options.sidebar, let hints = source.favoritesHintDismissedProfiles {
+                let dismissed = hints.contains(profile.folder)
+                let added = session.enrichArcFavoritesHint(dismissed,for:identity)
+                let actual = session.profiles.first { $0.identity == identity }?.preferences.favoritesHintDismissed
+                result.counts["Favorites hint preference"] = .init(source:1,imported:added ? 1 : 0,
+                    existing:added ? 0 : 1,verified:actual == dismissed ? 1 : 0)
+            }
             if options.history, FileManager.default.fileExists(atPath: profileURL.appending(path: "Top Sites").path) {
                 do {
                     let sites = try await Task.detached { try ArcProfileReader.topSites(profileURL) }.value

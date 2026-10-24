@@ -276,8 +276,7 @@ final class SidebarViewController: NSViewController {
         pinnedTiles.onDismissHint = { [weak self] in
             guard let self else { return }
             let space = shownSpace
-            var look = space.look; look.favoritesHintDismissed = true
-            session.setLook(look, for: space)
+            session.dismissFavoritesHint(in:space)
         }
         pinnedTiles.canDropTab = { [weak self] id in self?.canFavoriteTab(id: id) == true }
         pinnedTiles.onDropTab = { [weak self] id in
@@ -1087,7 +1086,7 @@ final class SidebarViewController: NSViewController {
                 )
             },
             isPrivate: space.isPrivate,
-            showsEmptyHint: !space.look.favoritesHintDismissed
+            showsEmptyHint: !space.favoritesHintDismissed
         )
     }
 

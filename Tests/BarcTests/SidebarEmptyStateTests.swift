@@ -83,7 +83,7 @@ struct SidebarEmptyStateTests {
         let strip = try pins(in: sidebar)
         let dismiss = try #require(UITestSupport.buttons(in: strip).first { $0.accessibilityLabel() == "Dismiss Favorites Hint" })
         dismiss.performClick(nil)
-        #expect(original.look.favoritesHintDismissed)
+        #expect(original.favoritesHintDismissed)
         #expect(strip.isHidden)
         let tab = session.newTab(url: URL(string: "https://favorite.invalid/")!, select: false)
         session.pin(tab)
@@ -91,12 +91,12 @@ struct SidebarEmptyStateTests {
         session.unpin(tab)
         #expect(strip.isHidden)
         let other = session.addSpace(named: "Other")
-        #expect(!other.look.favoritesHintDismissed)
+        #expect(!other.favoritesHintDismissed)
         #expect(!strip.isHidden)
         session.selectSpace(original)
         #expect(strip.isHidden)
         let restored = try #require(BrowserSession.spaces(from: session.snapshot())?.first { $0.id == original.id })
-        #expect(restored.look.favoritesHintDismissed)
+        #expect(restored.favoritesHintDismissed)
         #expect(try JSONDecoder().decode(SpaceLook.self, from: Data("{}".utf8)).favoritesHintDismissed == false)
     }
 

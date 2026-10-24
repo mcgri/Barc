@@ -27,4 +27,7 @@ struct ProfilePreferences: Codable, Equatable {
     /// Process each source once. Kept after history clearing so a repeat
     /// import cannot silently restore choices the user deliberately removed.
     var arcFolderCommandSources: Set<String>?
+    /// Favorites and their empty-state hint belong to the shared profile.
+    /// Nil retains compatibility with an older per-Space dismissal flag.
+    var favoritesHintDismissed: Bool?
 }

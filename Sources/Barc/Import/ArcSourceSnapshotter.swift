@@ -13,7 +13,8 @@ enum ArcSourceSnapshotter {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Arc")
     }
 
-    static func capture(_ selected: URL, temporaryParent: URL = FileManager.default.temporaryDirectory, sidebarOnly: Bool = false) throws -> ArcSourceSnapshot {
+    static func capture(_ selected: URL, temporaryParent: URL = FileManager.default.temporaryDirectory, sidebarOnly: Bool = false,
+                        macPreferencesURL: URL? = nil) throws -> ArcSourceSnapshot {
         let manager = FileManager.default
         var source = selected.standardizedFileURL.resolvingSymlinksInPath()
         if source.lastPathComponent == "User Data" { source.deleteLastPathComponent() }
@@ -55,6 +56,16 @@ enum ArcSourceSnapshotter {
                     profiles.append(ArcProfile(folder: name, name: display))
                 }
                 guard !profiles.isEmpty else { throw ArcImportFailure.invalidFolder }
+                // A copied Arc folder must not inherit this Mac's settings.
+                // Read only the one supported key, and never copy the complete
+                // preferences plist into the import snapshot.
+                let preferencesURL = macPreferencesURL ?? (source == defaultFolder.standardizedFileURL.resolvingSymlinksInPath()
+                    ? manager.homeDirectoryForCurrentUser.appending(path:"Library/Preferences/company.thebrowser.Browser.plist") : nil)
+                var dismissedFavorites: Set<String>?
+                if let file = preferencesURL, let before = try? stamp(file), let data = try? Data(contentsOf:file) {
+                    guard before == (try? stamp(file)) else { throw ArcImportFailure.sourceChanging }
+                    dismissedFavorites = ArcMacPreferencesReader.dismissedFavoritesProfiles(data,profiles:profiles)
+                }
                 var indexedDB: [String: Int] = [:]
                 var extensions: [String: Int] = [:]
                 var databases: [String] = []
@@ -105,7 +116,8 @@ enum ArcSourceSnapshotter {
                 return ArcSourceSnapshot(root: target, sourceFingerprint: ArcImportID.fingerprint(source), profiles: profiles,
                                          sidebar: sidebar, unsupportedIndexedDBFolders: indexedDB, extensions: extensions, sidebarOnly: sidebarOnly,
                                          commandRanking: (try? Data(contentsOf:target.appending(path:ArcCommandRankingReader.filename)))
-                                            .flatMap { try? ArcCommandRankingReader.read($0) })
+                                            .flatMap { try? ArcCommandRankingReader.read($0) },
+                                         favoritesHintDismissedProfiles:dismissedFavorites)
             } catch {
                 try? manager.removeItem(at: target)
                 if error as? ArcImportFailure == .sourceChanging, attempt < 2 { continue }

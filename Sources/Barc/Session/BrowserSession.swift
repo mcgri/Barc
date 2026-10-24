@@ -269,6 +269,26 @@ final class BrowserSession {
         }
         let liveIDs = Set(allTabs.map(\.id))
         for id in Array(tabSubscriptions.keys) where !liveIDs.contains(id) { tabSubscriptions[id] = nil }
+        for space in spaces where space.look.favoritesHintDismissed && space.profile.preferences.favoritesHintDismissed == nil {
+            space.profile.preferences.favoritesHintDismissed = true
+        }
+    }
+
+    func dismissFavoritesHint(in space: Space) {
+        guard spaces.contains(where: { $0 === space }), space.profile.preferences.favoritesHintDismissed != true else { return }
+        space.profile.preferences.favoritesHintDismissed = true
+        changes.send(.structure)
+        scheduleSave()
+    }
+
+    @discardableResult
+    func enrichArcFavoritesHint(_ dismissed: Bool, for identity: Space.Identity) -> Bool {
+        guard !identity.isPrivate, let profile = profiles.first(where: { $0.identity == identity }),
+              profile.preferences.favoritesHintDismissed == nil else { return false }
+        profile.preferences.favoritesHintDismissed = dismissed
+        changes.send(.structure)
+        scheduleSave()
+        return true
     }
 
     /// Adds a space with an identity of its own: fresh cookies, no logins.
@@ -2810,6 +2830,9 @@ final class BrowserSession {
                 defaultZoom: stored.defaultZoom
             )
             space.icon = stored.icon ?? .automatic
+            if space.look.favoritesHintDismissed && profile.preferences.favoritesHintDismissed == nil {
+                profile.preferences.favoritesHintDismissed = true
+            }
             WebEnvironment.shared.setFonts(space.look.fonts, for: space.identity)
             let groups = (stored.groups ?? []).map {
                 TabGroup(

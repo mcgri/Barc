@@ -40,7 +40,7 @@ final class AddressField: NSView {
         field.translatesAutoresizingMaskIntoConstraints = false
         field.isBordered = false
         field.setButtonType(.momentaryChange)
-        field.title = "Search or enter address"
+        field.title = "Search or Enter URL…"
         field.alignment = .left
         field.target = self
         field.action = #selector(openAddress)
@@ -80,6 +80,7 @@ final class AddressField: NSView {
             copyButton.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -2),
             copyButton.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
+        show(display:"",url:nil)
     }
 
     required init?(coder: NSCoder) { fatalError("AddressField is created in code only") }
@@ -117,10 +118,10 @@ final class AddressField: NSView {
         trackingArea = installHoverTracking(replacing: trackingArea)
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovered = true }
+    override func mouseEntered(with event: NSEvent) { if !currentDisplay.isEmpty { isHovered = true } }
     override func mouseExited(with event: NSEvent) { isHovered = false }
-    override func mouseDown(with event: NSEvent) { onOpen?() }
-    @objc private func openAddress() { onOpen?() }
+    override func mouseDown(with event: NSEvent) { if !currentDisplay.isEmpty { onOpen?() } }
+    @objc private func openAddress() { if !currentDisplay.isEmpty { onOpen?() } }
 
     private func updateHighlight() {
         highlight?.apply(
@@ -132,19 +133,29 @@ final class AddressField: NSView {
     /// The compact label follows the page; the popup owns its separate editing state.
     func show(display: String?, url: URL?) {
         currentDisplay = display ?? ""
-        currentURL = url
-        field.toolTip = url?.absoluteString
-        copyButton.isHidden = !isHovered || url == nil
-        textTrailing.constant = isHovered && url != nil ? -36 : -12
-        showSecurity(of: url)
-        field.title = currentDisplay.isEmpty ? "Search or enter address" : currentDisplay
+        let empty = currentDisplay.isEmpty
+        currentURL = empty ? nil : url
+        if empty { isHovered = false }
+        field.isEnabled = !empty
+        field.toolTip = currentURL?.absoluteString
+        copyButton.isHidden = !isHovered || currentURL == nil
+        textTrailing.constant = isHovered && currentURL != nil ? -36 : -12
+        showSecurity(of: currentURL, placeholder:empty)
+        field.title = empty ? "Search or Enter URL…" : currentDisplay
+        field.font = .systemFont(ofSize:empty ? 13 : 14,weight:empty ? .semibold : .regular)
+        field.contentTintColor = empty ? Style.Colors.secondaryText : Style.Colors.primaryText
+        field.attributedTitle = NSAttributedString(string:field.title,attributes:[
+            .font:field.font!, .foregroundColor:field.contentTintColor!
+        ])
     }
 
     /// A lock for HTTPS, a warning for plain HTTP, nothing for the schemes where
     /// "secure or not" is not the question (a new tab, a local file).
-    private func showSecurity(of url: URL?) {
+    private func showSecurity(of url: URL?, placeholder: Bool) {
         let symbol: (name: String, tint: NSColor, help: String)?
-        switch url?.scheme?.lowercased() {
+        switch placeholder ? "search" : url?.scheme?.lowercased() {
+        case "search":
+            symbol = ("magnifyingglass",Style.Colors.secondaryText,"Search")
         case "https":
             symbol = nil
         case "http":
@@ -161,9 +172,11 @@ final class AddressField: NSView {
         securityIcon.isHidden = false
         let image = NSImage(systemSymbolName: symbol.name, accessibilityDescription: symbol.help)
         securityIcon.image = image
+        securityIcon.symbolConfiguration = placeholder ? .init(pointSize:13,weight:.medium) : nil
         securityIcon.contentTintColor = symbol.tint
         securityIcon.toolTip = symbol.help
         securityIcon.setAccessibilityLabel(symbol.help)
+        securityIcon.setAccessibilityElement(!placeholder)
     }
 
     private func copyAddress() {

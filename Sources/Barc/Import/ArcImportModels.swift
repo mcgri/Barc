@@ -97,6 +97,7 @@ struct ArcSourceSnapshot: Sendable {
     let extensions: [String: Int]
     var sidebarOnly: Bool = false
     var commandRanking: ArcCommandRanking? = nil
+    var favoritesHintDismissedProfiles: Set<String>? = nil
 
     func profileURL(_ profile: ArcProfile) -> URL {
         root.appending(path: "User Data").appending(path: profile.folder)
