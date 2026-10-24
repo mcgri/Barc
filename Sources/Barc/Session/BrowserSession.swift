@@ -1010,12 +1010,12 @@ final class BrowserSession {
 
     /// Takes a tab out of its space and out of the window, tearing its page
     /// down. The half of closing that a move to another space shares.
-    private func detach(_ tab: Tab, from space: Space, keepingPage: Bool = false) {
+    private func detach(_ tab: Tab, from space: Space, keepingPage: Bool = false, announcing: Bool = true) {
         guard let index = space.index(of: tab) else { return }
 
         // Closing a pane is first a removal from the split, so the 2 -> 1
         // dissolve and the sibling rescale happen exactly once.
-        removeFromSplit(tab)
+        removeFromSplit(tab,announcing:announcing)
 
         let wasActive = space.activeTabID == tab.id
         if !keepingPage { forget(tab) }
@@ -1031,11 +1031,11 @@ final class BrowserSession {
             space.setActiveTabID(neighbour?.id)
         }
 
-        if space.id == activeSpaceID {
+        if announcing, space.id == activeSpaceID {
             changes.send(.tabs)
             if wasActive { changes.send(.activeTab) }
         }
-        scheduleSave()
+        if announcing { scheduleSave() }
     }
 
     /// A second tab on the same page, right after the first, in the same
@@ -1618,14 +1618,20 @@ final class BrowserSession {
                 if let groupID = tab.groupID {
                     liveFolders.tabWasRemoved(tab.id, fromFolder:groupID)
                 }
-                detach(tab,from:space)
+                // Unloading an archived page must not refresh a half-removed
+                // split. Publish the finished batch once, below.
+                tabSubscriptions[tab.id]?.cancel()
+                detach(tab,from:space,announcing:false)
             }
             touched.insert(space.id)
         }
         guard !archivedIDs.isEmpty else { return }
         trimArchives(of: touched)
         Metrics.log("archive count=\(tabs.count) total=\(archivedTabs.count)")
+        // Structure refreshes the list once. A second `.tabs` would reload
+        // the same rows and interrupt their collapse animation.
         changes.send(.structure)
+        changes.send(.activeTab)
         scheduleSave()
         showToast?(.archived(count:archivedIDs.count,undo:{ [weak self] in self?.undoArchive(archivedIDs) }))
     }
@@ -1636,10 +1642,9 @@ final class BrowserSession {
     /// the user touching anything, so it is the one thing that has to offer the
     /// undo up front rather than leave it to be found later in a window.
     private func undoArchive(_ ids: [UUID]) {
-        // Copied out first: `restoreArchived` removes from the same array.
         let selected = Set(ids)
         let restorable = archivedTabs.filter { selected.contains($0.id) }
-        for record in restorable { restoreArchived(record) }
+        _ = restoreArchiveRecords(restorable)
     }
 
     /// Brings one back, into the space it left from or the active space if that
@@ -1647,18 +1652,8 @@ final class BrowserSession {
     /// of wanting to read it.
     @discardableResult
     func restoreArchived(_ archived: ArchivedTab) -> Tab? {
-        guard let index = archivedTabs.firstIndex(where: { $0.id == archived.id }) else { return nil }
-        let record = archivedTabs.remove(at: index)
-        let space = spaces.first { $0.id == record.spaceID } ?? activeSpace
-        let restored = revive(record,into:space)
-        if space.id != activeSpaceID { selectSpace(space) }
-        space.setActiveTabID(restored.focus.id)
-        space.splits.focus(restored.focus.id)
-        changes.send(.structure)
-        changes.send(.tabs)
-        changes.send(.activeTab)
-        scheduleSave()
-        return restored.focus
+        guard let record = archivedTabs.first(where: { $0.id == archived.id }) else { return nil }
+        return restoreArchiveRecords([record]).selected
     }
 
     /// Puts a space's whole archive back where it came from, in the order it
@@ -1678,23 +1673,38 @@ final class BrowserSession {
         let records = archivedTabs
             .filter { $0.spaceID == space.id }
             .sorted { $0.archivedAt < $1.archivedAt }
-        guard !records.isEmpty else { return [] }
-        archivedTabs.removeAll { $0.spaceID == space.id }
+        return restoreArchiveRecords(records).tabs
+    }
 
-        let restored = records.map { revive($0,into:space) }
+    /// Single restore, Put Back All and Undo publish only the finished batch.
+    /// A group never appears as loose pages and earlier arrivals keep animating.
+    private func restoreArchiveRecords(_ records: [ArchivedTab]) -> (tabs:[Tab], selected:Tab?) {
+        guard !records.isEmpty else { return ([],nil) }
+        let ids = Set(records.map(\.id))
+        archivedTabs.removeAll { ids.contains($0.id) }
+        var tabs: [Tab] = []
+        var last: (space:Space, focus:Tab)?
+        for record in records {
+            let space = spaces.first { $0.id == record.spaceID } ?? activeSpace
+            let restored = revive(record,into:space)
+            tabs.append(contentsOf:restored.tabs)
+            space.setActiveTabID(restored.focus.id)
+            space.splits.focus(restored.focus.id)
+            last = (space,restored.focus)
+        }
         // The one archived most recently ends up selected: it is the one a
         // user who has just emptied the archive went looking for.
-        if space.id != activeSpaceID { selectSpace(space) }
-        if let last = restored.last {
-            space.setActiveTabID(last.focus.id)
-            space.splits.focus(last.focus.id)
+        if let last {
+            if last.space.id != activeSpaceID {
+                // The first Space-change observer already sees the final pane.
+                selectSpace(last.space)
+            } else {
+                changes.send(.structure)
+                changes.send(.activeTab)
+            }
         }
-
-        changes.send(.structure)
-        changes.send(.tabs)
-        changes.send(.activeTab)
         scheduleSave()
-        return restored.flatMap(\.tabs)
+        return (tabs,last?.focus)
     }
 
     /// Restore each page once and bind saved pane slots to the new identities.
@@ -2452,6 +2462,10 @@ final class BrowserSession {
     /// Shared Favorites may participate in splits in multiple Spaces. Removing
     /// one repairs every affected group, including groups in the background.
     func removeFromSplit(_ tab: Tab) {
+        removeFromSplit(tab,announcing:true)
+    }
+
+    private func removeFromSplit(_ tab: Tab, announcing: Bool) {
         let owners = spaces.filter { $0.splits.layout(containing: tab.id) != nil }
         guard let undoOwner = owners.first(where: { $0.id == activeSpaceID }) ?? owners.first else { return }
         recordSplitUndoState(in: undoOwner)
@@ -2464,12 +2478,18 @@ final class BrowserSession {
             }
             if space === activeSpace, activeTab?.id == tab.id,
                let survivor = space.tabs.first(where: { $0.id == survivors.first }) {
-                selectTab(survivor)
+                if announcing { selectTab(survivor) }
+                else {
+                    space.setActiveTabID(survivor.id)
+                    space.splits.focus(survivor.id)
+                }
             }
         }
-        changes.send(.structure)
-        changes.send(.activeTab)
-        scheduleSave()
+        if announcing {
+            changes.send(.structure)
+            changes.send(.activeTab)
+            scheduleSave()
+        }
     }
 
     func unsplit() {
