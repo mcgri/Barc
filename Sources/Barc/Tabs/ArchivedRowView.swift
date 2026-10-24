@@ -1,3 +1,4 @@
+// Modified for Barc: archived split captions and accessible pane information, 2026-10-25.
 import AppKit
 
 /// One row in the archive: the page's icon and name, then where and when it
@@ -136,15 +137,17 @@ final class ArchivedRowView: NSTableCellView {
         fatalError("ArchivedRowView is created in code only")
     }
 
-    func configure(title: String, url: URL, spaceName: String?, archivedAt: Date) {
+    func configure(title: String, url: URL, spaceName: String?, archivedAt: Date, relatedURLs: [URL] = []) {
         titleLabel.stringValue = title
         let when = Self.relative.localizedString(for: archivedAt, relativeTo: .now)
         // The host, not the whole address: the detail line is there to tell two
         // similar titles apart, and a query string does not help with that.
-        detailLabel.stringValue = [spaceName, url.host() ?? url.absoluteString, "archived \(when)"]
+        let urls = [url] + relatedURLs
+        let hosts = urls.map { $0.host() ?? $0.absoluteString }.joined(separator:" + ")
+        detailLabel.stringValue = [spaceName, hosts, "archived \(when)"]
             .compactMap { $0 }
             .joined(separator: " \u{00b7} ")
-        toolTip = url.absoluteString
+        toolTip = urls.map(\.absoluteString).joined(separator:"\n")
 
         // No web view to ask, so discovery falls back to the `/favicon.ico`
         // convention. Never private: a private space keeps no archive, so
@@ -152,7 +155,8 @@ final class ArchivedRowView: NSTableCellView {
         favicon.show(for: url, in: nil, isPrivate: false)
 
         setAccessibilityRole(.row)
-        setAccessibilityLabel("\(title), \(detailLabel.stringValue)")
+        let kind = relatedURLs.isEmpty ? "" : "Split View, \(urls.count) tabs, "
+        setAccessibilityLabel("\(kind)\(title), \(detailLabel.stringValue)")
     }
 
     /// The pill drawn behind a hovered row. Exposed so the shape can be checked

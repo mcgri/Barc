@@ -1,4 +1,4 @@
-// Modified for Barc: owner-scoped Today archival and retained tab actions, 2026-10-24.
+// Modified for Barc: owner-scoped whole-row archival and retained tab actions, 2026-10-25.
 import Foundation
 
 @MainActor
@@ -41,16 +41,26 @@ extension BrowserSession {
     func sidebarArchiveCandidates(relativeTo tab: Tab, in owner: Space, scope: SidebarArchiveScope) -> [Tab] {
         guard spaces.contains(where: { $0 === owner }), owner.tabs.contains(where: { $0 === tab }) else { return [] }
         let today = todayTabs(in: owner)
-        guard let index = today.firstIndex(where: { $0 === tab }) else { return [] }
-        return today.enumerated().compactMap { offset, candidate in
+        let byID = Dictionary(uniqueKeysWithValues:today.map { ($0.id,$0) })
+        var seen: Set<Tab.ID> = []
+        var rows: [[Tab]] = []
+        for candidate in today where !seen.contains(candidate.id) {
+            let ids = owner.splits.layout(containing:candidate.id)?.tabIDs ?? [candidate.id]
+            seen.formUnion(ids)
+            // An arrangement reaching outside Today is retained as a whole.
+            guard ids.allSatisfy({ byID[$0] != nil }) else { continue }
+            rows.append(ids.compactMap { byID[$0] })
+        }
+        guard let index = rows.firstIndex(where:{ $0.contains { $0 === tab } }) else { return [] }
+        return rows.enumerated().flatMap { offset, members -> [Tab] in
             let included: Bool = switch scope {
-            case .tab: candidate === tab
-            case .other: candidate !== tab
+            case .tab: offset == index
+            case .other: offset != index
             case .above: offset < index
             case .below: offset > index
             }
-            guard included, !candidate.isLocked, scope == .tab || !candidate.isPlayingMedia else { return nil }
-            return candidate
+            guard included, members.allSatisfy({ !$0.isLocked && (scope == .tab || !$0.isPlayingMedia) }) else { return [] }
+            return members
         }
     }
 

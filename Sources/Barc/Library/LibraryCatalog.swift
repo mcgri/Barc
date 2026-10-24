@@ -1,4 +1,5 @@
 // Modified for Barc: browse actual downloads, archives and Boosts in the Library, 2026-10-24.
+// Modified for Barc: archive search includes every split member, 2026-10-25.
 import Foundation
 import UniformTypeIdentifiers
 
@@ -102,7 +103,7 @@ enum LibraryCatalog {
         case .archive:
             return session.archivedTabs.map { record in
                 LibraryEntry(id: .archived(record.id), title: record.title,
-                             subtitle: record.snapshot.url.absoluteString, date: record.archivedAt,
+                             subtitle: record.snapshots.map { $0.url.absoluteString }.joined(separator:" · "), date: record.archivedAt,
                              url: record.snapshot.url, spaceIDs: [record.spaceID], favicon: record.snapshot.favicon?.data)
             }
         case .boosts:

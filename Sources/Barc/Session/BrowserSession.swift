@@ -1,5 +1,6 @@
 // Modified for Barc: Arc import, session restoration and profile isolation, 2026-10-23.
 // Modified for Barc: nested folder duplication and promotion with profile preservation, 2026-10-24.
+// Modified for Barc: complete split archives and restoration, 2026-10-25.
 import AppKit
 import Combine
 import WebKit
@@ -111,7 +112,7 @@ final class BrowserSession {
             // archive with it rather than orphaning the records onto another.
             self.archivedTabs = zip(spaces, restored.spaces).flatMap { space, stored in
                 (stored.archivedTabs ?? []).map {
-                    ArchivedTab(snapshot: $0.tab, spaceID: space.id, archivedAt: $0.archivedAt)
+                    ArchivedTab(stored: $0, spaceID: space.id)
                 }
             }
             for space in spaces {
@@ -1522,20 +1523,39 @@ final class BrowserSession {
         var snapshot: SessionSnapshot.Tab
         var spaceID: Space.ID
         var archivedAt: Date
+        var additionalSnapshots: [SessionSnapshot.Tab]
+        var split: SessionSnapshot.Split?
 
-        init(id: UUID = UUID(), snapshot: SessionSnapshot.Tab, spaceID: Space.ID, archivedAt: Date) {
+        init(id: UUID = UUID(), snapshot: SessionSnapshot.Tab, spaceID: Space.ID, archivedAt: Date,
+             additionalSnapshots: [SessionSnapshot.Tab] = [], split: SessionSnapshot.Split? = nil) {
             self.id = id
             self.snapshot = snapshot
             self.spaceID = spaceID
             self.archivedAt = archivedAt
+            self.additionalSnapshots = additionalSnapshots
+            self.split = split
+        }
+
+        init(stored: SessionSnapshot.Archived, spaceID: Space.ID) {
+            self.init(snapshot: stored.tab, spaceID: spaceID, archivedAt: stored.archivedAt,
+                      additionalSnapshots: stored.additionalTabs ?? [], split: stored.split)
+        }
+
+        var snapshots: [SessionSnapshot.Tab] { [snapshot] + additionalSnapshots }
+
+        var stored: SessionSnapshot.Archived {
+            SessionSnapshot.Archived(tab:snapshot, archivedAt:archivedAt,
+                additionalTabs:additionalSnapshots.isEmpty ? nil : additionalSnapshots, split:split)
         }
 
         /// What to call it in the archive list, preferring the name the user
         /// gave it over the one the page did.
         var title: String {
-            if let custom = snapshot.customName, !custom.isEmpty { return custom }
-            if let page = snapshot.title, !page.isEmpty { return page }
-            return snapshot.url.host() ?? snapshot.url.absoluteString
+            snapshots.map { page in
+                if let custom = page.customName, !custom.isEmpty { return custom }
+                if let title = page.title, !title.isEmpty { return title }
+                return page.url.host() ?? page.url.absoluteString
+            }.joined(separator:" · ")
         }
     }
 
@@ -1569,33 +1589,45 @@ final class BrowserSession {
     /// interaction state goes with them, so restoring one brings back its
     /// scroll position and its back-forward list rather than just an address.
     func archive(_ tabs: [Tab]) {
-        var archived = 0
-        // Collected as we go: `detach` takes the tab out of its space, so by
-        // the end of the loop there is no way left to ask which space a tab
-        // came from.
-        var touched: Set<Space.ID> = []
-        for tab in tabs {
-            guard let space = space(containing: tab) else { continue }
-            // A private space keeps nothing that outlives it -- not even this.
-            // Archiving there would write to disk exactly what "private"
-            // promised would never be written, so a private tab is left alone.
-            guard !space.isPrivate else { continue }
-            archivedTabs.append(
-                ArchivedTab(snapshot: tab.snapshot(), spaceID: space.id, archivedAt: .now)
-            )
-            if let groupID = tab.groupID {
-                liveFolders.tabWasRemoved(tab.id, fromFolder: groupID)
+        // Capture complete arrangements before detaching any pane. A partial
+        // explicit pane request still removes only that pane.
+        let requested = Set(tabs.map(\.id))
+        var seen: Set<Tab.ID> = []
+        var plans: [(space:Space, pages:[Tab], split:SessionSnapshot.Split?)] = []
+        for tab in tabs where !seen.contains(tab.id) {
+            guard let space = space(containing:tab), !space.isPrivate else { continue }
+            var pages = [tab]
+            if let layout = space.splits.layout(containing:tab.id),
+               layout.tabIDs.allSatisfy({ requested.contains($0) && !seen.contains($0) }) {
+                pages = layout.tabIDs.compactMap { id in space.tabs.first { $0.id == id } }
             }
-            detach(tab, from: space)
-            touched.insert(space.id)
-            archived += 1
+            seen.formUnion(pages.map(\.id))
+            let split = space.splits.snapshot(tabIDs:pages.map(\.id))?.first
+            plans.append((space,pages,split))
         }
-        guard archived > 0 else { return }
+        var archivedIDs: [UUID] = []
+        var touched: Set<Space.ID> = []
+        for (space,pages,split) in plans {
+            let snapshots = pages.map { $0.snapshot() }
+            guard let first = snapshots.first else { continue }
+            let record = ArchivedTab(snapshot:first,spaceID:space.id,archivedAt:.now,
+                additionalSnapshots:Array(snapshots.dropFirst()),split:split)
+            archivedTabs.append(record)
+            archivedIDs.append(record.id)
+            for tab in pages {
+                if let groupID = tab.groupID {
+                    liveFolders.tabWasRemoved(tab.id, fromFolder:groupID)
+                }
+                detach(tab,from:space)
+            }
+            touched.insert(space.id)
+        }
+        guard !archivedIDs.isEmpty else { return }
         trimArchives(of: touched)
         Metrics.log("archive count=\(tabs.count) total=\(archivedTabs.count)")
         changes.send(.structure)
         scheduleSave()
-        showToast?(.archived(count: archived, undo: { [weak self] in self?.undoArchive(archived) }))
+        showToast?(.archived(count:archivedIDs.count,undo:{ [weak self] in self?.undoArchive(archivedIDs) }))
     }
 
     /// Puts back everything the last sweep took, for the toast's Undo.
@@ -1603,9 +1635,10 @@ final class BrowserSession {
     /// Archiving is the only thing in the browser that removes a row without
     /// the user touching anything, so it is the one thing that has to offer the
     /// undo up front rather than leave it to be found later in a window.
-    private func undoArchive(_ count: Int) {
+    private func undoArchive(_ ids: [UUID]) {
         // Copied out first: `restoreArchived` removes from the same array.
-        let restorable = Array(archivedTabs.suffix(count))
+        let selected = Set(ids)
+        let restorable = archivedTabs.filter { selected.contains($0.id) }
         for record in restorable { restoreArchived(record) }
     }
 
@@ -1617,11 +1650,15 @@ final class BrowserSession {
         guard let index = archivedTabs.firstIndex(where: { $0.id == archived.id }) else { return nil }
         let record = archivedTabs.remove(at: index)
         let space = spaces.first { $0.id == record.spaceID } ?? activeSpace
-        let tab = revive(record, into: space)
+        let restored = revive(record,into:space)
         if space.id != activeSpaceID { selectSpace(space) }
-        insert(tab, into: space, at: space.tabs.count, select: true)
+        space.setActiveTabID(restored.focus.id)
+        space.splits.focus(restored.focus.id)
+        changes.send(.structure)
+        changes.send(.tabs)
+        changes.send(.activeTab)
         scheduleSave()
-        return tab
+        return restored.focus
     }
 
     /// Puts a space's whole archive back where it came from, in the order it
@@ -1644,30 +1681,42 @@ final class BrowserSession {
         guard !records.isEmpty else { return [] }
         archivedTabs.removeAll { $0.spaceID == space.id }
 
-        let restored = records.map { record -> Tab in
-            let tab = revive(record, into: space)
-            adopt(tab)
-            space.insert(tab, at: space.tabs.count)
-            return tab
-        }
+        let restored = records.map { revive($0,into:space) }
         // The one archived most recently ends up selected: it is the one a
         // user who has just emptied the archive went looking for.
-        if space.activeTabID == nil, let last = restored.last {
-            space.setActiveTabID(last.id)
-        }
         if space.id != activeSpaceID { selectSpace(space) }
-        if let last = restored.last { selectTab(last) }
+        if let last = restored.last {
+            space.setActiveTabID(last.focus.id)
+            space.splits.focus(last.focus.id)
+        }
 
         changes.send(.structure)
         changes.send(.tabs)
         changes.send(.activeTab)
         scheduleSave()
-        return restored
+        return restored.flatMap(\.tabs)
     }
 
-    /// One archived record as a tab again, ready to be put into `space`.
-    private func revive(_ record: ArchivedTab, into space: Space) -> Tab {
-        var snapshot = record.snapshot
+    /// Restore each page once and bind saved pane slots to the new identities.
+    /// Invalid layout metadata leaves every page available as an ordinary tab.
+    private func revive(_ record: ArchivedTab, into space: Space) -> (tabs:[Tab], focus:Tab) {
+        let tabs = record.snapshots.map { snapshot in
+            let tab = revive(snapshot,into:space)
+            adopt(tab)
+            space.insert(tab,at:space.tabs.count)
+            return tab
+        }
+        if let split = record.split, Set(split.tabIndices) == Set(tabs.indices),
+           split.tabIndices.count == tabs.count {
+            let collection = SplitCollection.restoring([split],tabIDs:tabs.map(\.id))
+            space.splits.copyCompleteGroups(from:collection,mapping:Dictionary(uniqueKeysWithValues:tabs.map { ($0.id,$0.id) }))
+        }
+        let focusID = space.splits.preferredTab(containing:tabs[0].id)
+        return (tabs,tabs.first { $0.id == focusID } ?? tabs[0])
+    }
+
+    private func revive(_ saved: SessionSnapshot.Tab, into space: Space) -> Tab {
+        var snapshot = saved
         // Its folder may have been deleted while it sat in the archive; a tab
         // pointing at a group that no longer exists would be invisible.
         if let groupID = snapshot.groupID, space.group(withID: groupID) == nil {
@@ -1696,7 +1745,7 @@ final class BrowserSession {
     /// every sweep to prove that is work for nothing.
     private func trimArchives(of spaceIDs: Set<Space.ID>) {
         for spaceID in spaceIDs {
-            let theirs = archivedTabs.filter { $0.spaceID == spaceID && $0.snapshot.importedSourceID == nil }
+            let theirs = archivedTabs.filter { $0.spaceID == spaceID && $0.snapshots.allSatisfy { $0.importedSourceID == nil } }
             guard theirs.count > Self.archiveLimit else { continue }
             let dropped = Set(theirs.prefix(theirs.count - Self.archiveLimit).map(\.id))
             archivedTabs.removeAll { dropped.contains($0.id) }
@@ -2913,7 +2962,7 @@ final class BrowserSession {
                     // out, in `archivedTabs(in:)`.
                     archivedTabs: space.isPrivate ? nil : archivedTabs
                         .filter { $0.spaceID == space.id }
-                        .map { SessionSnapshot.Archived(tab: $0.snapshot, archivedAt: $0.archivedAt) },
+                        .map(\.stored),
                     downloadsDirectoryPath: space.downloadsDirectoryPath,
                     bookmarkFolder: space.bookmarkFolder,
                     enabledExtensionIDs: space.enabledExtensionIDs.map(Array.init),
@@ -3154,7 +3203,7 @@ final class BrowserSession {
                 addedSpaces += 1
             }
             let known = Set(space.tabs.compactMap(\.importedSourceID)).union(space.profile.importedFavoriteIDs)
-                .union(archivedTabs.filter { $0.spaceID == id }.compactMap { $0.snapshot.importedSourceID })
+                .union(archivedTabs.filter { $0.spaceID == id }.flatMap(\.snapshots).compactMap(\.importedSourceID))
             let incomingIcons = Dictionary(stored.tabs.compactMap { tab -> (String, PageFavicon)? in
                 guard let key = tab.importedSourceID, let icon = tab.favicon else { return nil }
                 return (key, icon)
@@ -3175,10 +3224,11 @@ final class BrowserSession {
                 let start = Tab(url: settings.newTabURL(isPrivate: false), identity: identity)
                 adopt(start); space.insert(start, at: 0); space.setActiveTabID(start.id)
             }
-            let knownArchive = Set(archivedTabs.filter { $0.spaceID == id }.compactMap { $0.snapshot.importedSourceID })
+            var knownArchive = Set(archivedTabs.filter { $0.spaceID == id }.flatMap(\.snapshots).compactMap(\.importedSourceID))
                 .union(space.tabs.compactMap(\.importedSourceID))
             for record in stored.archivedTabs ?? [] where record.tab.importedSourceID.map({ !knownArchive.contains($0) }) ?? false {
-                archivedTabs.append(ArchivedTab(snapshot: record.tab, spaceID: id, archivedAt: record.archivedAt))
+                archivedTabs.append(ArchivedTab(stored:record,spaceID:id))
+                knownArchive.formUnion(record.tabs.compactMap(\.importedSourceID))
                 addedArchived += 1
             }
         }
@@ -3213,6 +3263,9 @@ final class BrowserSession {
         for tab in allTabs { forget(tab) }
         tabSubscriptions.removeAll()
         self.spaces = newSpaces
+        self.archivedTabs = zip(newSpaces,snapshot.spaces).flatMap { space,stored in
+            (stored.archivedTabs ?? []).map { ArchivedTab(stored:$0,spaceID:space.id) }
+        }
         lastSplitUndoState = nil
         self.profiles = Self.profileList(from: snapshot, spaces: newSpaces)
         let index = min(max(snapshot.activeSpaceIndex, 0), newSpaces.count - 1)

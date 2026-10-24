@@ -1,4 +1,4 @@
-// Modified for Barc: durable independent split groups, 2026-10-24.
+// Modified for Barc: archived split groups and durable independent layouts, 2026-10-25.
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import AppKit
 
@@ -183,6 +183,13 @@ struct SessionSnapshot: Codable, Equatable {
     struct Archived: Codable, Equatable {
         var tab: Tab
         var archivedAt: Date
+        /// A split is one archive entry. Slots in its layout refer to this
+        /// entry's pages, starting with `tab`, rather than live sidebar slots.
+        /// Missing fields keep old single-page archives readable.
+        var additionalTabs: [Tab]? = nil
+        var split: Split? = nil
+
+        var tabs: [Tab] { [tab] + (additionalTabs ?? []) }
     }
 
     struct Group: Codable, Equatable {

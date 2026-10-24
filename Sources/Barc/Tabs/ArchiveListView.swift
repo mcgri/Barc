@@ -1,3 +1,4 @@
+// Modified for Barc: archived split entries retain every page, 2026-10-25.
 import AppKit
 
 /// The archive, as a list the sidebar shows in place of a space's own tabs.
@@ -218,7 +219,7 @@ final class ArchiveListView: NSView {
     @objc private func copyAddressClicked() {
         guard let entry = clickedEntry else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(entry.record.snapshot.url.absoluteString, forType: .string)
+        NSPasteboard.general.setString(entry.record.snapshots.map { $0.url.absoluteString }.joined(separator:"\n"), forType: .string)
     }
 
     @objc private func clear() {
@@ -258,7 +259,8 @@ extension ArchiveListView: NSTableViewDataSource, NSTableViewDelegate {
             title: entry.record.title,
             url: entry.record.snapshot.url,
             spaceName: entry.spaceName,
-            archivedAt: entry.record.archivedAt
+            archivedAt: entry.record.archivedAt,
+            relatedURLs: entry.record.additionalSnapshots.map(\.url)
         )
         cell.onPick = { [weak self] in self?.onRestore?(entry.record) }
         cell.onRemove = { [weak self] in self?.onForget?(entry.record) }
