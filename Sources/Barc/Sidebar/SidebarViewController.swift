@@ -1769,97 +1769,9 @@ final class SidebarViewController: NSViewController {
         return menu
     }
 
-    /// The sidebar menu, reached with a two-finger click on the sidebar.
-    ///
-    /// The window-level items -- new tab, reopen, hide sidebar, compact mode
-    /// -- have no target and go up the responder chain, so they are the same
-    /// items the menu bar has and are validated by the same code. The rest
-    /// act on the sidebar's own session.
-    func makeContextMenu() -> NSMenu {
-        let menu = NSMenu()
-
-        let newTab = NSMenuItem(title: "New Tab", action: #selector(BrowserWindowController.newTab(_:)), keyEquivalent: "t")
-        newTab.image = NSImage(systemSymbolName: "plus.square", accessibilityDescription: nil)
-        menu.addItem(newTab)
-        let reopen = NSMenuItem(
-            title: "Reopen Closed Tab",
-            action: #selector(BrowserWindowController.reopenClosedTab(_:)),
-            keyEquivalent: "t"
-        )
-        reopen.keyEquivalentModifierMask = [.command, .shift]
-        menu.addItem(reopen)
-
-        menu.addItem(.separator())
-        let newGroup = NSMenuItem(title: "New Folder", action: #selector(newGroupFromMenu), keyEquivalent: "")
-        newGroup.target = self
-        newGroup.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
-        menu.addItem(newGroup)
-
-        let live = NSMenuItem(title: "New Live Folder", action: nil, keyEquivalent: "")
-        let liveMenu = NSMenu()
-        for (title, selector) in [
-            ("RSS Feed\u{2026}", #selector(newRSSGroupFromMenu)),
-            ("GitHub Pull Requests\u{2026}", #selector(newGitHubPullRequestsGroupFromMenu)),
-            ("GitHub Issues\u{2026}", #selector(newGitHubIssuesGroupFromMenu))
-        ] {
-            let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
-            item.target = self
-            liveMenu.addItem(item)
-        }
-        live.submenu = liveMenu
-        menu.addItem(live)
-
-        menu.addItem(.separator())
-        let newSpace = NSMenuItem(title: "New Space\u{2026}", action: #selector(newSpaceFromMenu), keyEquivalent: "")
-        newSpace.target = self
-        newSpace.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
-        menu.addItem(newSpace)
-
-        menu.addItem(.separator())
-        // Named with its count. An archive is easy to forget you have, and
-        // "Archive (12)" is the only thing in this menu that answers a question
-        // the user has not thought to ask yet.
-        let archived = session.archivedTabs(in: shownSpace).count
-        let archive = NSMenuItem(
-            title: archived == 0 ? "Archive\u{2026}" : "Archive (\(archived))\u{2026}",
-            action: #selector(toggleArchiveFromMenu),
-            keyEquivalent: ""
-        )
-        archive.target = self
-        archive.image = NSImage(systemSymbolName: "archivebox", accessibilityDescription: nil)
-        menu.addItem(archive)
-
-        menu.addItem(.separator())
-        let bookmarkAll = NSMenuItem(title: "Bookmark All Tabs", action: #selector(bookmarkAllTabsFromMenu), keyEquivalent: "")
-        bookmarkAll.target = self
-        bookmarkAll.image = NSImage(systemSymbolName: "bookmark", accessibilityDescription: nil)
-        menu.addItem(bookmarkAll)
-
-        menu.addItem(.separator())
-        let hideSidebar = NSMenuItem(
-            title: "Hide Sidebar",
-            action: #selector(BrowserWindowController.toggleBarcSidebar(_:)),
-            keyEquivalent: "s"
-        )
-        hideSidebar.keyEquivalentModifierMask = [.command, .control]
-        hideSidebar.image = NSImage(systemSymbolName: "sidebar.leading", accessibilityDescription: nil)
-        menu.addItem(hideSidebar)
-        let compact = NSMenuItem(
-            title: "Compact Mode",
-            action: #selector(BrowserWindowController.toggleCompactMode(_:)),
-            keyEquivalent: "c"
-        )
-        compact.keyEquivalentModifierMask = [.command, .control]
-        menu.addItem(compact)
-
-        menu.addItem(.separator())
-        let closeAll = NSMenuItem(title: "Close All Tabs in Space", action: #selector(closeAllTabsInSpaceFromMenu(_:)), keyEquivalent: "")
-        closeAll.target = self
-        closeAll.image = NSImage(systemSymbolName: "xmark.square", accessibilityDescription: nil)
-        closeAll.isEnabled = !shownSpace.tabs.isEmpty
-        menu.addItem(closeAll)
-
-        return menu
+    /// Blank sidebar space and New Tab use the same compact Space menu.
+    func makeContextMenu(anchor: NSView? = nil) -> NSMenu {
+        makeSpaceOptionsMenu(for: shownSpace, anchor: anchor ?? view)
     }
 
     /// The tab menu. Move to Window and Change Icon are not offered: Barc
@@ -2604,6 +2516,8 @@ extension SidebarViewController: NSMenuDelegate {
             source = makeTabMenu(for: tab)
         } else if rows.indices.contains(clicked), case .group(let group, _, _) = rows[clicked] {
             source = makeGroupMenu(for: group)
+        } else if rows.indices.contains(clicked), case .newTab = rows[clicked] {
+            source = makeContextMenu(anchor: tableView.view(atColumn: 0, row: clicked, makeIfNecessary: true) ?? tableView)
         } else {
             source = makeContextMenu()
         }

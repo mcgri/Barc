@@ -1109,27 +1109,25 @@ struct BrandPaletteTests {
 @Suite("Sidebar context menu")
 @MainActor
 struct SidebarContextMenuTests {
-    @Test("The menu has the expected shape")
-    func hasDiasShape() {
-        let sidebar = SidebarViewController(session: TestSession.make().0)
+    @Test("Blank sidebar space uses Arc's compact Space menu, excluding sharing")
+    func hasArcShape() {
+        let session = TestSession.make().0
+        let sidebar = SidebarViewController(session: session)
         let titles = sidebar.makeContextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
         #expect(titles == [
-            "New Tab", "Reopen Closed Tab", "-",
-            "New Folder", "New Live Folder", "-",
-            "New Space\u{2026}", "-",
-            "Archive\u{2026}", "-",
-            "Bookmark All Tabs", "-",
-            "Hide Sidebar", "Compact Mode", "-",
-            "Close All Tabs in Space"
+            "Change Space Icon…", "Rename Space…", "Edit Theme Color…", "Set Profile", "-",
+            "New Folder", "Live Folders", "-", "Export “\(session.activeSpace.name)” into Folder", "-",
+            "Manage Spaces…", "-", "Delete Space"
         ])
+        #expect(sidebar.makeContextMenu().items.allSatisfy { $0.image == nil })
     }
 
-    @Test("Live groups come in every provider kind there is")
+    @Test("The default Live Folders menu uses the source's single GitHub entry")
     func liveGroupSubmenu() {
         let sidebar = SidebarViewController(session: TestSession.make().0)
-        let live = sidebar.makeContextMenu().items.first { $0.title == "New Live Folder" }
+        let live = sidebar.makeContextMenu().items.first { $0.title == "Live Folders" }
         let kinds = live?.submenu?.items.map(\.title) ?? []
-        #expect(kinds == ["RSS Feed\u{2026}", "GitHub Pull Requests\u{2026}", "GitHub Issues\u{2026}"])
+        #expect(kinds == ["GitHub"])
     }
 
     @Test("A tab row's menu has the expected shape, less what Barc cannot offer")
@@ -1148,15 +1146,35 @@ struct SidebarContextMenuTests {
         ])
     }
 
-    @Test("Window-level items go up the responder chain rather than to the sidebar")
-    func windowItemsHaveNoTarget() {
-        let sidebar = SidebarViewController(session: TestSession.make().0)
-        let items = sidebar.makeContextMenu().items
-        let newTab = items.first { $0.title == "New Tab" }
-        #expect(newTab?.target == nil)
-        #expect(newTab?.action == #selector(BrowserWindowController.newTab(_:)))
-        let newGroup = items.first { $0.title == "New Folder" }
-        #expect(newGroup?.target === sidebar)
+    @Test("A context menu opened before switching Spaces creates its folder in its original Space")
+    func contextActionsKeepTheirOwner() async throws {
+        _ = NSApplication.shared
+        let session = TestSession.make().0
+        let original = session.activeSpace
+        let sidebar = SidebarViewController(session: session)
+        let menu = sidebar.makeContextMenu()
+        let other = session.addSpace(named: "Other")
+        let item = try #require(menu.items.first { $0.title == "New Folder" })
+        #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(original.groups.count == 1 && other.groups.isEmpty && session.activeSpace === original)
+    }
+
+    @Test("New Tab and the empty background use the same menu, and a removed Space's menu does nothing")
+    func newTabAndStaleMenu() async throws {
+        _ = NSApplication.shared
+        let session = TestSession.make().0
+        let original = session.activeSpace
+        let sidebar = SidebarViewController(session: session)
+        _ = sidebar.view
+        #expect(sidebar.makeRowMenu(at: 0).items.map(\.title) == sidebar.makeContextMenu().items.map(\.title))
+        let menu = sidebar.makeContextMenu()
+        let other = session.addSpace(named: "Other")
+        session.removeSpace(original)
+        let item = try #require(menu.items.first { $0.title == "New Folder" })
+        #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(other.groups.isEmpty && session.activeSpace === other && session.spaces.count == 1)
     }
 }
 

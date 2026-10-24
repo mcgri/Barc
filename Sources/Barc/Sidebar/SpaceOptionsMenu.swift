@@ -57,8 +57,10 @@ enum SpaceOptionsMenu {
             export.submenu = destinations
             export.isEnabled = exportDestinations.contains { $0 !== source }
             menu.addItem(export)
+            menu.addItem(.separator())
         }
         _ = add("Manage Spaces…", .manage, to: menu)
+        menu.addItem(.separator())
         add("Delete Space", .delete, to: menu).isEnabled = canDelete
         return menu
     }
