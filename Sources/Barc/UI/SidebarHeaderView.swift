@@ -63,7 +63,7 @@ final class SidebarHeaderView: NSView {
     }
 
     override func layout() {
-        let compact = hostsTrafficLights && bounds.width < 214
+        let compact = hostsTrafficLights && navigation != nil && navigation?.isHidden != true && bounds.width < 214
         navigationLeading?.constant = hostsTrafficLights && !compact ? Style.Metrics.trafficLightWidth : Style.Metrics.sidebarInset
         navigationTop?.constant = compact ? Style.Metrics.titlebarHeight : 12
         headerHeight.constant = compact ? Style.Metrics.titlebarHeight + (navigation?.frame.height ?? 24) : Style.Metrics.titlebarHeight

@@ -61,9 +61,10 @@ final class ContentContainerView: NSView {
     private let underlay = NSVisualEffectView()
     private let tint = TintView()
     private let materialShade = ChromeMaterialShadeView()
-    func showImportedChrome(_ chrome: ImportedChrome?, grain: Double) {
+    func showImportedChrome(_ chrome: ImportedChrome?, grain: Double, materialStrength: CGFloat = 0.21) {
         underlay.appearance = chrome.map { NSAppearance(named: $0.usesLightMaterial ? .aqua : .darkAqua) } ?? nil
         materialShade.isHidden = chrome?.usesLightMaterial != true
+        materialShade.strength = materialStrength
         tint.grainAmount = grain
     }
     private var page: NSView?

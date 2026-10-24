@@ -5,6 +5,9 @@ import AppKit
 /// material. Shade the material below the tint, leaving text and tiles alone.
 @MainActor
 final class ChromeMaterialShadeView: NSView {
+    var strength: CGFloat = 0.21 {
+        didSet { layer?.backgroundColor = NSColor.black.withAlphaComponent(strength).cgColor }
+    }
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true

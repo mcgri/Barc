@@ -8,7 +8,8 @@ final class SidebarFooterView: NSView {
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
     var spaceMenuProvider: ((UUID, NSView) -> NSMenu)?
     var addMenuProvider: (() -> NSMenu)?
-    let homeButton = IconButton(symbolName: "archivebox", label: "Home", side: 24)
+    var onOpenLibrary: (() -> Void)?
+    let homeButton = IconButton(symbolName: "archivebox.fill", label: "Home", side: 24, symbolSize: 18)
     let addButton = IconButton(symbolName: "plus", label: "Add", side: 24)
     private let dock = SpaceDockView()
     private var leadingActions: [(String, IconButton)] = []
@@ -23,6 +24,7 @@ final class SidebarFooterView: NSView {
         addSubview(addButton)
         homeButton.setClickHandler { [weak self] in
             guard let self else { return }
+            if let onOpenLibrary { onOpenLibrary(); return }
             makeHomeMenu().popUp(positioning: nil, at: NSPoint(x: 0, y: homeButton.bounds.maxY), in: homeButton)
         }
         addButton.setClickHandler { [weak self] in

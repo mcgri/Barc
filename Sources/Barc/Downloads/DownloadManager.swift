@@ -59,6 +59,9 @@ final class DownloadManager {
     /// and a closure rather than a view because the footer rebuilds its
     /// buttons whenever its actions are set.
     var listAnchor: (() -> NSView?)?
+    /// Explicit Downloads commands can open the full Library. Automatic
+    /// completion notifications retain the compact popover.
+    var showLibrary: (() -> Bool)?
 
     /// Resolves which space initiated a download, allowing per-space downloads folder override.
     var spaceResolver: ((WKDownload) -> Space?)?
@@ -187,6 +190,7 @@ final class DownloadManager {
     /// and so the integration surface is a closure rather than a stored
     /// property and an action.
     func showList(activating: Bool = true) {
+        if activating, showLibrary?() == true { return }
         guard let target = listTarget() else { return }
         let content = listContent ?? DownloadsPopover(manager: self)
         listContent = content

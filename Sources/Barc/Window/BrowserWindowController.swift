@@ -36,6 +36,15 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// Remembered across a detach: a sidebar that is out of the split view has
     /// no width left to read.
     private var lastSidebarWidth = Settings.shared.sidebarWidth
+    private var libraryWidth = LibrarySidebarWidth()
+    private var libraryWasCompact = false
+    private var libraryWasCollapsed = false
+    private var libraryContentMinimum: CGFloat?
+    private var librarySidebarMinimum: CGFloat?
+    private var librarySidebarMaximum: CGFloat?
+    private weak var responderBeforeLibrary: NSResponder?
+    private var librarySpaces: LibrarySpacesView?
+    private var librarySharingPicker: NSSharingServicePicker?
     /// True while the code below is moving the divider, so that its own move is
     /// not mistaken for a drag and written back to the model.
     private var isApplyingSidebarWidth = false
@@ -120,6 +129,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         sidebar.installBrowserControls(content.sidebarControls)
         wireTopBar()
         sidebar.onNewTab = { [weak self] in self?.newTab(nil) }
+        sidebar.onLibraryChange = { [weak self] visible, category in self?.applyLibraryLayout(visible: visible, category: category) }
+        sidebar.onLibraryOpen = { [weak self] in self?.openLibraryEntry($0) }
+        DownloadManager.shared.showLibrary = { [weak self] in
+            guard let self else { return false }
+            sidebar.showLibrary(category: .downloads); return true
+        }
+        sidebar.onLibraryShareBrowser = { [weak self] anchor in
+            let picker = NSSharingServicePicker(items: [URL(string: "https://github.com/mcgri/Barc")!])
+            self?.librarySharingPicker = picker
+            picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        }
         content.onNewTab = { [weak self] in self?.newTab(nil) }
         root.host(splitViewController)
         window.contentViewController = root
@@ -129,7 +149,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         // being typed (see `BrowserWindow`).
         window.focusPolicy = { [weak self] responder in
             guard let self else { return true }
-            if self.commandBar.isOpen || self.isTabOverviewOpen {
+            if self.commandBar.isOpen || self.isTabOverviewOpen || self.sidebar.isLibraryVisible {
                 return !Self.isWebContent(responder)
             }
             return true
@@ -226,7 +246,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         sidebar.onWashChange = { [weak self] wash in
             self?.content.spaceWash = wash
             if let space = self?.sidebar.shownSpaceForLook {
-                self?.content.showImportedChrome(space.activeImportedChrome, grain: space.chromeGrain)
+                self?.content.showImportedChrome(space.activeImportedChrome, grain: self?.sidebar.isLibraryVisible == true ? 0 : space.chromeGrain,
+                                                materialStrength: self?.sidebar.isLibraryVisible == true ? LibraryMetrics.materialStrength : 0.21)
             }
             self?.setPanelWash(wash)
         }
@@ -327,6 +348,83 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     required init?(coder: NSCoder) {
         fatalError("BrowserWindowController is created in code only")
+    }
+
+    private func applyLibraryLayout(visible: Bool, category: LibraryCategory) {
+        let entering = visible && libraryWidth.resting == nil
+        if entering {
+            commandBar.close()
+            responderBeforeLibrary = window?.firstResponder
+            libraryWasCompact = compact.controller.state.isEnabled
+            libraryWasCollapsed = isSidebarCollapsed
+            if libraryWasCompact { compact.setEnabled(false, animated: false) }
+        }
+        guard let item = splitViewController.splitViewItem(for: sidebar) else { return }
+        let contentItem = splitViewController.splitViewItem(for: content)
+        let width: CGFloat
+        if visible {
+            let current = !libraryWasCollapsed && sidebar.view.frame.width > 0 ? sidebar.view.frame.width : lastSidebarWidth
+            width = libraryWidth.show(category, current: current)
+            if entering {
+                libraryContentMinimum = contentItem?.minimumThickness
+                librarySidebarMinimum = item.minimumThickness; librarySidebarMaximum = item.maximumThickness
+            }
+            contentItem?.minimumThickness = 200
+            item.isCollapsed = false
+        } else {
+            guard let resting = libraryWidth.close() else { return }
+            width = Settings.shared.sidebarWidthIsPerSpace ? restingSidebarWidth(for: session.activeSpace) : resting
+            if let minimum = libraryContentMinimum { contentItem?.minimumThickness = minimum }
+            libraryContentMinimum = nil
+        }
+        isApplyingSidebarWidth = true
+        item.maximumThickness = max(item.maximumThickness, width)
+        item.minimumThickness = visible ? width : (librarySidebarMinimum ?? Style.Metrics.sidebarMinWidth)
+        item.maximumThickness = visible ? width : (librarySidebarMaximum ?? Style.Metrics.sidebarMaxWidth)
+        let divider = Settings.shared.sidebarPosition == .trailing ? splitViewController.view.bounds.width - width : width
+        splitViewController.splitView.setPosition(divider, ofDividerAt: 0)
+        isApplyingSidebarWidth = false
+        if visible && category == .spaces {
+            if librarySpaces == nil {
+                let overview = sidebar.makeLibrarySpacesView()
+                librarySpaces = overview
+                content.view.addSubview(overview)
+                NSLayoutConstraint.activate([
+                    overview.leadingAnchor.constraint(equalTo: content.view.leadingAnchor), overview.trailingAnchor.constraint(equalTo: content.view.trailingAnchor),
+                    overview.topAnchor.constraint(equalTo: content.view.topAnchor), overview.bottomAnchor.constraint(equalTo: content.view.bottomAnchor)
+                ])
+                overview.wantsLayer = true
+                overview.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+            }
+        } else { librarySpaces?.removeFromSuperview(); librarySpaces = nil }
+        if !visible {
+            librarySidebarMinimum = nil; librarySidebarMaximum = nil
+            lastSidebarWidth = width
+            if libraryWasCollapsed { item.isCollapsed = true }
+            if libraryWasCompact { compact.setEnabled(true, animated: false) }
+            libraryWasCompact = false; libraryWasCollapsed = false
+            if let responder = responderBeforeLibrary as? NSView, responder.window === window, !responder.isHiddenOrHasHiddenAncestor {
+                window?.makeFirstResponder(responder)
+            } else { window?.makeFirstResponder(session.activeTab?.currentWebView) }
+            responderBeforeLibrary = nil
+        }
+        applyLook(of: session.activeSpace)
+        updateCardInsets()
+        updateTrafficLights()
+    }
+
+    private func openLibraryEntry(_ entry: LibraryEntry) {
+        switch entry.id {
+        case .download(let id):
+            guard let file = DownloadManager.shared.downloads.first(where: { $0.id == id }), file.fileExists else { return }
+            DownloadManager.shared.open(file)
+        case .archived(let id):
+            guard let record = session.archivedTabs.first(where: { $0.id == id }) else { return }
+            sidebar.hideLibrary(); session.restoreArchived(record)
+        case .boost(let id):
+            guard let boost = BoostStore.shared.boosts.first(where: { $0.id == id }) else { return }
+            content.presentAsSheet(BoostEditorViewController(boost: boost))
+        }
     }
 
     private func buildSplitView() {
@@ -475,6 +573,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     ///
     /// Only a space with a width of its own is allowed to move the divider.
     private func applySidebarWidthOnSpaceChange(to space: Space) {
+        guard !sidebar.isLibraryVisible else { return }
         logSidebarWidth("space change to \(space.name)")
         guard Settings.shared.sidebarWidthIsPerSpace else {
             // Nothing is done, but the width is sampled once the switch has
@@ -496,7 +595,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// A no-op when it is already there, which is the common case: it must not
     /// shove the page a fraction of a point sideways for nothing.
     private func applySidebarWidth(for space: Space) {
-        guard !isSidebarCollapsed, !compact.controller.state.isEnabled else { return }
+        guard !sidebar.isLibraryVisible, !isSidebarCollapsed, !compact.controller.state.isEnabled else { return }
         let resting = restingSidebarWidth(for: space)
         guard abs(sidebar.view.frame.width - resting) > 0.5 else {
             lastSidebarWidth = resting
@@ -524,6 +623,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// one silently overwrote the width set in the other.
     private func rememberSidebarWidth() {
         guard window != nil,
+              !sidebar.isLibraryVisible,
               !isApplyingSidebarWidth,
               window?.inLiveResize != true,
               !isSidebarCollapsed,
@@ -1248,6 +1348,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// Ours rather than `NSSplitViewController.toggleSidebar`, which only acts
     /// on an item created with sidebar behaviour.
     @objc func toggleBarcSidebar(_ sender: Any?) {
+        if sidebar.isLibraryVisible { sidebar.hideLibrary(); return }
         // In compact mode there is no split view item to collapse: the sidebar
         // has been taken out of the layout and floats over the page. The
         // button then does the floating equivalent -- pin it open, or let it
@@ -1266,12 +1367,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// than a window of its own, so opening it from the menu has to bring the
     /// sidebar back rather than toggle something nobody can see.
     @objc func toggleArchive(_ sender: Any?) {
-        if sidebar.isShowingArchive {
-            sidebar.setArchiveVisible(false)
-            return
-        }
-        splitViewController.splitViewItem(for: sidebar)?.animator().isCollapsed = false
-        sidebar.setArchiveVisible(true)
+        if sidebar.isLibraryVisible && sidebar.libraryCategory == .archive { sidebar.hideLibrary() }
+        else { sidebar.showLibrary(category: .archive) }
     }
 
     // MARK: - Safari-Style Tab Overview Grid
@@ -1309,11 +1406,13 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
 
     @objc func openCommandBar(_ sender: Any?) {
+        sidebar.hideLibrary()
         commandBar.toggle()
         updateCompactSidebarForCommandBar()
     }
 
     @objc func openLocation(_ sender: Any?) {
+        sidebar.hideLibrary()
         if commandBar.isOpen && commandBar.isAddressMode {
             commandBar.focusField()
         } else {
@@ -1605,7 +1704,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     private func applyLook(of space: Space) {
-        content.showImportedChrome(space.activeImportedChrome, grain: space.chromeGrain)
+        content.showImportedChrome(space.activeImportedChrome, grain: sidebar.isLibraryVisible ? 0 : space.chromeGrain,
+                                   materialStrength: sidebar.isLibraryVisible ? LibraryMetrics.materialStrength : 0.21)
         // Light or dark for this window only. The Settings window and the
         // panels keep following the General pane; nil here means "as the app".
         window?.appearance = space.look.appearance.appearance
@@ -1615,24 +1715,26 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         // hiding is done by borrowing compact mode with a configuration of
         // the space's own; neither hiding suppresses compact mode as before.
         let look = space.look
-        var configuration = Settings.shared.compactModeConfiguration
-        configuration.hidesSidebar = look.autoShowsSidebarInFullScreen
-        configuration.hidesToolbar = !look.alwaysShowsToolbarInFullScreen
-        let hidesChrome = isWindowFullScreen && (configuration.hidesSidebar || configuration.hidesToolbar)
-        if hidesChrome {
-            if compactWasEnabledBeforeFullScreen == nil {
-                compactWasEnabledBeforeFullScreen = compact.controller.state.isEnabled
+        if !sidebar.isLibraryVisible {
+            var configuration = Settings.shared.compactModeConfiguration
+            configuration.hidesSidebar = look.autoShowsSidebarInFullScreen
+            configuration.hidesToolbar = !look.alwaysShowsToolbarInFullScreen
+            let hidesChrome = isWindowFullScreen && (configuration.hidesSidebar || configuration.hidesToolbar)
+            if hidesChrome {
+                if compactWasEnabledBeforeFullScreen == nil {
+                    compactWasEnabledBeforeFullScreen = compact.controller.state.isEnabled
+                }
+                compact.controller.setSuppression(.windowFullScreen, active: false)
+                compact.controller.setConfiguration(configuration)
+                compact.setEnabled(true, animated: false)
+            } else {
+                if let wasEnabled = compactWasEnabledBeforeFullScreen {
+                    compactWasEnabledBeforeFullScreen = nil
+                    compact.controller.setConfiguration(Settings.shared.compactModeConfiguration)
+                    compact.setEnabled(wasEnabled, animated: false)
+                }
+                compact.controller.setSuppression(.windowFullScreen, active: isWindowFullScreen)
             }
-            compact.controller.setSuppression(.windowFullScreen, active: false)
-            compact.controller.setConfiguration(configuration)
-            compact.setEnabled(true, animated: false)
-        } else {
-            if let wasEnabled = compactWasEnabledBeforeFullScreen {
-                compactWasEnabledBeforeFullScreen = nil
-                compact.controller.setConfiguration(Settings.shared.compactModeConfiguration)
-                compact.setEnabled(wasEnabled, animated: false)
-            }
-            compact.controller.setSuppression(.windowFullScreen, active: isWindowFullScreen)
         }
 
         let opaque = isWindowFullScreen && look.isOpaqueInFullScreen
@@ -1741,6 +1843,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func newTab(_ sender: Any?) {
+        sidebar.hideLibrary()
         if let overview = tabOverviewController, overview.isOpen {
             overview.dismissOverview { [weak self] in self?.newTab(nil) }
             return

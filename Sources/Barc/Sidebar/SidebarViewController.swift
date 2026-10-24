@@ -27,8 +27,12 @@ final class SidebarViewController: NSViewController {
     /// The window controller decides; compact mode and a trailing sidebar both
     /// put them somewhere else. See `SidebarHeaderView.hostsTrafficLights`.
     var headerHostsTrafficLights: Bool {
-        get { diaHeader.hostsTrafficLights }
-        set { diaHeader.hostsTrafficLights = newValue }
+        get { wantsHeaderTrafficLights }
+        set {
+            wantsHeaderTrafficLights = newValue
+            diaHeader.hostsTrafficLights = newValue && !isLibraryVisible
+            if isLibraryVisible { library.header.hostsTrafficLights = newValue }
+        }
     }
     private let pinnedTiles = PinnedTilesView()
     private let diaFooter = SidebarFooterView()
@@ -43,6 +47,14 @@ final class SidebarViewController: NSViewController {
     private let tableView = NSTableView()
     private let scrollView = NSScrollView()
     private var spaceColorPopover: NSPopover?
+    private var normalStack: NSStackView?
+    private var normalStackConstraints: [NSLayoutConstraint] = []
+    private lazy var library = SidebarLibraryView(session: session)
+    private(set) var isLibraryVisible = false
+    private var wantsHeaderTrafficLights = true
+    var onLibraryChange: ((Bool, LibraryCategory) -> Void)?
+    var onLibraryOpen: ((LibraryEntry) -> Void)?
+    var onLibraryShareBrowser: ((NSView) -> Void)?
 
     /// Table view displaying tabs and groups.
     var tabListTableView: NSTableView { tableView }
@@ -285,6 +297,7 @@ final class SidebarViewController: NSViewController {
             return makeSpaceOptionsMenu(for: space, anchor: anchor)
         }
         diaFooter.addMenuProvider = { [weak self] in self?.makeAddMenu() ?? NSMenu() }
+        diaFooter.onOpenLibrary = { [weak self] in self?.showLibrary() }
         // The icon dock switches spaces and configures their icons; everything
         // else about a space -- making, renaming, recolouring, deleting --
         // is the header menu's and Settings' job. The standing buttons are the
@@ -364,10 +377,11 @@ final class SidebarViewController: NSViewController {
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.setCustomSpacing(2, after: diaHeader)
         view.addSubview(stack)
+        normalStack = stack
 
         // The header owns the traffic-light strip, so the stack starts at the
         // very top of the sidebar rather than below a reserved band.
-        NSLayoutConstraint.activate([
+        normalStackConstraints = [
             stack.topAnchor.constraint(equalTo: view.topAnchor),
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             // The sidebar's content stops short of its trailing edge by the
@@ -399,7 +413,64 @@ final class SidebarViewController: NSViewController {
                 // the sidebar at 260 no matter what `minimumThickness` said.
                 greaterThanOrEqualToConstant: Style.Metrics.sidebarMinWidth
             )
+        ]
+        NSLayoutConstraint.activate(normalStackConstraints)
+    }
+
+    var libraryCategory: LibraryCategory { library.category }
+
+    func showLibrary(category: LibraryCategory? = nil) {
+        _ = view
+        if let category { library.select(category) }
+        guard !isLibraryVisible else { onLibraryChange?(true, library.category); return }
+        diaHeader.spaceButton.finishRenaming(commit: true)
+        if isShowingArchive { setArchiveVisible(false) }
+        library.onClose = { [weak self] in self?.hideLibrary() }
+        library.onCategory = { [weak self] category in
+            guard let self, isLibraryVisible else { return }
+            onLibraryChange?(true, category)
+        }
+        library.onOpen = { [weak self] in self?.onLibraryOpen?($0) }
+        library.onShareBrowser = { [weak self] in self?.onLibraryShareBrowser?($0) }
+        isLibraryVisible = true
+        diaHeader.hostsTrafficLights = false
+        NSLayoutConstraint.deactivate(normalStackConstraints)
+        normalStack?.removeFromSuperview()
+        view.addSubview(library)
+        NSLayoutConstraint.activate([
+            library.topAnchor.constraint(equalTo: view.topAnchor), library.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            library.leadingAnchor.constraint(equalTo: view.leadingAnchor), library.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
+        library.header.hostsTrafficLights = wantsHeaderTrafficLights
+        library.setPresented(true)
+        refreshWash()
+        onLibraryChange?(true, library.category)
+    }
+
+    func hideLibrary() {
+        guard isLibraryVisible else { return }
+        library.header.hostsTrafficLights = false
+        library.setPresented(false)
+        library.removeFromSuperview()
+        isLibraryVisible = false
+        if let stack = normalStack { view.addSubview(stack); NSLayoutConstraint.activate(normalStackConstraints) }
+        diaHeader.hostsTrafficLights = wantsHeaderTrafficLights
+        refreshWash()
+        view.needsLayout = true
+        onLibraryChange?(false, library.category)
+    }
+
+    func makeLibrarySpacesView() -> LibrarySpacesView {
+        let overview = LibrarySpacesView(session: session)
+        overview.menuProvider = { [weak self] space, anchor in self?.makeSpaceOptionsMenu(for: space, anchor: anchor) ?? NSMenu() }
+        overview.onOpenTab = { [weak self] space, tab in
+            guard let self else { return }; session.selectSpace(space); session.selectTab(tab); hideLibrary()
+        }
+        overview.onNewTab = { [weak self] space in
+            guard let self else { return }; session.selectSpace(space); hideLibrary(); onNewTab?()
+        }
+        overview.onNewSpace = { [weak self] in self?.promptForNewSpace() }
+        return overview
     }
 
     private func configureTableView() {
@@ -592,7 +663,7 @@ final class SidebarViewController: NSViewController {
     private var isSwitching = false
 
     /// A switch is animating. A drag that started now would fight it.
-    var isSwitchInFlight: Bool { isSwitching }
+    var isSwitchInFlight: Bool { isSwitching || isLibraryVisible }
 
     /// The space the sidebar is currently drawing.
     private var shownSpace: Space { previewSpace ?? session.activeSpace }
@@ -694,7 +765,7 @@ final class SidebarViewController: NSViewController {
         guard let tint else { return }
         tint.transitionDuration = duration
         tint.gradientWash = space.washGradient(for: space.activeTab)
-        tint.grainAmount = space.chromeGrain
+        tint.grainAmount = isLibraryVisible ? 0 : space.chromeGrain
         tint.transitionDuration = 0
     }
 
@@ -953,6 +1024,7 @@ final class SidebarViewController: NSViewController {
 
     private func applyChromeAppearance(for space: Space) {
         materialShade.isHidden = space.activeImportedChrome?.usesLightMaterial != true
+        materialShade.strength = isLibraryVisible ? LibraryMetrics.materialStrength : 0.21
         if let chrome = space.activeImportedChrome {
             view.appearance = space.look.appearance == .system
                 ? NSAppearance(named: chrome.usesDarkText ? .aqua : .darkAqua) : space.look.appearance.appearance
@@ -998,9 +1070,10 @@ final class SidebarViewController: NSViewController {
         return SpaceOptionsMenu.make(canDelete: session.spaces.count > 1, hasGitHubFolder: hasGitHub) {
             [weak self, weak space, weak anchor] action in
             guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
+            if isLibraryVisible, [.rename, .newFolder, .github].contains(action) { hideLibrary() }
             // The Space being acted on comes from the menu, even when its dock
             // icon was right-clicked while a different Space was in front.
-            if action != .manage && action != .delete { session.selectSpace(space) }
+            if [.rename, .newFolder, .github].contains(action) { session.selectSpace(space) }
             DispatchQueue.main.async { [weak self, weak space, weak anchor] in
                 guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
                 switch action {
@@ -1310,7 +1383,7 @@ final class SidebarViewController: NSViewController {
         let wash = space.wash(for: space.activeTab)
         let gradient = space.washGradient(for: space.activeTab)
         applyChromeAppearance(for: space)
-        tint?.grainAmount = space.chromeGrain
+        tint?.grainAmount = isLibraryVisible ? 0 : space.chromeGrain
         guard tint?.wash != wash || tint?.gradientWash != gradient else { return }
         tint?.wash = wash
         tint?.gradientWash = gradient

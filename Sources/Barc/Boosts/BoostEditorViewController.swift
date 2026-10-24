@@ -36,6 +36,11 @@ final class BoostEditorViewController: NSViewController {
         self.init(url: URL(string: "https://\(host)"), webView: webView)
     }
 
+    convenience init(boost: Boost) {
+        self.init(url: URL(string: "https://\(boost.host)"), webView: nil)
+        self.boost = boost
+    }
+
     required init?(coder: NSCoder) {
         fatalError("BoostEditorViewController is created in code only")
     }

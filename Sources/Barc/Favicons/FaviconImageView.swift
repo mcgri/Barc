@@ -13,14 +13,14 @@ final class FaviconImageView: NSImageView {
     /// Matches the sidebar's 13-point label without crowding it.
     static let side: CGFloat = 16
 
-    /// The globe is shown while an icon is loading and left in place when the
-    /// site has none. It is deliberately a generic symbol and not a guess at
-    /// the site's branding: an invented icon would be exactly the fake state
-    /// this project forbids. There is no spinner, because the row already
-    /// shows one for the page load and a second would be noise.
-    private static let placeholder: NSImage? = {
-        let image = NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
-        image?.isTemplate = true
+    /// Arc's empty favicon is a quiet rounded square rather than a globe.
+    static let placeholder: NSImage = {
+        let image = NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
+            NSColor.black.withAlphaComponent(0.65).setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1), xRadius: 2.5, yRadius: 2.5).fill()
+            return true
+        }
+        image.isTemplate = true
         return image
     }()
 

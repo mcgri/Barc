@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// Persistent store for per-site Boosts (user CSS, JavaScript, and Dark Mode).
 @MainActor
@@ -8,6 +9,7 @@ final class BoostStore {
     private let file: URL
     private(set) var boosts: [Boost] = []
     var onChange: (() -> Void)?
+    let changes = PassthroughSubject<Void, Never>()
 
     init(file: URL = AppPaths.supportDirectory.appending(path: "boosts.json")) {
         self.file = file
@@ -34,6 +36,7 @@ final class BoostStore {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try? encoder.encode(boosts).write(to: file, options: .atomic)
         onChange?()
+        changes.send(())
     }
 
     /// Finds a boost matching the given host or URL.
