@@ -26,7 +26,7 @@ final class IconButton: NSButton {
     /// so a cell-drawn glyph would sit underneath its own highlight. A subview
     /// has a layer of its own, which stacks above the highlight's, so the two
     /// end up in the order the eye expects.
-    private let glyph = NSImageView()
+    private let glyph = ButtonGlyphView()
     /// The current symbol, also used when this action is presented in a menu.
     var symbolImage: NSImage? { glyph.image }
     /// The count in the button's top-trailing corner, hidden while it is zero.
@@ -94,9 +94,8 @@ final class IconButton: NSButton {
         glyph.imageScaling = .scaleProportionallyDown
         glyph.contentTintColor = Style.Colors.secondaryText
         glyph.setAccessibilityElement(false)
-        // The glyph never takes the click: it is the button's face, and a hit
-        // landing on it rather than on the button would swallow the press.
-        glyph.isEnabled = false
+        // Hit testing belongs to the button. Disabling its artwork here would
+        // also make AppKit dim the image, even while the action is available.
         glyph.translatesAutoresizingMaskIntoConstraints = false
         addSubview(glyph)
 

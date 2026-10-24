@@ -253,7 +253,10 @@ final class SpaceDockButton: NSButton {
     var onSelect: (() -> Void)?
     var onChangeIcon: ((IconMenu.Choice) -> Void)?
     var spaceMenuProvider: (() -> NSMenu?)?
-    private let glyph = NSImageView()
+    private let glyph = ButtonGlyphView()
+    override var isEnabled: Bool { didSet { applyArtworkState() } }
+    private var coloredImage: NSImage?
+    private var mutedImage: NSImage?
     private var item: SpaceDockItem?
     private(set) var iconSize = SpaceDockLayout.iconSide
     private(set) var isSelectedSpace = false
@@ -267,7 +270,6 @@ final class SpaceDockButton: NSButton {
         target = self
         action = #selector(selectSpace)
         glyph.imageScaling = .scaleProportionallyDown
-        glyph.isEnabled = false
         glyph.setAccessibilityElement(false)
         addSubview(glyph)
         setAccessibilityCustomActions([
@@ -300,7 +302,7 @@ final class SpaceDockButton: NSButton {
         let drawnSide = max(0,iconSize-symbolInset)
         let baseline = (SpaceDockLayout.height-(SpaceDockLayout.iconSide-symbolInset))/2
         let imageFrame = NSRect(x:(frame.width-drawnSide)/2,y:baseline,width:drawnSide,height:drawnSide)
-        glyph.alphaValue = isSelectedSpace || iconSize > SpaceDockLayout.iconSide + 0.2 ? 1 : 0.58
+        applyArtworkState()
         if self.frame != frame { self.frame = frame }
         if glyph.frame != imageFrame { glyph.frame = imageFrame }
     }
@@ -317,9 +319,17 @@ final class SpaceDockButton: NSButton {
             // draw can use the app's previous appearance instead of this dock.
             let color = item.color.usingColorSpace(.extendedSRGB) ?? item.color
             let resolved = SpaceDockItem(id:item.id,name:item.name,icon:item.icon,color:color)
-            glyph.image = item.icon == .automatic ? Self.initialImage(resolved)
+            coloredImage = item.icon == .automatic ? Self.initialImage(resolved)
                 : item.icon.image(color:color,title:item.name,side:60)
+            mutedImage = coloredImage.map(SpaceDockArtwork.monochrome)
+            applyArtworkState()
         }
+    }
+
+    private func applyArtworkState() {
+        let image = isSelectedSpace ? coloredImage : mutedImage
+        if glyph.image !== image { glyph.image = image }
+        glyph.alphaValue = (isSelectedSpace ? 1 : 0.58) * (isEnabled ? 1 : 0.5)
     }
 
     @objc private func selectSpace() { onSelect?() }

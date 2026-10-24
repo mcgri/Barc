@@ -106,6 +106,42 @@ struct SidebarSpaceAppearanceTests {
         }
     }
 
+    @Test("Decorative button faces stay enabled for drawing and let presses reach their controls")
+    func buttonFacesDoNotDimOrInterceptPresses() throws {
+        for button in [IconButton(symbolName:"plus",label:"Add",side:24),SpaceDockButton(id:UUID())] as [NSButton] {
+            button.frame = NSRect(x:0,y:0,width:24,height:50)
+            let host = NSView(frame:NSRect(x:0,y:0,width:24,height:50));host.addSubview(button)
+            host.layoutSubtreeIfNeeded()
+            let face = try #require(UITestSupport.descendants(of:button).compactMap { $0 as? NSImageView }.first)
+            #expect(face.isEnabled)
+            #expect(face.hitTest(NSPoint(x:face.frame.midX,y:face.frame.midY)) == nil)
+            #expect(button.hitTest(NSPoint(x:button.frame.midX,y:button.frame.midY)) === button)
+            button.isEnabled = false
+            #expect(!button.isEnabled && face.isEnabled)
+            button.isEnabled = true
+            #expect(face.isEnabled)
+        }
+    }
+
+    @Test("Inactive Space artwork stays monochrome while magnifying, and selected artwork restores its original color")
+    func inactiveArtwork() throws {
+        let button = SpaceDockButton(id:UUID())
+        button.appearance = NSAppearance(named:.aqua)
+        let item = SpaceDockItem(id:button.id,name:"Space",icon:.symbol("circle.fill"),color:.red)
+        button.configure(item,selected:false)
+        button.apply(frame:NSRect(x:0,y:0,width:24,height:50),iconSize:18)
+        let face = try #require(UITestSupport.descendants(of:button).compactMap { $0 as? NSImageView }.first)
+        let muted = try #require(face.image),gray = try opaqueColor(muted)
+        #expect(abs(gray.redComponent-gray.greenComponent)<0.01 && abs(gray.greenComponent-gray.blueComponent)<0.01)
+        button.apply(frame:button.frame,iconSize:22)
+        #expect(face.image === muted && face.alphaValue == 0.58)
+        button.configure(item,selected:true)
+        button.apply(frame:button.frame,iconSize:18)
+        let colored = try opaqueColor(try #require(face.image))
+        #expect(colored.redComponent>0.9 && colored.greenComponent<0.05 && colored.blueComponent<0.05)
+        #expect(face.alphaValue == 1)
+    }
+
     @Test("The Space mark starts at 18 points and the 13-point name at 44, without moving the rename editor")
     func headerGeometry() throws {
         let name = MenuLabelButton()
