@@ -27,6 +27,8 @@ final class IconButton: NSButton {
     /// has a layer of its own, which stacks above the highlight's, so the two
     /// end up in the order the eye expects.
     private let glyph = ButtonGlyphView()
+    private var enabledTint = Style.Colors.secondaryText
+    private var disabledTint = Style.Colors.tertiaryText
     /// The current symbol, also used when this action is presented in a menu.
     var symbolImage: NSImage? { glyph.image }
     /// The count in the button's top-trailing corner, hidden while it is zero.
@@ -63,6 +65,7 @@ final class IconButton: NSButton {
         label: String,
         side: CGFloat = Style.Metrics.iconButtonSide,
         symbolSize: CGFloat? = nil,
+        glyphOffset: NSPoint = .zero,
         onClick: (() -> Void)? = nil
     ) {
         self.label = label
@@ -92,7 +95,7 @@ final class IconButton: NSButton {
             pointSize: symbolSize ?? Self.symbolPointSize(forSide: side), weight: .medium
         )
         glyph.imageScaling = .scaleProportionallyDown
-        glyph.contentTintColor = Style.Colors.secondaryText
+        glyph.contentTintColor = enabledTint
         glyph.setAccessibilityElement(false)
         // Hit testing belongs to the button. Disabling its artwork here would
         // also make AppKit dim the image, even while the action is available.
@@ -109,8 +112,8 @@ final class IconButton: NSButton {
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: side),
             heightAnchor.constraint(equalToConstant: side),
-            glyph.centerXAnchor.constraint(equalTo: centerXAnchor),
-            glyph.centerYAnchor.constraint(equalTo: centerYAnchor),
+            glyph.centerXAnchor.constraint(equalTo: centerXAnchor,constant:glyphOffset.x),
+            glyph.centerYAnchor.constraint(equalTo: centerYAnchor,constant:glyphOffset.y),
             // Held inside the button rather than hung off its corner. The
             // footer's buttons sit hard against the sidebar's edges, so a pill
             // that overhung would be the first thing lost when the sidebar is
@@ -165,8 +168,13 @@ final class IconButton: NSButton {
 
     override var isEnabled: Bool {
         didSet {
-            glyph.contentTintColor = isEnabled ? Style.Colors.secondaryText : Style.Colors.tertiaryText
+            glyph.contentTintColor = isEnabled ? enabledTint : disabledTint
         }
+    }
+
+    func setTintColors(enabled: NSColor, disabled: NSColor) {
+        enabledTint = enabled; disabledTint = disabled
+        glyph.contentTintColor = isEnabled ? enabledTint : disabledTint
     }
 
     /// Kept working for callers that tint the button rather than its glyph.

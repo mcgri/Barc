@@ -113,11 +113,12 @@ struct ToolbarLayoutTests {
         #expect(frames.allSatisfy { $0.minX >= 0 && $0.maxX <= width && abs($0.midY - frames[0].midY) < 0.5 })
         for pair in zip(frames, frames.dropFirst()) { #expect(pair.0.maxX <= pair.1.minX) }
         if width == 228 {
-            // Centers measured from the user's 2x Arc reference image.
-            #expect(abs(frames[0].midX - 92.5) <= 3)
-            #expect(abs(frames[2].midX - 137.5) <= 1)
-            #expect(abs(frames[3].midX - 172.5) <= 1)
-            #expect(abs(frames[4].midX - 205) <= 1)
+            // Artwork positions, separate from their larger hit targets.
+            // SidebarHeaderReferenceTests also checks the painted pixels.
+            for (button,center) in zip([bar.sidebarToggle,bar.backButton,bar.forwardButton,bar.reloadButton],[92.5,137,171,205]) {
+                let glyph = try #require(UITestSupport.imageViews(in:button).first)
+                #expect(abs(glyph.convert(glyph.bounds,to:sidebar.view).midX-center) <= 0.25)
+            }
         }
     }
 

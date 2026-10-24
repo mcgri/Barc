@@ -376,12 +376,10 @@ struct SidebarHeaderTrafficLightTests {
         return window
     }
 
-    @Test("They sit on the same line as the space's name")
+    @Test("Window controls share the reference navigation band")
     func centredOnTheStrip() {
-        // The lights are the window's own buttons: the titlebar places them
-        // six points off its bottom edge, and this strip is 53 points tall
-        // with the name centred at 26.5. Left alone they floated twelve points
-        // above the name they belong beside.
+        // Native button frames place their center half a point below the
+        // navigation hit targets, matching the reference's visible circles.
         let header = SidebarHeaderView()
         let window = makeWindow(hosting: header)
         header.layoutSubtreeIfNeeded()
@@ -392,7 +390,7 @@ struct SidebarHeaderTrafficLightTests {
         #expect(lights.count == 3)
         for light in lights {
             #expect(light.superview === header, "the strip hosts the light")
-            #expect(abs(header.bounds.maxY - light.frame.midY - 24) <= 0.5,
+            #expect(abs(header.bounds.maxY - light.frame.midY - 24.5) <= 0.1,
                     "on the navigation row's centre line")
         }
     }

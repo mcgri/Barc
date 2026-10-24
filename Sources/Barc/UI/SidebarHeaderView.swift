@@ -83,8 +83,8 @@ final class SidebarHeaderView: NSView {
                 addSubview(button)
                 button.autoresizingMask = [.maxXMargin]
             }
-            button.frame.origin = NSPoint(x: 13 + CGFloat(index) * 22,
-                                          y: bounds.height - 24 - button.frame.height / 2)
+            button.frame.origin = NSPoint(x: 12 + CGFloat(index) * 23,
+                                          y: bounds.height - 24.5 - button.frame.height / 2)
         }
     }
 

@@ -406,7 +406,7 @@ final class SidebarViewController: NSViewController {
         stack.spacing = Style.Metrics.elementSeparation
         stack.alignment = .leading
         stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.setCustomSpacing(2, after: diaHeader)
+        stack.setCustomSpacing(2.5, after: diaHeader)
         view.addSubview(stack)
         view.addSubview(diaFooter)
         normalStack = stack

@@ -396,6 +396,12 @@ enum Style {
         static var primaryText: NSColor { .labelColor }
         static var secondaryText: NSColor { .secondaryLabelColor }
         static var tertiaryText: NSColor { .tertiaryLabelColor }
+        /// Light header ink measured against the reference's tinted surface.
+        /// Dark appearances retain the existing native semantic colors.
+        static var headerNavigationInk: NSColor { dynamic(light:NSColor(white:0,alpha:0.57),dark:.secondaryLabelColor) }
+        static var headerDisabledNavigationInk: NSColor { dynamic(light:NSColor(white:0,alpha:0.22),dark:.tertiaryLabelColor) }
+        static var addressText: NSColor { dynamic(light:NSColor(white:0,alpha:0.6),dark:.labelColor) }
+        static var addressFill: NSColor { ink(light:0.045,dark:0.08) }
 
         // MARK: Graphs
 

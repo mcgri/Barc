@@ -6,7 +6,7 @@ import AppKit
 final class AddressField: NSView {
     var onOpen: (() -> Void)?
 
-    private let field = NSButton()
+    private let field = AddressLabelButton()
     private let securityIcon = NSImageView()
     private let copyButton = IconButton(symbolName: "doc.on.doc", label: "Copy Address")
     /// The page's compact address while idle.
@@ -29,7 +29,7 @@ final class AddressField: NSView {
 
     /// The field's corner. A touch rounder than a toolbar button's, because
     /// the shape is long: the same radius reads as sharper the wider it gets.
-    private static let cornerRadius: CGFloat = 8
+    private static let cornerRadius: CGFloat = 12
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -45,7 +45,7 @@ final class AddressField: NSView {
         field.target = self
         field.action = #selector(openAddress)
         field.focusRingType = .none
-        field.font = .systemFont(ofSize: 14)
+        field.font = .systemFont(ofSize: 13)
         field.contentTintColor = Style.Colors.primaryText
         field.lineBreakMode = .byTruncatingTail
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -64,7 +64,7 @@ final class AddressField: NSView {
 
         copyButton.setClickHandler { [weak self] in self?.copyAddress() }
         addSubview(copyButton)
-        textLeading = field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12)
+        textLeading = field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 13)
         textTrailing = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12)
         copyButton.isHidden = true
 
@@ -91,11 +91,11 @@ final class AddressField: NSView {
     /// field has a shape even when nothing is hovering or editing it.
     override func draw(_ dirtyRect: NSRect) {
         let shape = NSBezierPath(
-            roundedRect: bounds.insetBy(dx: Style.Metrics.hairline / 2, dy: Style.Metrics.hairline / 2),
+            roundedRect: bounds,
             xRadius: Self.cornerRadius,
             yRadius: Self.cornerRadius
         )
-        Style.Colors.fieldFill.setFill()
+        Style.Colors.addressFill.setFill()
         shape.fill()
     }
 
@@ -142,10 +142,13 @@ final class AddressField: NSView {
         textTrailing.constant = isHovered && currentURL != nil ? -36 : -12
         showSecurity(of: currentURL, placeholder:empty)
         field.title = empty ? "Search or Enter URL…" : currentDisplay
-        field.font = .systemFont(ofSize:empty ? 13 : 14,weight:empty ? .semibold : .regular)
-        field.contentTintColor = empty ? Style.Colors.secondaryText : Style.Colors.primaryText
+        field.font = .systemFont(ofSize:13,weight:empty ? .semibold : .regular)
+        field.contentTintColor = empty ? Style.Colors.secondaryText : Style.Colors.addressText
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineBreakMode = .byTruncatingTail
+        paragraph.alignment = .left
         field.attributedTitle = NSAttributedString(string:field.title,attributes:[
-            .font:field.font!, .foregroundColor:field.contentTintColor!
+            .font:field.font!, .foregroundColor:field.contentTintColor!, .paragraphStyle:paragraph
         ])
     }
 
@@ -165,7 +168,7 @@ final class AddressField: NSView {
         }
         guard let symbol else {
             securityIcon.isHidden = true
-            textLeading.constant = 12
+            textLeading.constant = 13
             return
         }
         textLeading.constant = 34
@@ -190,4 +193,13 @@ final class AddressField: NSView {
         }
     }
 
+}
+
+/// Native button title drawing composites translucent text twice. Drawing the
+/// title once preserves the measured ink while retaining button input and AX.
+@MainActor
+private final class AddressLabelButton: NSButton {
+    override func draw(_ dirtyRect: NSRect) {
+        attributedTitle.draw(in:(cell as? NSButtonCell)?.titleRect(forBounds:bounds) ?? bounds)
+    }
 }
