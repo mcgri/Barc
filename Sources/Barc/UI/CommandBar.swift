@@ -4,6 +4,8 @@ import AppKit
 /// Sizes shared by the centered launcher and the compact sidebar URL popup.
 enum CommandBarMetrics {
     static let newTabRecentLimit = 4
+    /// Empty action space retained by Arc's compact URL suggestions.
+    static let compactResultActionSpace: CGFloat = 51
     static let addressPanelWidth: CGFloat = 350
     static let addressFieldHeight: CGFloat = 44
     /// Wide enough for a long URL and its title, narrow enough that the panel
@@ -85,7 +87,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private let field = NSTextField()
     private let addressIcon = NSImageView()
     private let divider = NSBox()
-    private let rowsStack = NSStackView()
+    private let rowsStack = CommandResultsView()
     private let resultsContainer = NSStackView()
     private var centeredConstraints: [NSLayoutConstraint] = []
     private var addressConstraints: [NSLayoutConstraint] = []
@@ -262,6 +264,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         divider.boxType = .separator
         divider.translatesAutoresizingMaskIntoConstraints = false
 
+        rowsStack.onSelect = { [weak self] index in
+            self?.select(index)
+            self?.previewSelection()
+        }
         rowsStack.orientation = .vertical
         rowsStack.alignment = .leading
         rowsStack.spacing = CommandBarMetrics.rowSpacing
@@ -574,11 +580,17 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
 
         for view in rowsStack.arrangedSubviews {
+            if let row = view as? CommandRowView {
+                row.isSelected = false
+                row.onClick = nil
+                row.onHover = nil
+            }
             rowsStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
         for (index, result) in visibleResults.enumerated() {
             let row = CommandRowView()
+            row.setAccessibilityIndex(index)
             row.selectionColor = selectionColor
             row.configure(result, image: resultImageProvider?(result), compact: isAddressMode,
                           splitChoice: usesLauncherRows && !isLocationMode, locationChoice: isLocationMode)
@@ -713,9 +725,14 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     private func applySelectionToRows() {
+        var changed = false
         for (index, view) in rowsStack.arrangedSubviews.enumerated() {
-            (view as? CommandRowView)?.isSelected = index == selectedIndex
+            guard let row = view as? CommandRowView else { continue }
+            let selected = index == selectedIndex
+            changed = changed || row.isSelected != selected
+            row.isSelected = selected
         }
+        if changed, isOpen, window != nil { NSAccessibility.post(element:rowsStack,notification:.selectedRowsChanged) }
     }
 
     // MARK: - Running

@@ -27,6 +27,7 @@ final class CommandRowView: NSView {
     private var shortcutTrailing: NSLayoutConstraint!
     private var arrowTrailing: NSLayoutConstraint!
     private var labelsLeading: NSLayoutConstraint!
+    private var compactLabelsTrailing: NSLayoutConstraint!
     private var showsSplitArrow = false
     private var usesIconPlate = false
     private static let normalText = NSColor(name: nil) { appearance in
@@ -46,6 +47,7 @@ final class CommandRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            setAccessibilitySelected(isSelected)
             applySelectionColours()
             needsDisplay = true
         }
@@ -107,6 +109,8 @@ final class CommandRowView: NSView {
         shortcutTrailing = shortcutLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CommandBarMetrics.rowInset)
         arrowTrailing = arrowPlate.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -CommandBarMetrics.rowInset)
         labelsLeading = labels.leadingAnchor.constraint(equalTo: iconView.trailingAnchor, constant: Style.Metrics.rowContentSpacing)
+        compactLabelsTrailing = labels.trailingAnchor.constraint(lessThanOrEqualTo:trailingAnchor,
+            constant: -(CommandBarMetrics.rowInset + Style.Metrics.rowContentSpacing + CommandBarMetrics.compactResultActionSpace))
         NSLayoutConstraint.activate([
             rowHeight,
             iconPlate.widthAnchor.constraint(equalToConstant: 24), iconPlate.heightAnchor.constraint(equalToConstant: 24),
@@ -137,7 +141,10 @@ final class CommandRowView: NSView {
             )
         ])
 
-        setAccessibilityRole(.button)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.row)
+        setAccessibilitySelected(false)
+        setAccessibilityChildren([])
         applySelectionColours()
     }
 
@@ -149,6 +156,7 @@ final class CommandRowView: NSView {
                    splitChoice: Bool = false, locationChoice: Bool = false) {
         let launcher = splitChoice || locationChoice
         let arcLayout = launcher || compact
+        compactLabelsTrailing.isActive = compact
         hasWebsiteIcon = image != nil
         iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
         titleLabel.stringValue = result.title
@@ -247,7 +255,8 @@ final class CommandRowView: NSView {
     }
 
     override func accessibilityPerformPress() -> Bool {
-        onClick?()
+        guard let onClick else { return false }
+        onClick()
         return true
     }
 }

@@ -187,6 +187,65 @@ struct LauncherAppearanceTests {
         command.cancelOperation(nil)
     }
 
+    @Test("Compact URL text retains its trailing action space without changing its font or icon alignment")
+    func compactTextColumn() throws {
+        let host = NSView(frame:NSRect(x:0,y:0,width:1200,height:900))
+        let anchor = NSView(frame:NSRect(x:8,y:800,width:220,height:36));host.addSubview(anchor)
+        let bar = CommandBar();bar.install(in:host)
+        let title = "Example News - Headlines, World News, Sports, Business and Technology"
+        for shortcut in [nil, "Jump"] as [String?] {
+            let result = CommandResult(id:"site",kind:.history,title:title,subtitle:"bbc.co.uk",symbolName:"globe",
+                action:.openURL(URL(string:"https://www.bbc.co.uk/")!),score:0,shortcut:shortcut)
+            bar.openAddress(text:"https://current.invalid/",anchor:anchor,recentResults:[result])
+            host.layoutSubtreeIfNeeded();host.layoutSubtreeIfNeeded()
+            let panel = try #require(UITestSupport.descendants(of:bar).compactMap { $0 as? CommandPanelView }.first)
+            let row = try #require(UITestSupport.descendants(of:bar).compactMap { $0 as? CommandRowView }.first)
+            let label = try #require(UITestSupport.descendants(of:row).compactMap { $0 as? NSTextField }.first { $0.stringValue == title })
+            let rect = try #require(label.superview).convert(label.alignmentRect(forFrame:label.frame),to:panel)
+            #expect(abs(rect.minX-52)<0.5 && abs(rect.maxX-267)<0.5)
+            #expect(label.font?.pointSize == 13 && row.frame.height == 46)
+            bar.close()
+        }
+    }
+
+    @Test("Accessibility exposes the visible suggestion rows and moves the same single selection as the keyboard")
+    func accessibleResults() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1400,height:900),styleMask:[.titled],backing:.buffered,defer:false)
+        window.isReleasedWhenClosed = false;defer { window.close() }
+        let bar = CommandBar();bar.install(in:try #require(window.contentView))
+        let choices = (0..<3).map { index in
+            CommandResult(id:"site\(index)",kind:.history,title:"Site \(index)",subtitle:"",symbolName:"globe",
+                action:.openURL(URL(string:"https://site\(index).invalid/")!),score:0,completionText:"site\(index).invalid")
+        }
+        bar.openLocation(text:"https://current.invalid/",suggestions:choices)
+        let table = try #require(UITestSupport.descendants(of:bar).compactMap { $0 as? CommandResultsView }.first)
+        let rows = try #require(table.accessibilityRows() as? [CommandRowView])
+        #expect(table.isAccessibilityElement() && table.accessibilityRole() == .table && table.accessibilityRowCount() == 3)
+        #expect(rows.allSatisfy { $0.isAccessibilityElement() && $0.accessibilityRole() == .row })
+        #expect(rows.enumerated().allSatisfy { $0.element.accessibilityIndex() == $0.offset })
+        #expect(rows[0].isAccessibilitySelected() && !rows[1].isAccessibilitySelected())
+        table.setAccessibilitySelectedRows([rows[2]])
+        #expect(bar.selectedIndex == 2 && bar.queryText == "site2.invalid")
+        #expect((table.accessibilitySelectedRows()?.first as? CommandRowView) === rows[2])
+        bar.moveSelection(by:1)
+        #expect(rows[0].isAccessibilitySelected() && !rows[2].isAccessibilitySelected())
+        table.setAccessibilitySelectedRows([NSView()])
+        #expect(bar.selectedIndex == 0)
+        var action:CommandAction?;bar.onRun = { action = $0;_ = $1 }
+        #expect(rows[0].accessibilityPerformPress())
+        #expect(action == choices[0].action && !bar.isOpen)
+        #expect(table.accessibilityRowCount() == 0 && rows.allSatisfy { !$0.isAccessibilitySelected() })
+        action = nil
+        bar.openLocation(text:"https://different.invalid/",suggestions:Array(choices.reversed()))
+        #expect(!rows[0].accessibilityPerformPress(), "An accessibility client may still hold the old element after the list changes")
+        #expect(action == nil && bar.isOpen)
+        bar.select(1)
+        rows[0].onHover?()
+        #expect(bar.selectedIndex == 1)
+        bar.close()
+    }
+
     @Test("A result consumes its press and runs on release, while releasing outside cancels")
     func mousePressSequence() throws {
         _ = NSApplication.shared
