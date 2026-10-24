@@ -18,6 +18,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// Shared URL editor: beside the sidebar for Cmd-L, centered over the page for New Tab.
     private let commandBar = CommandBar()
     private var splitSelection: (space: Space, source: Tab, grid: SplitLayout.Grid, base: SplitLayout?)?
+    private var locationContext: (space: Space, tab: Tab?)?
     /// Held while shown so it is not deallocated mid-display.
     private var siteSettingsPopover: NSPopover?
     private var shieldPopover: NSPopover?
@@ -668,7 +669,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             guard let tab = self?.session.activeTab else { return }
             if tab.isLoading { tab.stopLoading() } else { tab.reload() }
         }
-        bar.addressField.onOpen = { [weak self] in self?.openLocation(nil) }
+        bar.addressField.onOpen = { [weak self] in self?.openSidebarAddress() }
         var actions = [
             TopBarAction(symbolName: "checkmark.shield.fill", label: "Shield") { [weak self] in
                 self?.showShieldPopover()
@@ -1187,7 +1188,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// performs one.
     private func wireCommandBar() {
         commandBar.install(in: root.view, centeredIn: content.view)
-        commandBar.onClose = { [weak self] in self?.updateCompactSidebarForCommandBar() }
+        commandBar.onClose = { [weak self] in
+            self?.locationContext = nil
+            self?.updateCompactSidebarForCommandBar()
+        }
         commandBar.onCancel = { [weak self] in self?.cancelSplitSelection() }
         commandBar.resultImageProvider = { [weak self] result in
             switch result.action {
@@ -1323,6 +1327,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         session.changes
             .sink { [weak self] change in
                 guard let self else { return }
+                if let context = self.locationContext,
+                   self.session.activeSpace !== context.space || self.session.activeTab !== context.tab {
+                    self.commandBar.close()
+                }
                 if let request = self.splitSelection,
                    self.session.activeSpace !== request.space || self.session.activeTab !== request.source
                     || self.session.split(request.space) != request.base {
@@ -1444,10 +1452,52 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     @objc func openLocation(_ sender: Any?) {
         if splitSelection != nil { commandBar.close() }
         sidebar.hideLibrary()
+        if commandBar.isOpen && commandBar.isLocationMode {
+            commandBar.focusField()
+        } else {
+            let space = session.activeSpace, tab = session.activeTab
+            locationContext = (space, tab)
+            let sources = Settings.shared.suggestionSources
+            let current: [CommandResult] = sources.openTabs ? tab.flatMap { tab in
+                tab.showsStartPage ? nil : CommandResult(id: "tab:\(tab.id)", kind: .openTab,
+                    title: tab.displayTitle, subtitle: "", symbolName: "globe", action: .switchToTab(tab.id),
+                    score: 0, isCurrentPage: true)
+            }.map { [$0] } ?? [] : []
+            func suggestions(_ sites: [BrowserTopSite]) -> [CommandResult] {
+                current + sites.filter { $0.isValid && $0.url != tab?.displayURL }.prefix(3).map { site in
+                    CommandResult(id: "top-site:\(site.url.absoluteString)", kind: .history,
+                        title: site.title.isEmpty ? AddressFormatter.display(site.url) : site.title,
+                        subtitle: "— " + (site.url.host()?.replacingOccurrences(of: "www.", with: "", options: .anchored) ?? ""),
+                        symbolName: "globe", action: .openURL(site.url), score: 0)
+                }
+            }
+            let useHistory = sources.history && sources.topHits && !space.isPrivate
+            let saved = useHistory ? space.profile.preferences.arcTopSites : []
+            let initial = suggestions(saved ?? [])
+            var load: (@MainActor () async -> [CommandResult])?
+            if useHistory && saved == nil {
+                load = { @MainActor [weak self] in
+                    guard let self else { return current }
+                    let sites = await self.session.topSites(limit: 8)
+                    guard self.session.activeSpace === space, self.session.activeTab === tab else { return [] }
+                    return suggestions(sites.map { BrowserTopSite(url: $0.url, title: $0.title) })
+                }
+            }
+            commandBar.openLocation(text: tab.map { $0.showsStartPage ? "" : $0.displayURL.absoluteString } ?? "",
+                image: tab.flatMap { FaviconService.shared.cachedImage(for: $0.displayURL) },
+                suggestions: initial, loadSuggestions: load)
+        }
+        updateCompactSidebarForCommandBar()
+    }
+
+    private func openSidebarAddress() {
+        if splitSelection != nil { commandBar.close() }
+        sidebar.hideLibrary()
         if commandBar.isOpen && commandBar.isAddressMode {
             commandBar.focusField()
         } else {
             let tab = session.activeTab
+            locationContext = (session.activeSpace, tab)
             let initialText = tab.map { $0.showsStartPage ? "" : $0.displayURL.absoluteString } ?? ""
             let recentTabs = Settings.shared.suggestionSources.openTabs ? session.activeSpace.tabs
                 .filter { !$0.showsStartPage }
@@ -1892,7 +1942,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func newTab(_ sender: Any?) {
-        if splitSelection != nil { commandBar.close() }
+        commandBar.close()
         sidebar.hideLibrary()
         if let overview = tabOverviewController, overview.isOpen {
             overview.dismissOverview { [weak self] in self?.newTab(nil) }
@@ -2587,6 +2637,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     @objc func clearHistory(_ sender: Any?) {
+        commandBar.close()
         session.clearHistory()
     }
 

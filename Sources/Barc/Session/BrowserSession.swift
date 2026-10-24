@@ -2207,6 +2207,16 @@ final class BrowserSession {
         return activeSpace.identity == identity ? result : []
     }
 
+    @discardableResult
+    func enrichArcTopSites(_ sites: [BrowserTopSite], for identity: Space.Identity) -> Int {
+        guard !identity.isPrivate, let profile = profiles.first(where: { $0.identity == identity }),
+              profile.preferences.arcTopSites == nil else { return 0 }
+        let valid = sites.filter(\.isValid)
+        profile.preferences.arcTopSites = valid
+        saveNow()
+        return valid.count
+    }
+
     func recentHistory(limit: Int = 100) async -> [HistoryEntry] {
         let identity = activeSpace.identity
         guard let database else { return [] }
@@ -2217,6 +2227,9 @@ final class BrowserSession {
     /// Forgets every visit. Asked for from the menu, so a failure is said out
     /// loud rather than left as a silent no-op the user would read as success.
     func clearHistory() {
+        let profile = activeSpace.profile
+        profile.preferences.arcTopSites = []
+        saveNow()
         guard let database else { return }
         Task {
             do {
@@ -2276,7 +2289,23 @@ final class BrowserSession {
     /// and the next launch tries again, so this one stays best-effort.
     func pruneHistory() {
         guard let database, let cutoff = settings.historyRetention.cutoff() else { return }
-        Task { try? await database.deleteHistory(before: cutoff) }
+        let profile = activeSpace.profile
+        Task {
+            do {
+                try await database.deleteHistory(before: cutoff)
+                if let sites = profile.preferences.arcTopSites, !sites.isEmpty {
+                    var retained: [BrowserTopSite] = []
+                    for site in sites {
+                        if !(try await database.suggestions(matching: AddressFormatter.display(site.url), limit: 1)).isEmpty {
+                            retained.append(site)
+                        }
+                    }
+                    guard profile.preferences.arcTopSites == sites else { return }
+                    profile.preferences.arcTopSites = retained
+                    saveNow()
+                }
+            } catch { /* Retention remains best effort. */ }
+        }
     }
 
     /// Says that history could not be cleared, once, wherever it was tried
@@ -2308,6 +2337,8 @@ final class BrowserSession {
     /// work, not the web's residue.
     func resetBrowsingData() async {
         closedTabs.removeAll()
+        for profile in profiles { profile.preferences.arcTopSites = [] }
+        saveNow()
         for identity in Set(storedIdentities) {
             guard let database = database(for: identity) else { continue }
             do {
@@ -2317,6 +2348,7 @@ final class BrowserSession {
             }
         }
         await WebsiteData.removeAll(for: storedIdentities)
+        saveNow()
         settings.lastCookieDeletion = .now
         for tab in allTabs where tab.isLoaded { tab.reload() }
     }

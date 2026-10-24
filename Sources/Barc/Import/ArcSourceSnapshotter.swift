@@ -62,7 +62,7 @@ enum ArcSourceSnapshotter {
                     if !sidebarOnly {
                         for name in ["Preferences", "Secure Preferences", "Bookmarks"] { try copy(prefix + name) }
                     }
-                    let names = sidebarOnly ? ["Favicons"] : ["History", "Login Data", "Web Data", "Cookies", "Network/Cookies", "Favicons"]
+                    let names = sidebarOnly ? ["Favicons"] : ["History", "Top Sites", "Login Data", "Web Data", "Cookies", "Network/Cookies", "Favicons"]
                     for name in names {
                         let relative = prefix + name
                         if manager.fileExists(atPath: source.appending(path: relative).path) {

@@ -96,9 +96,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private var initialAddressResults: [CommandResult] = []
     private var initialSplitResults: [CommandResult] = []
     private var initialNewTabResults: [CommandResult] = []
+    private var initialLocationResults: [CommandResult] = []
     private var usesLauncherRows = false
     private(set) var isAddressMode = false
     private(set) var isSplitMode = false
+    private(set) var isLocationMode = false
 
     private var queryTask: Task<Void, Never>?
     /// Whatever held focus when the bar opened -- in practice the page. Weak
@@ -364,6 +366,34 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         field.setAccessibilityLabel("Search or Enter URL…")
     }
 
+    /// Command-L edits the current page in the large, centred launcher.
+    /// Pointer entry remains the small sidebar popup below.
+    func openLocation(text: String, image: NSImage? = nil, suggestions: [CommandResult],
+                      loadSuggestions: (@MainActor () async -> [CommandResult])? = nil) {
+        configurePresentation(address: false)
+        setCenteredWidth(wholeWindow: true)
+        configureLauncherPresentation()
+        isLocationMode = true
+        addressIcon.image = image ?? NSImage(systemSymbolName: "globe", accessibilityDescription: nil)
+        addressIcon.contentTintColor = image == nil ? Style.Colors.secondaryText : nil
+        initialLocationResults = suggestions
+        present(text: text, openInNewTab: false)
+        setResults(suggestions)
+        superview?.layoutSubtreeIfNeeded()
+        select(0)
+        updateSplitPosition()
+        if let loadSuggestions {
+            queryTask = Task { [weak self] in
+                let found = await loadSuggestions()
+                guard !Task.isCancelled, let self, self.isOpen, self.isLocationMode,
+                      self.queryText == text else { return }
+                self.initialLocationResults = found
+                self.setResults(found)
+                self.select(0)
+            }
+        }
+    }
+
     /// Editing an existing URL stays beside the sidebar, with local recent tabs ready immediately.
     func openAddress(text: String, anchor: NSView, image: NSImage? = nil, recentResults: [CommandResult] = []) {
         addressAnchor = anchor
@@ -387,9 +417,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         rowsStack.spacing = CommandBarMetrics.rowSpacing
         dividerHeight.constant = CommandBarMetrics.dividerHeight
         isSplitMode = false
+        isLocationMode = false
         usesLauncherRows = false
         initialSplitResults = []
         initialNewTabResults = []
+        initialLocationResults = []
         splitAnchor = nil
         centeredConstraints[0].constant = 0
         centeredConstraints[1].constant = 0
@@ -514,7 +546,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         for (index, result) in visibleResults.enumerated() {
             let row = CommandRowView()
             row.selectionColor = selectionColor
-            row.configure(result, image: resultImageProvider?(result), compact: isAddressMode, splitChoice: usesLauncherRows)
+            row.configure(result, image: resultImageProvider?(result), compact: isAddressMode,
+                          splitChoice: usesLauncherRows && !isLocationMode, locationChoice: isLocationMode)
             row.onHover = { [weak self] in self?.select(index) }
             row.onClick = { [weak self] in self?.run(at: index) }
             rowsStack.addArrangedSubview(row)
@@ -715,7 +748,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         if usesLauncherRows, !isSplitMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryTask?.cancel()
             queryTask = nil
-            setResults(initialNewTabResults)
+            setResults(isLocationMode ? initialLocationResults : initialNewTabResults)
             select(0)
             return
         }

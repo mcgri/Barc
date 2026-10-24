@@ -1,3 +1,4 @@
+// Modified for Barc: distinguish the current page in URL editor suggestions, 2026-10-24.
 import Foundation
 
 /// What activating a command-bar row does.
@@ -110,6 +111,7 @@ struct CommandResult: Equatable, Sendable, Identifiable {
     /// test that could not see the score could only assert on the order.
     let score: Int
     var shortcut: String? = nil
+    var isCurrentPage = false
 }
 
 /// Turns a query plus open tabs, spaces, commands, history and bookmarks

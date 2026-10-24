@@ -1,7 +1,20 @@
+// Modified for Barc: retain Arc's profile-specific Top Sites ranking, 2026-10-24.
 import Foundation
 import CryptoKit
 
 enum ArcProfileReader {
+    static func topSites(_ profile: URL) throws -> [BrowserTopSite] {
+        let file = profile.appending(path: "Top Sites")
+        guard FileManager.default.fileExists(atPath: file.path) else { return [] }
+        let db = try SQLiteDatabase(readingOnly: file.path)
+        var seen = Set<URL>()
+        return try db.query("SELECT url, title FROM top_sites ORDER BY url_rank, url LIMIT 100;") { row -> BrowserTopSite? in
+            guard let url = ArcURL.parse(row.text(0) ?? ""), seen.insert(url).inserted else { return nil }
+            let site = BrowserTopSite(url: url, title: row.text(1) ?? "")
+            return site.isValid ? site : nil
+        }.compactMap { $0 }
+    }
+
     struct Visit: Sendable {
         let id: Int64
         let url: URL

@@ -226,6 +226,16 @@ final class ArcImportCoordinator {
                 }
             }
             let applied = try session.applyArcSpaces(incoming)
+            if options.history, FileManager.default.fileExists(atPath: profileURL.appending(path: "Top Sites").path) {
+                do {
+                    let sites = try await Task.detached { try ArcProfileReader.topSites(profileURL) }.value
+                    let added = session.enrichArcTopSites(sites, for: identity)
+                    let actual = session.profiles.first(where: { $0.identity == identity })?.preferences.arcTopSites ?? []
+                    let matched = sites.filter { actual.contains($0) }.count
+                    result.counts["Top Sites"] = .init(source: sites.count, imported: added,
+                        existing: max(0, matched - added), skipped: sites.count - matched, verified: matched)
+                } catch { result.notes.append("Top Sites: " + error.localizedDescription) }
+            }
             if !expectedIcons.isEmpty {
                 let actual = Dictionary(session.spaces.flatMap(\.tabs).compactMap { tab -> (String, PageFavicon)? in
                     guard let sourceID = tab.importedSourceID, let icon = tab.restoredFavicon else { return nil }

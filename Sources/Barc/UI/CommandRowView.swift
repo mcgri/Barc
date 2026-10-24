@@ -28,6 +28,7 @@ final class CommandRowView: NSView {
     private var arrowTrailing: NSLayoutConstraint!
     private var labelsLeading: NSLayoutConstraint!
     private var showsSplitArrow = false
+    private var usesIconPlate = false
     private static let normalText = NSColor(name: nil) { appearance in
         NSColor(srgbRed: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0.9 : 0.2,
                 green: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0.9 : 0.2,
@@ -144,21 +145,27 @@ final class CommandRowView: NSView {
         fatalError("CommandRowView is created in code only")
     }
 
-    func configure(_ result: CommandResult, image: NSImage? = nil, compact: Bool = false, splitChoice: Bool = false) {
+    func configure(_ result: CommandResult, image: NSImage? = nil, compact: Bool = false,
+                   splitChoice: Bool = false, locationChoice: Bool = false) {
+        let launcher = splitChoice || locationChoice
         hasWebsiteIcon = image != nil
         iconView.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
         titleLabel.stringValue = result.title
         subtitleLabel.stringValue = result.subtitle
         subtitleLabel.isHidden = compact || splitChoice
-        rowHeight.constant = splitChoice ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
-        labelsLeading.constant = splitChoice ? 12 : Style.Metrics.rowContentSpacing
-        titleLabel.font = splitChoice ? .systemFont(ofSize: 13, weight: .semibold) : Style.Fonts.body
-        showsSplitArrow = splitChoice && { if case .switchToTab = result.action { return true }; return false }()
+        rowHeight.constant = launcher ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight
+        labelsLeading.constant = launcher ? 12 : Style.Metrics.rowContentSpacing
+        titleLabel.font = launcher ? .systemFont(ofSize: 13, weight: .semibold) : Style.Fonts.body
+        subtitleLabel.font = .systemFont(ofSize: locationChoice ? 13 : CommandBarMetrics.subtitleFontSize, weight: .medium)
+        subtitleLabel.setContentCompressionResistancePriority(locationChoice ? .init(751) : .defaultLow, for: .horizontal)
+        usesIconPlate = launcher
+        showsSplitArrow = launcher && !result.isCurrentPage && { if case .switchToTab = result.action { return true }; return false }()
+        if showsSplitArrow { subtitleLabel.isHidden = true }
         arrowPlate.isHidden = !showsSplitArrow
         arrowTrailing.constant = showsSplitArrow ? -12 : -CommandBarMetrics.rowInset
         shortcutTrailing.constant = showsSplitArrow ? -44 : -CommandBarMetrics.rowInset
-        shortcutLabel.font = splitChoice ? .systemFont(ofSize: 13, weight: .medium) : .monospacedSystemFont(ofSize: 11, weight: .medium)
-        if splitChoice, case .switchToTab = result.action {
+        shortcutLabel.font = launcher ? .systemFont(ofSize: 13, weight: .medium) : .monospacedSystemFont(ofSize: 11, weight: .medium)
+        if showsSplitArrow {
             shortcutLabel.stringValue = "Switch to Tab"
             shortcutLabel.isHidden = false
             setAccessibilityLabel("\(result.title), Switch to Tab")
@@ -182,7 +189,7 @@ final class CommandRowView: NSView {
         subtitleLabel.textColor = isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText
         shortcutLabel.textColor = isSelected ? .white : Self.hintText
         iconView.contentTintColor = hasWebsiteIcon ? nil : (isSelected ? .alternateSelectedControlTextColor : Style.Colors.secondaryText)
-        iconPlate.isHidden = !showsSplitArrow || !isSelected
+        iconPlate.isHidden = !usesIconPlate || !isSelected
         effectiveAppearance.performAsCurrentDrawingAppearance {
             iconPlate.layer?.backgroundColor = NSColor.white.cgColor
             arrowPlate.layer?.backgroundColor = (isSelected ? NSColor.white : NSColor.labelColor.withAlphaComponent(0.05)).cgColor
