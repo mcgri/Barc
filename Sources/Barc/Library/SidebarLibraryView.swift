@@ -10,7 +10,6 @@ final class SidebarLibraryView: NSView, NSSearchFieldDelegate, NSTableViewDataSo
     var onClose: (() -> Void)?
     var onCategory: ((LibraryCategory) -> Void)?
     var onOpen: ((LibraryEntry) -> Void)?
-    var onShareBrowser: ((NSView) -> Void)?
     private(set) var category: LibraryCategory
     private(set) var visibleEntries: [LibraryEntry] = []
     private let session: BrowserSession
@@ -72,9 +71,7 @@ final class SidebarLibraryView: NSView, NSSearchFieldDelegate, NSTableViewDataSo
         }
         rail.addSubview(categories)
         let back = IconButton(symbolName: "chevron.left", label: "Back to Sidebar", side: 28, symbolSize: 16) { [weak self] in self?.onClose?() }
-        let share = IconButton(symbolName: "gift", label: "Share Barc", side: 28, symbolSize: 16)
-        share.setClickHandler { [weak self, weak share] in if let share { self?.onShareBrowser?(share) } }
-        rail.addSubview(back); rail.addSubview(share)
+        rail.addSubview(back)
         list.translatesAutoresizingMaskIntoConstraints = false
         list.wantsLayer = true
         list.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.035).cgColor
@@ -135,7 +132,6 @@ final class SidebarLibraryView: NSView, NSSearchFieldDelegate, NSTableViewDataSo
             categories.topAnchor.constraint(greaterThanOrEqualTo: header.bottomAnchor, constant: 10),
             categories.bottomAnchor.constraint(lessThanOrEqualTo: back.topAnchor, constant: -12),
             back.leadingAnchor.constraint(equalTo: rail.leadingAnchor, constant: 10), back.bottomAnchor.constraint(equalTo: rail.bottomAnchor, constant: -8),
-            share.trailingAnchor.constraint(equalTo: rail.trailingAnchor, constant: -10), share.centerYAnchor.constraint(equalTo: back.centerYAnchor),
             searchPlate.leadingAnchor.constraint(equalTo: list.leadingAnchor, constant: 12), searchPlate.topAnchor.constraint(equalTo: list.topAnchor, constant: 10),
             searchPlate.heightAnchor.constraint(equalToConstant: 36), searchPlate.trailingAnchor.constraint(equalTo: filter.leadingAnchor, constant: -4),
             search.leadingAnchor.constraint(equalTo: searchPlate.leadingAnchor, constant: 7), search.trailingAnchor.constraint(equalTo: searchPlate.trailingAnchor, constant: -7),

@@ -52,7 +52,6 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private var librarySidebarMaximum: CGFloat?
     private weak var responderBeforeLibrary: NSResponder?
     private var librarySpaces: LibrarySpacesView?
-    private var librarySharingPicker: NSSharingServicePicker?
     /// True while the code below is moving the divider, so that its own move is
     /// not mistaken for a drag and written back to the model.
     private var isApplyingSidebarWidth = false
@@ -143,11 +142,6 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         DownloadManager.shared.showLibrary = { [weak self] in
             guard let self else { return false }
             sidebar.showLibrary(category: .downloads); return true
-        }
-        sidebar.onLibraryShareBrowser = { [weak self] anchor in
-            let picker = NSSharingServicePicker(items: [URL(string: "https://github.com/mcgri/Barc")!])
-            self?.librarySharingPicker = picker
-            picker.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
         }
         content.onNewTab = { [weak self] in self?.newTab(nil) }
         root.host(splitViewController)

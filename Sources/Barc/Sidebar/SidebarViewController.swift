@@ -56,7 +56,6 @@ final class SidebarViewController: NSViewController {
     private var wantsHeaderTrafficLights = true
     var onLibraryChange: ((Bool, LibraryCategory) -> Void)?
     var onLibraryOpen: ((LibraryEntry) -> Void)?
-    var onLibraryShareBrowser: ((NSView) -> Void)?
 
     /// Table view displaying tabs and groups.
     var tabListTableView: NSTableView { tableView }
@@ -447,7 +446,6 @@ final class SidebarViewController: NSViewController {
             onLibraryChange?(true, category)
         }
         library.onOpen = { [weak self] in self?.onLibraryOpen?($0) }
-        library.onShareBrowser = { [weak self] in self?.onLibraryShareBrowser?($0) }
         isLibraryVisible = true
         diaHeader.hostsTrafficLights = false
         NSLayoutConstraint.deactivate(normalStackConstraints)
