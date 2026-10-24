@@ -162,7 +162,8 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
         for row in FolderRowPlan.rows(groups: space.groups, tabs: visible, activeTabID: space.activeTabID) {
             switch row {
             case .folder(let group, let depth, _):
-                let button = LibrarySpaceRow(title: group.name, image: SidebarFolderGlyph.image(tint: space.color, badge: group.badgeIcon), depth: depth) { [weak self, weak group] in
+                let button = LibrarySpaceRow(title: group.name, image: SidebarFolderGlyph.image(tint: space.color, badge: group.badgeIcon,
+                    strokeColor: group.appearance.isStandard ? space.sidebarFolderColor : nil), depth: depth) { [weak self, weak group] in
                     guard let self, let group else { return }; session.toggleCollapsed(group)
                 }
                 append(button)

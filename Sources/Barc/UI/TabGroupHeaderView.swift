@@ -27,6 +27,8 @@ final class TabGroupHeaderView: NSView {
     private var contentsLeading: NSLayoutConstraint?
     private var usesDrawnFolder = false
     private var folderTint: NSColor = .controlAccentColor
+    private var folderStroke: NSColor?
+    private var folderIconSize: [NSLayoutConstraint] = []
     private var badgeData: Data?
     private lazy var removeButton = IconButton(symbolName: "xmark", label: "Remove Folder") { [weak self] in
         self?.onRemove?()
@@ -90,8 +92,9 @@ final class TabGroupHeaderView: NSView {
         folderIcon.imageScaling = .scaleProportionallyDown
         folderIcon.contentTintColor = Style.Colors.primaryText
         folderIcon.setAccessibilityElement(false)
-        NSLayoutConstraint.activate([folderIcon.widthAnchor.constraint(equalToConstant: 18),
-                                     folderIcon.heightAnchor.constraint(equalToConstant: 18)])
+        folderIconSize = [folderIcon.widthAnchor.constraint(equalToConstant: 18),
+                          folderIcon.heightAnchor.constraint(equalToConstant: 18)]
+        NSLayoutConstraint.activate(folderIconSize)
         let stack = NSStackView(views: [folderIcon, emojiLabel, titleLabel, chevron])
         contents = stack
         stack.orientation = .horizontal
@@ -166,7 +169,8 @@ final class TabGroupHeaderView: NSView {
     /// - Parameter emoji: omitted when the group has none; the name then starts
     ///   where the emoji would have been, rather than after a blank gap.
     func show(emoji: String?, name: String, isExpanded: Bool, isLocked: Bool = false, symbolName: String? = nil,
-              iconFileName: String? = nil, badgeIcon: Data? = nil, tint: NSColor = .controlAccentColor) {
+              iconFileName: String? = nil, badgeIcon: Data? = nil, tint: NSColor = .controlAccentColor,
+              folderStroke: NSColor? = nil) {
         let picture = iconFileName.flatMap { SpaceIconStore.shared.image(named: $0) }
         emojiLabel.stringValue = emoji ?? ""
         emojiLabel.isHidden = picture != nil || (emoji ?? "").isEmpty
@@ -182,11 +186,13 @@ final class TabGroupHeaderView: NSView {
         } else {
             usesDrawnFolder = true
             folderTint = tint
+            self.folderStroke = folderStroke
             badgeData = badgeIcon
-            folderIcon.image = SidebarFolderGlyph.image(tint: tint, badge: badgeIcon)
+            folderIcon.image = SidebarFolderGlyph.image(tint: tint, badge: badgeIcon, strokeColor: folderStroke)
         }
+        for constraint in folderIconSize { constraint.constant = usesDrawnFolder ? 20 : 18 }
         contents?.spacing = emojiLabel.isHidden ? 8.5 : Style.Metrics.rowContentSpacing
-        contentsLeading?.constant = pillInset + Style.Metrics.rowContentInset - (emojiLabel.isHidden ? 2.5 : 0)
+        contentsLeading?.constant = pillInset + Style.Metrics.rowContentInset - (emojiLabel.isHidden ? (usesDrawnFolder ? 3.5 : 2.5) : 0)
         titleLabel.stringValue = name
         self.isExpanded = isExpanded
         self.isLocked = isLocked
@@ -196,7 +202,7 @@ final class TabGroupHeaderView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        if usesDrawnFolder { folderIcon.image = SidebarFolderGlyph.image(tint: folderTint, badge: badgeData) }
+        if usesDrawnFolder { folderIcon.image = SidebarFolderGlyph.image(tint: folderTint, badge: badgeData, strokeColor: folderStroke) }
     }
 
     private func updateHoverButtons() {

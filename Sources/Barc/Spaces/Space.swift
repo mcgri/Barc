@@ -127,6 +127,17 @@ final class Space: Identifiable {
         }
     }
 
+    /// Standard folders use the imported contrast palette with any Space
+    /// icon. Without a complete palette, the glyph keeps its ordinary tint.
+    var sidebarFolderColor: NSColor? {
+        guard let chrome = activeImportedChrome,
+              let light = chrome.lightMaxContrast?.nsColor,
+              let dark = chrome.darkMaxContrast?.nsColor else { return nil }
+        return NSColor(name:nil) { appearance in
+            appearance.bestMatch(from:[.aqua,.darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
     /// Retain Arc's semantic focus colour, which differs from its background
     /// and accent. New themes use their own colour rather than the Mac accent.
     var commandFocusColor: NSColor {

@@ -2826,7 +2826,8 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             symbolName: group.symbolName,
             iconFileName: group.iconFileName,
             badgeIcon: group.badgeIcon,
-            tint: group.appearance.isStandard ? shownSpace.color : group.tint
+            tint: group.appearance.isStandard ? shownSpace.color : group.tint,
+            folderStroke: group.appearance.isStandard ? shownSpace.sidebarFolderColor : nil
         )
         header.onToggle = { [weak self] _ in self?.session.toggleCollapsed(group) }
         // The cross asks first, and by default keeps the tabs (they come back

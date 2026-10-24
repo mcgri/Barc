@@ -28,7 +28,7 @@ struct SidebarSpaceAppearanceTests {
         NSGraphicsContext.restoreGraphicsState()
         let data = try #require(context.data).assumingMemoryBound(to:UInt8.self)
         let opaque = (0..<(side*side)).first { data[$0*4+3] == 255 }
-        let pixel = try #require(opaque)*4
+        let pixel = try #require(opaque, "No opaque pixel in \(image.size); maximum alpha \((0..<(side*side)).map { data[$0*4+3] }.max() ?? 0)")*4
         return NSColor(srgbRed:CGFloat(data[pixel])/255,green:CGFloat(data[pixel+1])/255,blue:CGFloat(data[pixel+2])/255,alpha:1)
     }
 
@@ -83,6 +83,71 @@ struct SidebarSpaceAppearanceTests {
         session.setCustomColor(.green,for:space)
         try session.applyArcSpaces([incoming])
         #expect(space.look.importedChrome == nil && space.sidebarIconColor == space.color)
+    }
+
+    @Test("Standard sidebar folders use the contrasting palette with any Space icon; custom folder colors remain explicit")
+    func folderPaletteAndGeometry() throws {
+        let session = TestSession.make().0, space = session.activeSpace
+        space.theme = .custom; space.look.customColorHex = "#ff8558"
+        space.icon = .emoji("🌱")
+        space.look.importedChrome = try #require(ImportedChrome.read(theme()))
+        let standard = session.createGroup(named:"Standard")
+        let custom = session.createGroup(named:"Custom")
+        custom.tint = .systemGreen
+        custom.appearance = TabGroupAppearance(fill:.solid,startColorHex:"#00aa00")
+        for appearance in [NSAppearance.Name.aqua,.darkAqua] {
+            var sampled:Result<Void,Error>?
+            NSAppearance(named:appearance)!.performAsCurrentDrawingAppearance {
+                sampled = Result {
+                    let sidebar = SidebarViewController(session:session)
+                    sidebar.view.appearance = NSAppearance(named:appearance)
+                    let list = try #require(UITestSupport.descendants(of:sidebar.view).compactMap { $0 as? NSTableView }
+                        .first { ($0.dataSource as AnyObject?) === sidebar })
+                    let column = try #require(list.tableColumns.first)
+                    var seen = Set<String>()
+                    for row in 0..<list.numberOfRows {
+                        guard let cell = sidebar.tableView(list,viewFor:column,row:row),
+                              let header = UITestSupport.descendants(of:cell).compactMap({ $0 as? TabGroupHeaderView }).first else { continue }
+                        let name = header.accessibilityLabel() ?? ""
+                        guard [standard.name,custom.name].contains(name) else { continue }
+                        cell.frame = NSRect(x:0,y:0,width:228,height:sidebar.tableView(list,heightOfRow:row))
+                        cell.layoutSubtreeIfNeeded()
+                        let face = try #require(header.iconPickerAnchor as? NSImageView)
+                        let image = try #require(face.image)
+                        if name == standard.name {
+                            let color = try opaqueColor(image).usingColorSpace(.extendedSRGB)!
+                            let expected = (appearance == .aqua ? light : dark).nsColor.usingColorSpace(.extendedSRGB)!
+                            #expect(abs(color.redComponent-expected.redComponent)<0.02)
+                            #expect(abs(color.greenComponent-expected.greenComponent)<0.02)
+                            #expect(abs(color.blueComponent-expected.blueComponent)<0.06)
+                        } else {
+                            // Label-color blending can retain transparency. Compare
+                            // the complete custom artwork instead of requiring an
+                            // opaque pixel that this style does not promise.
+                            #expect(image.tiffRepresentation == SidebarFolderGlyph.image(tint:custom.tint).tiffRepresentation)
+                        }
+                        #expect(face.frame.width == 20 && face.frame.height == 20)
+                        seen.insert(name)
+                    }
+                    #expect(seen == [standard.name,custom.name])
+                }
+            }
+            try #require(sampled).get()
+        }
+    }
+
+    @Test("New themes, legacy imports and incomplete palettes keep their ordinary folder tint")
+    func folderPaletteFallback() throws {
+        let space = TestSession.make().0.activeSpace
+        #expect(space.sidebarFolderColor == nil)
+        space.theme = .custom
+        var chrome = try #require(ImportedChrome.read(theme()))
+        chrome.darkMaxContrast = nil
+        space.look.importedChrome = chrome
+        #expect(space.sidebarFolderColor == nil)
+        chrome.lightMaxContrast = nil
+        space.look.importedChrome = chrome
+        #expect(space.sidebarFolderColor == nil)
     }
 
     @Test("A dock symbol resolves its own appearance and refreshes cached artwork after the window changes appearance")
