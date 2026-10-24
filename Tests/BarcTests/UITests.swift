@@ -1115,7 +1115,7 @@ struct SidebarContextMenuTests {
         let titles = sidebar.makeContextMenu().items.map { $0.isSeparatorItem ? "-" : $0.title }
         #expect(titles == [
             "New Tab", "Reopen Closed Tab", "-",
-            "New Group", "New Live Group", "-",
+            "New Folder", "New Live Folder", "-",
             "New Space\u{2026}", "-",
             "Archive\u{2026}", "-",
             "Bookmark All Tabs", "-",
@@ -1127,7 +1127,7 @@ struct SidebarContextMenuTests {
     @Test("Live groups come in every provider kind there is")
     func liveGroupSubmenu() {
         let sidebar = SidebarViewController(session: TestSession.make().0)
-        let live = sidebar.makeContextMenu().items.first { $0.title == "New Live Group" }
+        let live = sidebar.makeContextMenu().items.first { $0.title == "New Live Folder" }
         let kinds = live?.submenu?.items.map(\.title) ?? []
         #expect(kinds == ["RSS Feed\u{2026}", "GitHub Pull Requests\u{2026}", "GitHub Issues\u{2026}"])
     }
@@ -1142,7 +1142,7 @@ struct SidebarContextMenuTests {
             "Pin", "-",
             "Keep Awake", "Lock", "Keep in Sidebar", "Sleep Now", "Archive Now", "-",
             "Open as Split", "Duplicate", "-",
-            "New Group with Tab", "Move to Space", "-",
+            "New Folder with Tab", "Move to Space", "-",
             "Rename\u{2026}", "Colour Tag", "Auto Reload", "Add Note\u{2026}", "Set Emoji\u{2026}", "-",
             "Close", "Close Other Tabs", "Close Tabs Below", "Close All Tabs in Space"
         ])
@@ -1155,7 +1155,7 @@ struct SidebarContextMenuTests {
         let newTab = items.first { $0.title == "New Tab" }
         #expect(newTab?.target == nil)
         #expect(newTab?.action == #selector(BrowserWindowController.newTab(_:)))
-        let newGroup = items.first { $0.title == "New Group" }
+        let newGroup = items.first { $0.title == "New Folder" }
         #expect(newGroup?.target === sidebar)
     }
 }

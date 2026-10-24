@@ -1569,9 +1569,13 @@ final class BrowserSession {
     }
 
     @discardableResult
-    func createGroup(named name: String, emoji: String? = nil, containing tabs: [Tab] = []) -> TabGroup {
+    func createGroup(named name: String, emoji: String? = nil, containing tabs: [Tab] = [], parent: TabGroup? = nil) -> TabGroup {
         let space = activeSpace
         let group = TabGroup(name: name, emoji: emoji, tint: space.color)
+        if let parent, space.group(withID: parent.id) === parent, !parent.isLive {
+            group.parentID = parent.id
+            parent.isCollapsed = false
+        }
         space.addGroup(group)
         for tab in tabs where space.index(of: tab) != nil {
             tab.setGroupID(group.id)

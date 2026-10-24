@@ -1,16 +1,17 @@
+// Modified for Barc: compact New Tab row and Arc-sized plus glyph, 2026-10-24.
 import AppKit
 
 /// A row in the sidebar list that performs an action rather than naming a page.
 ///
-/// "+ New Tab" sits at the end of the tab list, styled as a row rather
-/// than as a button parked beside the list. Reusing the group header for it
+/// "+ New Tab" separates retained pages from today's tabs, styled as a row
+/// rather than a button parked beside the list. Reusing the group header for it
 /// would have been quicker and wrong: that view is a disclosure triangle, and
 /// announcing a button as one misleads anyone using VoiceOver.
 @MainActor
 final class ActionRowView: NSView {
     var onPress: (() -> Void)?
 
-    private let glyph = NSImageView()
+    private let glyph = SidebarActionGlyph()
     private let titleLabel = NSTextField(labelWithString: "")
     private var trackingArea: NSTrackingArea?
     private var highlight: RowHighlight?
@@ -71,7 +72,7 @@ final class ActionRowView: NSView {
 
     func show(symbolName: String, title: String) {
         glyph.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
-        glyph.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        glyph.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 15, weight: .regular)
         titleLabel.stringValue = title
         toolTip = title
         setAccessibilityLabel(title)
@@ -114,4 +115,10 @@ final class ActionRowView: NSView {
         onPress?()
         return true
     }
+}
+
+/// SF Symbols carry optical insets. Keep the icon slot on the favicon grid
+/// when a larger plus is configured, rather than shifting it half a pixel.
+private final class SidebarActionGlyph: NSImageView {
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsets() }
 }

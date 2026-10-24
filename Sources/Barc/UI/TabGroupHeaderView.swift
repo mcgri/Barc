@@ -40,6 +40,12 @@ final class TabGroupHeaderView: NSView {
     private let lockGlyph = NSImageView()
     private var isLocked = false
     private let titleLabel = NSTextField(labelWithString: "")
+    var isEditingName = false {
+        didSet {
+            titleLabel.alphaValue = isEditingName ? 0 : 1
+            updateHoverButtons()
+        }
+    }
     private let chevron = NSImageView()
     private var trackingArea: NSTrackingArea?
 
@@ -196,10 +202,19 @@ final class TabGroupHeaderView: NSView {
         // A locked folder never offers the cross, hovered or not. Everything
         // else on the header still works: the lock is on deleting the folder,
         // not on renaming, recolouring or folding it.
-        removeButton.isHidden = !(isHovered && onRemove != nil && !isLocked)
-        customizeButton.isHidden = !(isHovered && onCustomize != nil)
-        lockGlyph.isHidden = !isLocked
-        chevron.isHidden = !isHovered
+        removeButton.isHidden = isEditingName || !(isHovered && onRemove != nil && !isLocked)
+        customizeButton.isHidden = isEditingName || !(isHovered && onCustomize != nil)
+        lockGlyph.isHidden = isEditingName || !isLocked
+        chevron.isHidden = isEditingName || !isHovered
+    }
+
+    /// Measured from the actual title, so custom icons and nested rows keep
+    /// the same alignment while the table owns the long-lived editor.
+    func nameEditorFrame(in view: NSView) -> NSRect {
+        layoutSubtreeIfNeeded()
+        let title = titleLabel.convert(titleLabel.bounds, to: view)
+        let edge = convert(bounds, to: view).maxX - 8
+        return NSRect(x: title.minX, y: title.midY - 11, width: max(20, edge - title.minX), height: 22)
     }
 
     /// Flips the group and tells the caller. Used by the click handler and by

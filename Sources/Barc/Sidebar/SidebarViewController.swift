@@ -432,6 +432,7 @@ final class SidebarViewController: NSViewController {
 
     func showLibrary(category: LibraryCategory? = nil) {
         _ = view
+        folderNameEdit?.field.commit()
         if let category { library.select(category) }
         guard !isLibraryVisible else { onLibraryChange?(true, library.category); return }
         diaHeader.spaceButton.finishRenaming(commit: true)
@@ -1178,8 +1179,13 @@ final class SidebarViewController: NSViewController {
     /// The space the rows on screen belong to, so the next rebuild can tell a
     /// list that changed from a different list altogether.
     private var shownRowsSpaceID: Space.ID?
+    private var folderNameEdit: (id: UUID, space: Space, group: TabGroup, field: FolderNameEditor)?
 
     private func reloadTabs() {
+        if let edit = folderNameEdit,
+           shownSpace !== edit.space || edit.space.group(withID: edit.group.id) !== edit.group {
+            edit.field.commit()
+        }
         duplicateIDs = session.duplicateTabIDs(in: shownSpace)
         if previewSpace == nil { ensureContentAtRest() }
 
@@ -1210,6 +1216,12 @@ final class SidebarViewController: NSViewController {
             tableView.reloadData()
         }
         syncActiveTab()
+        positionFolderNameEditor()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        positionFolderNameEditor()
     }
 
     /// Hands the rebuild to the table as the change it actually was.
@@ -1777,12 +1789,12 @@ final class SidebarViewController: NSViewController {
         menu.addItem(reopen)
 
         menu.addItem(.separator())
-        let newGroup = NSMenuItem(title: "New Group", action: #selector(newGroupFromMenu), keyEquivalent: "")
+        let newGroup = NSMenuItem(title: "New Folder", action: #selector(newGroupFromMenu), keyEquivalent: "")
         newGroup.target = self
         newGroup.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
         menu.addItem(newGroup)
 
-        let live = NSMenuItem(title: "New Live Group", action: nil, keyEquivalent: "")
+        let live = NSMenuItem(title: "New Live Folder", action: nil, keyEquivalent: "")
         let liveMenu = NSMenu()
         for (title, selector) in [
             ("RSS Feed\u{2026}", #selector(newRSSGroupFromMenu)),
@@ -1896,7 +1908,7 @@ final class SidebarViewController: NSViewController {
             enabled: space.tabs.count > 1)
         add("Duplicate", #selector(duplicateTabFromMenu(_:)), symbol: "plus.square.on.square")
         menu.addItem(.separator())
-        add("New Group with Tab", #selector(newGroupWithTabFromMenu(_:)), symbol: "folder.badge.plus",
+        add("New Folder with Tab", #selector(newGroupWithTabFromMenu(_:)), symbol: "folder.badge.plus",
             key: "n", modifiers: [.control, .command])
         let move = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: "")
         move.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
@@ -1969,14 +1981,18 @@ final class SidebarViewController: NSViewController {
     func makeGroupMenu(for group: TabGroup) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        func add(_ title: String, _ selector: Selector, symbol: String? = nil) {
+        @discardableResult
+        func add(_ title: String, _ selector: Selector, symbol: String? = nil) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
             item.target = self
             item.representedObject = group
             if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
             menu.addItem(item)
+            return item
         }
         if !group.isLive {
+            add("New Nested Folder…", #selector(newNestedFolderFromMenu(_:)), symbol: "folder.badge.plus")
+                .isEnabled = FolderTree.canAcceptSubfolder(group, in: shownSpace.groups)
             add("Rename\u{2026}", #selector(renameGroupFromMenu(_:)), symbol: "pencil")
             // The same four choices a space gets, out of the same menu. A
             // folder is the other thing in this sidebar with a name and a
@@ -2025,7 +2041,7 @@ final class SidebarViewController: NSViewController {
         add(group.isLocked ? "Unlock Folder" : "Lock Folder",
             #selector(toggleGroupLockedFromMenu(_:)),
             symbol: group.isLocked ? "lock.open.fill" : "lock.fill")
-        let remove = NSMenuItem(title: "Remove Group", action: #selector(removeGroupFromMenu(_:)), keyEquivalent: "")
+        let remove = NSMenuItem(title: "Delete", action: #selector(removeGroupFromMenu(_:)), keyEquivalent: "")
         remove.target = self
         remove.representedObject = group
         remove.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
@@ -2046,10 +2062,61 @@ final class SidebarViewController: NSViewController {
     }
 
     @objc private func renameGroupFromMenu(_ sender: Any?) {
-        guard let group = group(from: sender),
-              let name = prompt(title: "Rename Group", message: "Name this group.", initial: group.name)
-        else { return }
-        session.rename(group, to: name)
+        guard let group = group(from: sender) else { return }
+        beginNamingFolder(group)
+    }
+
+    private func beginNamingFolder(_ group: TabGroup) {
+        folderNameEdit?.field.commit()
+        guard !group.isLive, let space = session.spaces.first(where: { $0.group(withID: group.id) === group }) else { return }
+        if isLibraryVisible { hideLibrary() }
+        session.selectSpace(space)
+        if space.look.pinnedSectionCollapsed {
+            var look = space.look; look.pinnedSectionCollapsed = false
+            session.setLook(look, for: space)
+        }
+        var ancestor = group.parentID
+        var visited: Set<UUID> = [group.id]
+        while let id = ancestor, visited.insert(id).inserted, let parent = space.group(withID: id) {
+            if parent.isCollapsed { session.toggleCollapsed(parent) }
+            ancestor = parent.parentID
+        }
+        guard let row = groupRow(of: group) else { return }
+        let id = UUID()
+        let field = FolderNameEditor(name: group.name) { [weak self, weak group, weak space] name in
+            guard let self, let edit = folderNameEdit, edit.id == id else { return }
+            folderNameEdit = nil
+            edit.field.removeFromSuperview()
+            if let name, let group, let space,
+               session.spaces.contains(where: { $0 === space }), space.group(withID: group.id) === group {
+                session.rename(group, to: name)
+            }
+            reloadTabs()
+        }
+        folderNameEdit = (id, space, group, field)
+        tableView.addSubview(field)
+        tableView.scrollRowToVisible(row)
+        positionFolderNameEditor()
+        field.beginEditing()
+    }
+
+    private func positionFolderNameEditor() {
+        guard let edit = folderNameEdit, shownSpace === edit.space else { return }
+        guard let row = groupRow(of: edit.group) else { edit.field.commit(); return }
+        guard
+              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true),
+              let header = cell.subviews.compactMap({ $0 as? TabGroupHeaderView }).first else { return }
+        cell.layoutSubtreeIfNeeded()
+        edit.field.frame = header.nameEditorFrame(in: tableView)
+        header.isEditingName = true
+    }
+
+    @objc private func newNestedFolderFromMenu(_ sender: Any?) {
+        guard let parent = group(from: sender), !parent.isLive,
+              shownSpace.group(withID: parent.id) === parent,
+              FolderTree.canAcceptSubfolder(parent, in: shownSpace.groups) else { return }
+        let group = session.createGroup(named: "Untitled", parent: parent)
+        beginNamingFolder(group)
     }
 
     @objc private func customizeGroupFromMenu(_ sender: Any?) {
@@ -2072,9 +2139,9 @@ final class SidebarViewController: NSViewController {
     private func confirmRemoveGroup(_ group: TabGroup) {
         let name = group.name.isEmpty ? "this group" : "\u{201c}\(group.name)\u{201d}"
         let alert = NSAlert()
-        alert.messageText = "Delete the group \(name)?"
+        alert.messageText = "Delete the folder \(name)?"
         alert.informativeText = "Its tabs move to the main list. Turn on the option below to close them instead."
-        let closeTabs = NSButton(checkboxWithTitle: "Delete all tabs in this group", target: nil, action: nil)
+        let closeTabs = NSButton(checkboxWithTitle: "Delete all tabs in this folder", target: nil, action: nil)
         closeTabs.state = .off
         closeTabs.sizeToFit()
         closeTabs.frame = NSRect(x: 0, y: 0, width: max(closeTabs.frame.width, 260), height: closeTabs.frame.height)
@@ -2201,10 +2268,10 @@ final class SidebarViewController: NSViewController {
     }
 
     @objc private func newGroupWithTabFromMenu(_ sender: Any?) {
-        guard let tab = tab(from: sender),
-              let name = prompt(title: "New Group", message: "Name this group.", initial: "")
-        else { return }
-        session.createGroup(named: name, containing: [tab])
+        guard let tab = tab(from: sender), session.activeSpace.index(of: tab) != nil,
+              tab.pinnedSiteID == nil else { return }
+        let group = session.createGroup(named: "Untitled", containing: [tab])
+        beginNamingFolder(group)
     }
 
     @objc private func moveTabToSpaceFromMenu(_ sender: Any?) {
@@ -2317,7 +2384,7 @@ final class SidebarViewController: NSViewController {
 
         menu.addItem(.separator())
 
-        let groupItem = NSMenuItem(title: "New Group with \(count) Tabs", action: #selector(newGroupWithSelectedTabsFromMenu(_:)), keyEquivalent: "")
+        let groupItem = NSMenuItem(title: "New Folder with \(count) Tabs", action: #selector(newGroupWithSelectedTabsFromMenu(_:)), keyEquivalent: "")
         groupItem.target = self
         groupItem.representedObject = tabs
         groupItem.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: nil)
@@ -2389,9 +2456,9 @@ final class SidebarViewController: NSViewController {
 
     @objc private func newGroupWithSelectedTabsFromMenu(_ sender: Any?) {
         guard let tabs = (sender as? NSMenuItem)?.representedObject as? [Tab],
-              let name = prompt(title: "New Group", message: "Name this group.", initial: "")
-        else { return }
-        session.createGroup(named: name, containing: tabs)
+              !tabs.isEmpty, tabs.allSatisfy({ session.activeSpace.index(of: $0) != nil && $0.pinnedSiteID == nil }) else { return }
+        let group = session.createGroup(named: "Untitled", containing: tabs)
+        beginNamingFolder(group)
     }
 
     @objc private func moveSelectedTabsToSpaceFromMenu(_ sender: Any?) {
@@ -2426,16 +2493,8 @@ final class SidebarViewController: NSViewController {
     /// icon and the colour it was always going to get. It is the same panel
     /// the folder's own Customize Appearance opens, with a name on top.
     @objc private func newGroupFromMenu() {
-        let sheet = GroupAppearanceEditor(
-            creatingWithTint: shownSpace.color
-        ) { [weak self] options in
-            guard let self else { return }
-            let group = session.createGroup(named: options.name)
-            if options.icon.isCustomized { session.setIcon(options.icon, for: group) }
-            if !options.appearance.isStandard { session.setAppearance(options.appearance, for: group) }
-        }
-        presentAsSheet(sheet)
-        sheet.focusName()
+        let group = session.createGroup(named: "Untitled")
+        beginNamingFolder(group)
     }
 
     @objc private func newRSSGroupFromMenu() {
