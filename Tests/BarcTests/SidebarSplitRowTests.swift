@@ -89,20 +89,26 @@ struct SidebarSplitRowTests {
         #expect(session.activeSpace.tabs.map(\.id) == originalIDs)
     }
 
-    @Test("Compact cells fit two through four panes at narrow and wide sidebar widths")
+    @Test("Split cells fit every density, two through four panes and narrow or wide sidebars")
     func memberGeometry() {
-        for width:CGFloat in [180,228,360] {
-            for count in 2...4 {
-                let cell = SplitRowView(frame:NSRect(x:0,y:0,width:width,height:Style.Metrics.rowHeight))
-                cell.configure((0..<count).map { TabRowContent(title:"Page \($0) with a long title") },focusedIndex:0)
-                cell.isSelected = true
-                cell.layoutSubtreeIfNeeded()
-                for (index,member) in cell.members.enumerated() {
-                    #expect(cell.pillRect.contains(member.frame))
-                    #expect(member.bounds.contains(member.title.frame))
-                    #expect(member.bounds.contains(member.favicon.frame))
-                    if index > 0 { #expect(cell.members[index-1].frame.maxX + 4 == member.frame.minX) }
-                    #expect(cell.hitTest(NSPoint(x:member.frame.midX,y:member.frame.midY)) === cell)
+        let settings = Settings.shared
+        let previous = settings.sidebarDensity
+        defer { settings.sidebarDensity = previous }
+        for density in SidebarDensity.allCases {
+            settings.sidebarDensity = density
+            for width:CGFloat in [180,228,360] {
+                for count in 2...4 {
+                    let cell = SplitRowView(frame:NSRect(x:0,y:0,width:width,height:Style.Metrics.rowHeight))
+                    cell.configure((0..<count).map { TabRowContent(title:"Page \($0) with a long title") },focusedIndex:0)
+                    cell.isSelected = true
+                    cell.layoutSubtreeIfNeeded()
+                    for (index,member) in cell.members.enumerated() {
+                        #expect(cell.pillRect.contains(member.frame))
+                        #expect(member.bounds.contains(member.title.frame))
+                        #expect(member.bounds.contains(member.favicon.frame))
+                        if index > 0 { #expect(cell.members[index-1].frame.maxX + 4 == member.frame.minX) }
+                        #expect(cell.hitTest(NSPoint(x:member.frame.midX,y:member.frame.midY)) === cell)
+                    }
                 }
             }
         }
@@ -161,7 +167,7 @@ struct SidebarSplitRowTests {
         row.configure([TabRowContent(title:"mocky/Browser: This is a sample browser",sidebarSymbolName:"globe"),TabRowContent(title:"github.com",sidebarSymbolName:"globe")],focusedIndex:0)
         row.isSelected = true
         host.layoutSubtreeIfNeeded()
-        #expect(row.pillRect.height == 35)
+        #expect(row.pillRect.height == 36)
         #expect(row.members.allSatisfy { !$0.title.isHidden && $0.title.frame.width > 40 })
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in:host.bounds))
         host.cacheDisplay(in:host.bounds,to:bitmap)

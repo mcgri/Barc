@@ -28,12 +28,15 @@ final class SplitRowView: NSTableCellView {
     required init?(coder:NSCoder) { fatalError("SplitRowView is created in code only") }
 
     var pillRect:NSRect {
-        let inset = (Style.Metrics.rowHeight-Style.Metrics.rowPillHeight)/2
+        // A split's shared plate is one point taller than a plain tab's pill.
+        // At the reference density that is 36 points, enclosing 28-point cells.
+        let height = Style.Metrics.rowPillHeight + 1
+        let inset = (Style.Metrics.rowHeight-height)/2
         // The sidebar stack already leaves the trailing eight-point gutter.
         // Split plates meet that edge and start at the matching leading gutter.
         return NSRect(x:indentation,y:inset,
             width:max(0,bounds.width-indentation-(isInGroupPlate ? Style.Metrics.rowIndent : 0)),
-            height:Style.Metrics.rowPillHeight)
+            height:height)
     }
 
     func configure(_ contents:[TabRowContent], focusedIndex:Int?) {
@@ -139,7 +142,7 @@ final class SplitRowView: NSTableCellView {
         override init(frame:NSRect) {
             super.init(frame:frame)
             wantsLayer = true; clipsToBounds = true
-            layer?.cornerRadius = 7
+            layer?.cornerRadius = 8
             for view in [favicon,title,emoji,symbol,close] { addSubview(view) }
             favicon.removeConstraints(favicon.constraints)
             favicon.translatesAutoresizingMaskIntoConstraints = true
@@ -174,13 +177,18 @@ final class SplitRowView: NSTableCellView {
             super.layout()
             if hovered && !isPointerInside { hovered = false }
             paint()
-            let side = min(16,max(8,bounds.width-12))
+            let side = max(0,min(16,bounds.height,bounds.width-12))
             let icon = NSRect(x:6,y:(bounds.height-side)/2,width:side,height:side)
             favicon.frame = icon; emoji.frame = icon; symbol.frame = icon
             // The native label already leaves padding around its glyphs. An
             // extra six points here discarded a whole character at 228 points.
             let right = close.isHidden ? bounds.width : bounds.width-20
-            title.frame = NSRect(x:icon.maxX+10,y:(bounds.height-18)/2,width:max(0,right-icon.maxX-10),height:18)
+            // The reference caption's cap-height center sits half a point
+            // below the centered favicon. Shorter custom rows keep the text
+            // field inside the cell rather than cutting its top or bottom.
+            let textHeight = min(18,bounds.height)
+            let clearance = (bounds.height-textHeight)/2
+            title.frame = NSRect(x:icon.maxX+10,y:clearance+min(0.5,clearance),width:max(0,right-icon.maxX-10),height:textHeight)
             close.frame = NSRect(x:bounds.width-18,y:(bounds.height-14)/2,width:14,height:14)
             paint()
         }
