@@ -1861,6 +1861,26 @@ final class BrowserSession {
         else { profile.preferences.folderCommandHistory = history; scheduleSave() }
     }
 
+    @discardableResult
+    func enrichArcFolderCommands(_ choices: [FolderCommandHistory.ImportedChoice], for identity: Space.Identity, sourceID: String) -> Int {
+        guard !identity.isPrivate, !sourceID.isEmpty, sourceID.count <= 512,
+              let profile = profiles.first(where: { $0.identity == identity }),
+              !(profile.preferences.arcFolderCommandSources ?? []).contains(sourceID) else { return 0 }
+        var added = 0
+        // An explicit empty history records a previous Clear History action.
+        if profile.preferences.folderCommandHistory?.count != 0 {
+            let folders = Set(spaces.filter { !$0.isPrivate }.flatMap { $0.groups.map(\.id) })
+            var history = profile.preferences.folderCommandHistory ?? FolderCommandHistory()
+            added = history.importChoices(choices.filter { folders.contains($0.folderID) })
+            if added > 0 { profile.preferences.folderCommandHistory = history }
+        }
+        var sources = profile.preferences.arcFolderCommandSources ?? []
+        sources.insert(sourceID)
+        profile.preferences.arcFolderCommandSources = sources
+        scheduleSave()
+        return added
+    }
+
     /// Puts an emoji, a symbol or a picture on a folder -- or takes it off.
     ///
     /// The same three choices a space has, from the same menu and out of the
@@ -2660,6 +2680,14 @@ final class BrowserSession {
         saveTask?.cancel()
         saveTask = nil
         try? sessionStore.save(snapshot())
+    }
+
+    /// Import completion includes the final profile preferences. Propagate a
+    /// write failure to the importer instead of reporting an unsaved success.
+    func commitArcImport() throws {
+        saveTask?.cancel()
+        saveTask = nil
+        try sessionStore.save(snapshot())
     }
 
     func snapshot() -> SessionSnapshot {

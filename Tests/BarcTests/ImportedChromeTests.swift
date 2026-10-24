@@ -1,3 +1,4 @@
+// Modified for Barc: source palette enrichment tolerates serialization rounding without changing user colors, 2026-10-24.
 import AppKit
 import Foundation
 import Testing
@@ -107,5 +108,51 @@ struct ImportedChromeTests {
         #expect(space.activeImportedChrome == nil)
         session.setSpaceGradient(SpaceGradient(startHex: "#112233", endHex: "#445566"), for: space)
         #expect(space.look.importedChrome == nil)
+    }
+
+    @Test("Palette enrichment tolerates subpixel component rounding and keeps every existing field")
+    func paletteRounding() throws {
+        var existing = reference
+        existing.lightFocus = .init(red:0.2,green:0.3,blue:0.4,alpha:1)
+        var source = ImportedChrome(color:.init(red:reference.color.red+0.0000015,
+            green:reference.color.green-0.0000015,blue:reference.color.blue,alpha:1),
+            intensity:0.4,noise:0.2,usesDarkText:false,usesLightMaterial:false)
+        source.lightFocus = .init(red:0.6,green:0.5,blue:0.4,alpha:1)
+        source.lightMaxContrast = .init(red:0.1,green:0.2,blue:0.3,alpha:1)
+        source.darkMaxContrast = .init(red:0.9,green:0.8,blue:0.7,alpha:1)
+        let enriched = existing.enrichingPalette(from:source)
+        #expect(enriched.lightMaxContrast == source.lightMaxContrast)
+        #expect(enriched.darkMaxContrast == source.darkMaxContrast)
+        #expect(enriched.lightFocus == existing.lightFocus)
+        #expect(enriched.color == existing.color && enriched.intensity == existing.intensity && enriched.noise == existing.noise)
+        #expect(enriched.usesDarkText == existing.usesDarkText && enriched.usesLightMaterial == existing.usesLightMaterial)
+        let different = ImportedChrome(color:.init(red:reference.color.red+0.00001,
+            green:reference.color.green,blue:reference.color.blue,alpha:1),
+            intensity:reference.intensity,noise:reference.noise,usesDarkText:true,usesLightMaterial:true,
+            lightMaxContrast:source.lightMaxContrast,darkMaxContrast:source.darkMaxContrast)
+        #expect(existing.enrichingPalette(from:different) == existing)
+    }
+
+    @Test("A rounding-compatible source enriches through the actual repeat-import path, but a theme edit still wins")
+    func roundedPaletteRepeatImport() throws {
+        let session = TestSession.make().0, space = session.activeSpace
+        session.setCustomColor(.red,for:space)
+        space.look.importedChromeWasCustomized = false
+        space.look.importedChrome = reference
+        var incoming = session.snapshot().spaces[0]
+        var source = ImportedChrome(color:.init(red:reference.color.red,green:reference.color.green,
+            blue:reference.color.blue+0.0000015,alpha:1),intensity:reference.intensity,noise:reference.noise,
+            usesDarkText:true,usesLightMaterial:true)
+        source.lightMaxContrast = .init(red:0.2,green:0.1,blue:0,alpha:1)
+        source.darkMaxContrast = .init(red:1,green:0.9,blue:0.8,alpha:1)
+        incoming.look?.importedChrome = source
+        let tabIDs = space.tabs.map(\.id), identity = space.identity
+        try session.applyArcSpaces([incoming])
+        #expect(space.look.importedChrome?.lightMaxContrast == source.lightMaxContrast)
+        #expect(space.look.importedChrome?.color == reference.color)
+        #expect(space.tabs.map(\.id) == tabIDs && space.identity == identity)
+        session.setCustomColor(.red,for:space)
+        try session.applyArcSpaces([incoming])
+        #expect(space.look.importedChrome == nil && space.look.importedChromeWasCustomized)
     }
 }

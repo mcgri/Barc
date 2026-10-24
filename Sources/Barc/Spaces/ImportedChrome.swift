@@ -1,4 +1,4 @@
-// Modified for Barc: retain Arc's sidebar background independently of its accent, 2026-10-24.
+// Modified for Barc: retain Arc's background and enrich palettes across serialization rounding, 2026-10-24.
 import AppKit
 
 /// Arc's accent swatch is not its window background. Keep the background's
@@ -42,7 +42,12 @@ struct ImportedChrome: Codable, Hashable, Sendable {
     }
 
     func enrichingPalette(from source: ImportedChrome) -> ImportedChrome {
-        guard color == source.color else { return self }
+        // Arc's serialized components can differ by a few float rounding
+        // steps across snapshots. This is far below a display channel step;
+        // only missing palette roles are filled, never the stored background.
+        let pairs = [(color.red,source.color.red),(color.green,source.color.green),
+                     (color.blue,source.color.blue),(color.alpha,source.color.alpha)]
+        guard pairs.allSatisfy({ $0.0.isFinite && $0.1.isFinite && abs($0.0-$0.1) <= 0.000002 }) else { return self }
         var result = self
         result.lightFocus = lightFocus ?? source.lightFocus
         result.darkFocus = darkFocus ?? source.darkFocus

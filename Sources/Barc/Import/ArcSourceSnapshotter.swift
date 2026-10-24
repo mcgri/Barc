@@ -1,4 +1,4 @@
-// Modified for Barc: retain Arc's profile labels separately from Space names, 2026-10-24.
+// Modified for Barc: private snapshots retain Arc profile labels and supported folder search choices, 2026-10-24.
 import Foundation
 import SQLite3
 
@@ -44,6 +44,7 @@ enum ArcSourceSnapshotter {
                 try copy("StorableSidebar.json", required: true)
                 try copy("StorableArchiveItems.json")
                 try copy("StorableWindows.json")
+                try copy(ArcCommandRankingReader.filename)
                 try copy("User Data/Local State", required: true)
                 let state = try JSONSerialization.jsonObject(with: Data(contentsOf: target.appending(path: "User Data/Local State"))) as? [String: Any]
                 let cache = ((state?["profile"] as? [String: Any])?["info_cache"] as? [String: [String: Any]]) ?? [:]
@@ -102,7 +103,9 @@ enum ArcSourceSnapshotter {
                     archive: try? Data(contentsOf: target.appending(path: "StorableArchiveItems.json")), profiles: profiles,
                     windows: try? Data(contentsOf: target.appending(path: "StorableWindows.json")))
                 return ArcSourceSnapshot(root: target, sourceFingerprint: ArcImportID.fingerprint(source), profiles: profiles,
-                                         sidebar: sidebar, unsupportedIndexedDBFolders: indexedDB, extensions: extensions, sidebarOnly: sidebarOnly)
+                                         sidebar: sidebar, unsupportedIndexedDBFolders: indexedDB, extensions: extensions, sidebarOnly: sidebarOnly,
+                                         commandRanking: (try? Data(contentsOf:target.appending(path:ArcCommandRankingReader.filename)))
+                                            .flatMap { try? ArcCommandRankingReader.read($0) })
             } catch {
                 try? manager.removeItem(at: target)
                 if error as? ArcImportFailure == .sourceChanging, attempt < 2 { continue }

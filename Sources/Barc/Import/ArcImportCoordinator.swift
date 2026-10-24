@@ -1,3 +1,4 @@
+// Modified for Barc: one-time profile-local folder choices, resolved after all selected Spaces are imported, 2026-10-24.
 import Foundation
 import WebKit
 
@@ -277,12 +278,44 @@ final class ArcImportCoordinator {
         if options.sidebar { try session.applyArcSpaceOrder(built.compactMap { $0.snapshot.id }) }
         if options.sidebar, !built.isEmpty {
             settings.importArcSidebarWidth(source.sidebar.sidebarWidth,sourceID:source.sourceFingerprint)
+            importFolderChoices(source,profiles:selected,report:&report)
         }
         if source.sidebar.skippedItems > 0 { report.notes.append("\(source.sidebar.skippedItems) Arc-specific or invalid sidebar/archive items could not be opened in Barc and remain in Arc.") }
+        try session.commitArcImport()
         report.finishedAt = Date(); report.completed = true
         try save(report, runID: runID)
         progress(report.summary)
         return report
+    }
+
+    private func importFolderChoices(_ source: ArcSourceSnapshot, profiles: [ArcProfile], report: inout ArcImportReport) {
+        guard let ranking = source.commandRanking else {
+            if FileManager.default.fileExists(atPath:source.root.appending(path:ArcCommandRankingReader.filename).path) {
+                report.notes.append("Arc's saved folder search choices could not be read; existing Barc choices were kept.")
+            }
+            return
+        }
+        let available = Set(session.spaces.filter { !$0.isPrivate }.flatMap { $0.groups.map(\.id) })
+        for profile in profiles {
+            guard let selections = ranking.profiles[profile.folder],
+                  let index = report.profiles.firstIndex(where: { $0.folder == profile.folder }) else { continue }
+            let identity = Space.Identity.isolated(ArcImportID.uuid(source.sourceFingerprint + "/profile/" + profile.folder))
+            guard let owner = session.profiles.first(where: { $0.identity == identity }) else { continue }
+            let choices = selections.compactMap { selection -> FolderCommandHistory.ImportedChoice? in
+                guard source.sidebar.items[selection.folderID]?.isFolder == true else { return nil }
+                let matches = Set(source.sidebar.spaces.map {
+                    ArcImportID.uuid(source.sourceFingerprint + "/group/" + $0.id + "/" + selection.folderID)
+                }).intersection(available)
+                guard matches.count == 1, let id = matches.first else { return nil }
+                return .init(query:selection.query,folderID:id,selectedAt:selection.selectedAt)
+            }
+            let existing = selections.filter { owner.preferences.folderCommandHistory?.preferredFolder(for:$0.query) != nil }.count
+            let added = session.enrichArcFolderCommands(choices,for:identity,sourceID:source.sourceFingerprint + "/" + profile.folder)
+            let verified = choices.filter { owner.preferences.folderCommandHistory?.preferredFolder(for:$0.query) == $0.folderID }.count
+            report.profiles[index].counts["Folder search choices"] = .init(source:selections.count,imported:added,
+                existing:existing,skipped:max(0,selections.count-added-existing),verified:verified)
+            if existing > 0 { report.profiles[index].notes.append("Existing Barc folder search choices were kept.") }
+        }
     }
 
     private func transferPasswords(_ input: ArcProfileReader.ReadResult<ArcProfileReader.Password>, identity: Space.Identity, sourceKey: String) -> ArcImportReport.Count {

@@ -24,4 +24,7 @@ struct ProfilePreferences: Codable, Equatable {
     /// records that browsing history was deliberately cleared.
     var arcTopSites: [BrowserTopSite]?
     var folderCommandHistory: FolderCommandHistory?
+    /// Process each source once. Kept after history clearing so a repeat
+    /// import cannot silently restore choices the user deliberately removed.
+    var arcFolderCommandSources: Set<String>?
 }

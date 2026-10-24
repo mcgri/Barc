@@ -1,3 +1,4 @@
+// Modified for Barc: retain supported folder command choices in the private Arc snapshot, 2026-10-24.
 import Foundation
 import CryptoKit
 
@@ -95,6 +96,7 @@ struct ArcSourceSnapshot: Sendable {
     let unsupportedIndexedDBFolders: [String: Int]
     let extensions: [String: Int]
     var sidebarOnly: Bool = false
+    var commandRanking: ArcCommandRanking? = nil
 
     func profileURL(_ profile: ArcProfile) -> URL {
         root.appending(path: "User Data").appending(path: profile.folder)
