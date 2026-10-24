@@ -423,7 +423,7 @@ final class BrowserSession {
             space.look.appearance = appearance
             if let chrome = space.look.importedChrome {
                 space.look.importedChrome = ImportedChrome(color: chrome.color, intensity: chrome.intensity, noise: chrome.noise,
-                    usesDarkText: !dark, usesLightMaterial: !dark)
+                    usesDarkText: !dark, usesLightMaterial: !dark, lightFocus: chrome.lightFocus, darkFocus: chrome.darkFocus)
             }
         }
         changes.send(.spaces)
@@ -2796,10 +2796,10 @@ final class BrowserSession {
                 // Enrich an older import only while its original accent is
                 // unchanged. User colour/gradient edits always win.
                 if space.theme == .custom, space.look.gradient == nil,
-                   !space.look.importedChromeWasCustomized, space.look.importedChrome == nil,
+                   !space.look.importedChromeWasCustomized,
                    space.look.customColorHex?.lowercased() == built.look.customColorHex?.lowercased(),
                    let chrome = built.look.importedChrome {
-                    space.look.importedChrome = chrome
+                    space.look.importedChrome = space.look.importedChrome?.enrichingFocus(from: chrome) ?? chrome
                 }
                 if let engine = stored.searchEngineID { space.searchEngineID = engine }
                 for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }

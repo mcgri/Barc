@@ -1,4 +1,4 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: sidebar address editing and themed launcher presentation, 2026-10-24.
 import AppKit
 
 /// Sizes shared by the centered launcher and the compact sidebar URL popup.
@@ -35,6 +35,8 @@ enum CommandBarMetrics {
     static let subtitleFontSize: CGFloat = 11
     /// Padding around the whole result list, inside the panel.
     static let listInset: CGFloat = 6
+    static let splitRowHeight: CGFloat = 46
+    static let splitRowSpacing: CGFloat = 4
     static let dividerHeight: CGFloat = 1
 
     /// Long enough that holding a key down does not queue a query per
@@ -59,6 +61,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     var resultImageProvider: ((CommandResult) -> NSImage?)?
     var onClose: (() -> Void)?
     var onCancel: (() -> Void)?
+    var selectionColor: NSColor = .selectedContentBackgroundColor {
+        didSet {
+            for case let row as CommandRowView in rowsStack.arrangedSubviews { row.selectionColor = selectionColor }
+        }
+    }
 
     /// Performs a chosen row, or the address the user typed. The bar resolves
     /// text into a `URL` itself so that the caller has one case to handle
@@ -66,7 +73,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     var onRun: ((CommandAction, Bool) -> Void)?
 
     private let shadowHost = NSView()
-    private let panel = NSVisualEffectView()
+    private let panel = CommandPanelView()
     private let fieldRow = NSView()
     private let field = NSTextField()
     private let addressIcon = NSImageView()
@@ -80,6 +87,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private var addressTop: NSLayoutConstraint!
     private var fieldHeight: NSLayoutConstraint!
     private var fieldLeading: NSLayoutConstraint!
+    private var addressIconLeading: NSLayoutConstraint!
+    private var listWidths: [NSLayoutConstraint] = []
+    private var dividerHeight: NSLayoutConstraint!
     private weak var addressAnchor: NSView?
     private weak var splitAnchor: NSView?
     private weak var centerHost: NSView?
@@ -135,18 +145,13 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         shadowHost.layer?.shadowOffset = CommandBarMetrics.shadowOffset
         shadowHost.translatesAutoresizingMaskIntoConstraints = false
 
-        // The material has to clip to the rounded corners, and a layer that
+        // The panel clips to the rounded corners, and a layer that
         // masks its bounds cannot also cast a shadow -- hence the extra host.
-        panel.material = .hudWindow
-        // Within-window, so the panel is vibrant over the *page* beneath it.
-        // Behind-window would sample the desktop, which an opaque page hides.
-        panel.blendingMode = .withinWindow
-        panel.state = .active
-        panel.maskImage = nil
         panel.wantsLayer = true
         panel.layer?.cornerCurve = .continuous
         panel.layer?.cornerRadius = CommandBarMetrics.cornerRadius
         panel.layer?.masksToBounds = true
+        panel.layer?.borderWidth = 0.5
         panel.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(shadowHost)
@@ -224,10 +229,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         fieldRow.addSubview(addressIcon)
         fieldHeight = fieldRow.heightAnchor.constraint(equalToConstant: CommandBarMetrics.fieldHeight)
         fieldLeading = field.leadingAnchor.constraint(equalTo: fieldRow.leadingAnchor, constant: CommandBarMetrics.fieldInset)
+        addressIconLeading = addressIcon.leadingAnchor.constraint(equalTo: fieldRow.leadingAnchor, constant: 16)
 
         NSLayoutConstraint.activate([
             fieldHeight, fieldLeading,
-            addressIcon.leadingAnchor.constraint(equalTo: fieldRow.leadingAnchor, constant: 16),
+            addressIconLeading,
             addressIcon.centerYAnchor.constraint(equalTo: fieldRow.centerYAnchor),
             addressIcon.widthAnchor.constraint(equalToConstant: 16),
             addressIcon.heightAnchor.constraint(equalToConstant: 16),
@@ -264,11 +270,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         resultsContainer.isHidden = true
 
         let inset = -2 * CommandBarMetrics.listInset
-        NSLayoutConstraint.activate([
-            divider.heightAnchor.constraint(equalToConstant: CommandBarMetrics.dividerHeight),
+        dividerHeight = divider.heightAnchor.constraint(equalToConstant: CommandBarMetrics.dividerHeight)
+        listWidths = [
             divider.widthAnchor.constraint(equalTo: resultsContainer.widthAnchor, constant: inset),
             rowsStack.widthAnchor.constraint(equalTo: resultsContainer.widthAnchor, constant: inset)
-        ])
+        ]
+        NSLayoutConstraint.activate([dividerHeight] + listWidths)
     }
 
     // MARK: - Installing
@@ -317,7 +324,13 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         initialSplitResults = recentResults
         preferredWidth.constant = 765
         fieldHeight.constant = 64
+        field.font = .systemFont(ofSize: CommandBarMetrics.queryFontSize, weight: .medium)
         fieldLeading.constant = 52
+        addressIconLeading.constant = 24
+        resultsContainer.edgeInsets = NSEdgeInsets(top: 0, left: 10, bottom: 12, right: 10)
+        for width in listWidths { width.constant = -20 }
+        rowsStack.spacing = CommandBarMetrics.splitRowSpacing
+        dividerHeight.constant = 0.5
         addressIcon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         addressIcon.contentTintColor = Style.Colors.primaryText
         addressIcon.isHidden = false
@@ -345,6 +358,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func configurePresentation(address: Bool) {
         NSLayoutConstraint.deactivate(isAddressMode ? addressConstraints : centeredConstraints)
         isAddressMode = address
+        addressIconLeading.constant = 16
+        resultsContainer.edgeInsets = NSEdgeInsets(top: 0, left: CommandBarMetrics.listInset,
+            bottom: CommandBarMetrics.listInset, right: CommandBarMetrics.listInset)
+        for width in listWidths { width.constant = -2 * CommandBarMetrics.listInset }
+        rowsStack.spacing = CommandBarMetrics.rowSpacing
+        dividerHeight.constant = CommandBarMetrics.dividerHeight
         isSplitMode = false
         initialSplitResults = []
         splitAnchor = nil
@@ -461,6 +480,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         for (index, result) in visibleResults.enumerated() {
             let row = CommandRowView()
+            row.selectionColor = selectionColor
             row.configure(result, image: resultImageProvider?(result), compact: isAddressMode, splitChoice: isSplitMode)
             row.onHover = { [weak self] in self?.select(index) }
             row.onClick = { [weak self] in self?.run(at: index) }
@@ -476,7 +496,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// shorter list, and this is cheaper and steadier than a scroll view for a
     /// list that is capped at eight rows anyway.
     static func maximumVisibleRows(inHeight height: CGFloat, rowHeight: CGFloat = CommandBarMetrics.rowHeight,
-                                   fieldHeight: CGFloat = CommandBarMetrics.fieldHeight) -> Int {
+                                   fieldHeight: CGFloat = CommandBarMetrics.fieldHeight,
+                                   rowSpacing: CGFloat = CommandBarMetrics.rowSpacing) -> Int {
         let chrome = CommandBarMetrics.verticalGap * 2
             + fieldHeight
             + CommandBarMetrics.dividerHeight
@@ -484,8 +505,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             + CommandBarMetrics.bottomGap
         let available = height - chrome
         guard available > 0 else { return 0 }
-        let pitch = rowHeight + CommandBarMetrics.rowSpacing
-        return max(0, Int((available + CommandBarMetrics.rowSpacing) / pitch))
+        let pitch = rowHeight + rowSpacing
+        return max(0, Int((available + rowSpacing) / pitch))
     }
 
     /// A resize can change how many rows fit, and the list has to follow it or
@@ -523,8 +544,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     private var maximumRows: Int {
         guard isAddressMode else {
-            return Self.maximumVisibleRows(inHeight: bounds.height, rowHeight: isSplitMode ? 48 : CommandBarMetrics.rowHeight,
-                                           fieldHeight: isSplitMode ? 64 : CommandBarMetrics.fieldHeight)
+            return Self.maximumVisibleRows(inHeight: bounds.height - (isSplitMode ? 6 : 0),
+                rowHeight: isSplitMode ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight,
+                fieldHeight: isSplitMode ? 64 : CommandBarMetrics.fieldHeight,
+                rowSpacing: isSplitMode ? CommandBarMetrics.splitRowSpacing : CommandBarMetrics.rowSpacing)
         }
         let available = bounds.height - addressTop.constant - CommandBarMetrics.addressFieldHeight
             - CommandBarMetrics.bottomGap - CommandBarMetrics.dividerHeight - CommandBarMetrics.listInset * 2

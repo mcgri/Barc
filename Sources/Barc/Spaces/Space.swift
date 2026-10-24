@@ -115,6 +115,18 @@ final class Space: Identifiable {
         return look.importedChrome
     }
 
+    /// Retain Arc's semantic focus colour, which differs from its background
+    /// and accent. New themes use their own colour rather than the Mac accent.
+    var commandFocusColor: NSColor {
+        let chrome = activeImportedChrome
+        let fallback = color.blended(withFraction: 0.35, of: .gray) ?? color
+        let light = chrome?.lightFocus?.nsColor ?? fallback
+        let dark = chrome?.darkFocus?.nsColor ?? fallback
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
     var chromeGrain: Double { (activeImportedChrome?.noise ?? 0) * look.washOpacity }
 
     /// The solid wash while this tab is in front: the page's own colour if the

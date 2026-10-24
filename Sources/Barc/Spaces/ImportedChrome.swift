@@ -26,10 +26,21 @@ struct ImportedChrome: Codable, Hashable, Sendable {
     let noise: Double
     let usesDarkText: Bool
     let usesLightMaterial: Bool
+    var lightFocus: Color? = nil
+    var darkFocus: Color? = nil
 
     var isValid: Bool {
         color.isValid && intensity.isFinite && (0...1).contains(intensity)
             && noise.isFinite && (0...1).contains(noise)
+            && lightFocus?.isValid != false && darkFocus?.isValid != false
+    }
+
+    func enrichingFocus(from source: ImportedChrome) -> ImportedChrome {
+        guard color == source.color else { return self }
+        var result = self
+        result.lightFocus = lightFocus ?? source.lightFocus
+        result.darkFocus = darkFocus ?? source.darkFocus
+        return result
     }
 
     /// Decode only the supported solid background. Unknown future styles keep
@@ -50,11 +61,22 @@ struct ImportedChrome: Codable, Hashable, Sendable {
               let translucency = blended["translucencyStyle"] as? String,
               ["light", "dark"].contains(translucency) else { return nil }
         let modifiers = object(blended["modifiers"])
-        let result = ImportedChrome(
+        var result = ImportedChrome(
             color: Color(red: red, green: green, blue: blue, alpha: raw["alpha"] as? Double ?? 1),
             intensity: modifiers?["intensityFactor"] as? Double ?? 1,
             noise: modifiers?["overlay"] as? String == "grain" ? modifiers?["noiseFactor"] as? Double ?? 0 : 0,
             usesDarkText: appearance == "light", usesLightMaterial: translucency == "light")
+        let palettes = object(object(theme?["semanticColorPalette"])?["appearanceBased"])
+        func focus(_ appearance: String) -> Color? {
+            guard let raw = object(object(palettes?[appearance])?["focus"]),
+                  raw["colorSpace"] as? String == "extendedSRGB",
+                  let r = raw["red"] as? Double, let g = raw["green"] as? Double,
+                  let b = raw["blue"] as? Double else { return nil }
+            let value = Color(red: r, green: g, blue: b, alpha: raw["alpha"] as? Double ?? 1)
+            return value.isValid ? value : nil
+        }
+        result.lightFocus = focus("light")
+        result.darkFocus = focus("dark")
         return result.isValid ? result : nil
     }
 }

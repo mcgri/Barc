@@ -90,7 +90,8 @@ final class SplitContainerView: NSView {
             pane.setSticky(isSticky?(id) ?? false)
         }
 
-        setFocused(focused)
+        // A chooser's blank surface has no active webpage to outline.
+        setFocused(placeholder == nil ? focused : nil)
         needsLayout = true
     }
 
