@@ -1,3 +1,4 @@
+// Modified for Barc: share direct navigation detection with address suggestions, 2026-10-24.
 import Foundation
 
 /// Turns raw address-bar text into something navigable.
@@ -27,15 +28,19 @@ enum URLResolver {
             return quick.engine.url(for: quick.query)
         }
 
+        return navigationURL(text) ?? engine.url(for: text)
+    }
+
+    /// The direct destination an address-shaped input names, without turning
+    /// ordinary search words into a search-engine URL.
+    static func navigationURL(_ input: String) -> URL? {
+        let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
         if let scheme = explicitScheme(of: text) {
-            return passthroughSchemes.contains(scheme) ? URL(string: text) : engine.url(for: text)
+            return passthroughSchemes.contains(scheme) ? URL(string: text) : nil
         }
-
-        if looksLikeHost(text), let url = URL(string: "\(defaultScheme(for: text))://\(text)") {
-            return url
-        }
-
-        return engine.url(for: text)
+        if looksLikeHost(text) { return URL(string: "\(defaultScheme(for: text))://\(text)") }
+        return nil
     }
 
     /// `g cats` with an engine whose keyword is `g`. The keyword alone is not

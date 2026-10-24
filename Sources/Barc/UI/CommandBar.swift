@@ -3,6 +3,7 @@ import AppKit
 
 /// Sizes shared by the centered launcher and the compact sidebar URL popup.
 enum CommandBarMetrics {
+    static let newTabRecentLimit = 4
     static let addressPanelWidth: CGFloat = 350
     static let addressFieldHeight: CGFloat = 44
     /// Wide enough for a long URL and its title, narrow enough that the panel
@@ -103,6 +104,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private var initialSplitResults: [CommandResult] = []
     private var initialNewTabResults: [CommandResult] = []
     private var initialLocationResults: [CommandResult] = []
+    private var typedQuery = ""
+    private var hasEditedQuery = false
     private var usesLauncherRows = false
     private(set) var isAddressMode = false
     private(set) var isSplitMode = false
@@ -345,10 +348,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     func openNewTab(recentResults: [CommandResult]) {
         configurePresentation(address: false)
         setCenteredWidth(wholeWindow: true)
-        initialNewTabResults = recentResults
+        initialNewTabResults = Array(recentResults.prefix(CommandBarMetrics.newTabRecentLimit))
         configureLauncherPresentation()
         present(text: "", openInNewTab: true)
-        setResults(recentResults)
+        setResults(initialNewTabResults)
         superview?.layoutSubtreeIfNeeded()
         select(0)
         updateSplitPosition()
@@ -480,6 +483,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         isHidden = false
         superview?.addSubview(self, positioned: .above, relativeTo: nil)
         field.stringValue = text
+        typedQuery = text
+        hasEditedQuery = false
         setResults([])
         window?.makeFirstResponder(field)
         applyTextSelection()
@@ -563,6 +568,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func rebuildRows() {
         let fitting = maximumRows
         visibleResults = Array(results.prefix(fitting))
+        let selectionWasClipped = selectedIndex.map { !visibleResults.indices.contains($0) } ?? false
+        if selectionWasClipped {
+            selectedIndex = visibleResults.isEmpty ? nil : visibleResults.count - 1
+        }
 
         for view in rowsStack.arrangedSubviews {
             rowsStack.removeArrangedSubview(view)
@@ -580,6 +589,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         resultsContainer.isHidden = visibleResults.isEmpty
         applySelectionToRows()
+        if selectionWasClipped { previewSelection() }
     }
 
     /// How many rows fit inside the centered panel's vertical margins.
@@ -654,20 +664,40 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     // MARK: - Selection
 
-    /// Moves the selection by `delta`. Moving up off the first row returns to
-    /// the query line itself (no selection), which is what makes "type an
-    /// address, then think better of the suggestion" a single keystroke.
+    /// Arc wraps from either end of the list. Keyboard navigation previews
+    /// the destination without submitting it or fetching a new result list.
     func moveSelection(by delta: Int) {
         guard !visibleResults.isEmpty else { return }
-        guard let current = selectedIndex else {
-            select(delta > 0 ? 0 : visibleResults.count - 1)
-            return
+        let count = visibleResults.count
+        let start = selectedIndex ?? (delta > 0 ? -1 : 0)
+        select(((start + delta) % count + count) % count)
+        previewSelection()
+    }
+
+    private func previewSelection() {
+        guard let selectedIndex, visibleResults.indices.contains(selectedIndex) else { return }
+        let result = visibleResults[selectedIndex]
+        guard result.completionText != nil || !typedQuery.isEmpty else { return }
+        let value = result.completionText ?? typedQuery
+        field.stringValue = value
+        if let editor = field.currentEditor() as? NSTextView {
+            editor.string = value
+            let length = (value as NSString).length
+            let prefix = (value as NSString).range(of: typedQuery, options: [.anchored, .caseInsensitive])
+            let range: NSRange
+            if (typedQuery.isEmpty || !hasEditedQuery) && (isLocationMode || isAddressMode) {
+                range = NSRange(location: 0, length: length)
+            } else if prefix.location == 0 {
+                range = NSRange(location: prefix.length, length: length - prefix.length)
+            } else {
+                range = NSRange(location: length, length: 0)
+            }
+            editor.setSelectedRange(range)
         }
-        let next = current + delta
-        if next < 0 {
-            select(nil)
-        } else {
-            select(min(next, visibleResults.count - 1))
+        if usesLauncherRows || isAddressMode {
+            let image = resultImageProvider?(result)
+            addressIcon.image = image ?? NSImage(systemSymbolName: result.symbolName, accessibilityDescription: nil)
+            addressIcon.contentTintColor = image == nil ? Style.Colors.secondaryText : nil
         }
     }
 
@@ -736,6 +766,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
                   self.field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == query
             else { return }
             self.setResults(found)
+            self.select(0)
+            self.previewSelection()
         }
     }
 
@@ -803,6 +835,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        typedQuery = field.stringValue
+        hasEditedQuery = true
         if usesLauncherRows, !isSplitMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryTask?.cancel()
             queryTask = nil
@@ -848,13 +882,18 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             if let selectedIndex, visibleResults.indices.contains(selectedIndex) {
                 let item = visibleResults[selectedIndex]
                 let fillText: String
-                switch item.kind {
-                case .search, .command, .space:
-                    fillText = item.title
-                case .openTab, .history, .bookmark:
-                    fillText = item.subtitle
+                if let completion = item.completionText { fillText = completion }
+                else {
+                    switch item.kind {
+                    case .address, .search, .command, .space:
+                        fillText = item.title
+                    case .openTab, .history, .bookmark:
+                        fillText = item.subtitle
+                    }
                 }
                 field.stringValue = fillText
+                typedQuery = fillText
+                hasEditedQuery = true
                 field.currentEditor()?.moveToEndOfLine(nil)
                 scheduleQuery(for: fillText)
                 return true

@@ -397,8 +397,8 @@ struct CommandBarViewTests {
         #expect(bar.selectedIndex == nil)
     }
 
-    @Test("Down walks the list and stops at the end rather than wrapping")
-    func downArrowWalksAndStops() {
+    @Test("Down wraps to the first result after the last")
+    func downArrowWraps() {
         let bar = bar()
         bar.setResults(results(3))
         bar.moveSelection(by: 1)
@@ -407,16 +407,16 @@ struct CommandBarViewTests {
         bar.moveSelection(by: 1)
         #expect(bar.selectedIndex == 2)
         bar.moveSelection(by: 1)
-        #expect(bar.selectedIndex == 2)
+        #expect(bar.selectedIndex == 0)
     }
 
-    @Test("Up off the first row returns to the query line")
-    func upArrowReturnsToTheQuery() {
+    @Test("Up off the first row wraps to the last result")
+    func upArrowWraps() {
         let bar = bar()
         bar.setResults(results(3))
         bar.moveSelection(by: 1)
         bar.moveSelection(by: -1)
-        #expect(bar.selectedIndex == nil)
+        #expect(bar.selectedIndex == 2)
     }
 
     @Test("Up from the query line selects the last row")
@@ -597,7 +597,7 @@ struct CommandSourcesTests {
         let results = CommandRanker.rank(query: "apple", tabs: [tab], history: [history], bookmarks: [bookmark], search: search)
         #expect(results.contains { $0.kind == .bookmark && $0.title == "Apple Docs" })
         #expect(results.last?.kind == .search)
-        #expect(results.last?.title == "Search DuckDuckGo for \u{201c}apple\u{201d}")
+        #expect(results.last?.title == "apple")
     }
 
     @Test("Each source can be switched off")

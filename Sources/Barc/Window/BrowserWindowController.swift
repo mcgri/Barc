@@ -1189,6 +1189,12 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         (NSApp.delegate as? AppDelegate)?.showSettings(nil, on: .extensions)
     }
 
+    /// Ordinary launchers can switch to another Space's existing page. A
+    /// private Space keeps its suggestions within its own ephemeral session.
+    private var commandSpaces: [Space] {
+        session.activeSpace.isPrivate ? [session.activeSpace] : session.spaces.filter { !$0.isPrivate }
+    }
+
     /// The command bar is Barc's omnibox, moved off the sidebar. It never sees
     /// the session: it is given a provider that ranks values and a handler that
     /// performs one.
@@ -1228,7 +1234,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             let search = engine.url(for: query.trimmingCharacters(in: .whitespacesAndNewlines))
                 .map { SearchCandidate(engineName: engine.name, url: $0) }
 
-            let allTabs: [TabCandidate] = self.session.spaces.flatMap { space in
+            let allTabs: [TabCandidate] = self.commandSpaces.flatMap { space in
                 space.tabs.map { tab in
                     TabCandidate(
                         id: tab.id,
@@ -1241,7 +1247,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 }
             }
 
-            let spaces: [SpaceCandidate] = self.session.spaces.map { space in
+            let spaces: [SpaceCandidate] = self.commandSpaces.map { space in
                 SpaceCandidate(
                     id: space.id,
                     name: space.name,
@@ -1491,14 +1497,14 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             let current: [CommandResult] = sources.openTabs ? tab.flatMap { tab in
                 tab.showsStartPage ? nil : CommandResult(id: "tab:\(tab.id)", kind: .openTab,
                     title: tab.displayTitle, subtitle: "", symbolName: "globe", action: .switchToTab(tab.id),
-                    score: 0, isCurrentPage: true)
+                    score: 0, isCurrentPage: true, completionText: tab.displayURL.absoluteString)
             }.map { [$0] } ?? [] : []
             func suggestions(_ sites: [BrowserTopSite]) -> [CommandResult] {
                 current + sites.filter { $0.isValid && $0.url != tab?.displayURL }.prefix(3).map { site in
                     CommandResult(id: "top-site:\(site.url.absoluteString)", kind: .history,
                         title: site.title.isEmpty ? AddressFormatter.display(site.url) : site.title,
                         subtitle: "— " + (site.url.host()?.replacingOccurrences(of: "www.", with: "", options: .anchored) ?? ""),
-                        symbolName: "globe", action: .openURL(site.url), score: 0)
+                        symbolName: "globe", action: .openURL(site.url), score: 0, completionText: AddressFormatter.display(site.url))
                 }
             }
             let useHistory = sources.history && sources.topHits && !space.isPrivate
@@ -1958,12 +1964,14 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             return
         }
         if Settings.shared.openCommandBarOnNewTab {
-            let recent = Settings.shared.suggestionSources.openTabs ? session.activeSpace.tabs
+            var seen = Set<UUID>()
+            let recent = Settings.shared.suggestionSources.openTabs ? commandSpaces.flatMap(\.tabs)
+                .filter { seen.insert($0.id).inserted }
                 .filter { $0 !== session.activeTab && !$0.isSidebarPlaceholder && !$0.showsStartPage }
                 .sorted {
                     if $0.lastActiveAt != $1.lastActiveAt { return $0.lastActiveAt > $1.lastActiveAt }
                     return $0.id.uuidString < $1.id.uuidString
-                }.prefix(5).map {
+                }.prefix(CommandBarMetrics.newTabRecentLimit).map {
                     CommandResult(id: "tab:\($0.id)", kind: .openTab, title: $0.displayTitle,
                                   subtitle: AddressFormatter.display($0.displayURL), symbolName: "globe",
                                   action: .switchToTab($0.id), score: 0)

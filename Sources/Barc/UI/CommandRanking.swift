@@ -91,6 +91,7 @@ struct CommandSources: Equatable, Sendable {
 /// One row of the command bar.
 struct CommandResult: Equatable, Sendable, Identifiable {
     enum Kind: Equatable, Sendable {
+        case address
         case openTab
         case space
         case command
@@ -112,6 +113,8 @@ struct CommandResult: Equatable, Sendable, Identifiable {
     let score: Int
     var shortcut: String? = nil
     var isCurrentPage = false
+    /// Text previewed by keyboard selection, independent of display captions.
+    var completionText: String? = nil
 }
 
 /// Turns a query plus open tabs, spaces, commands, history and bookmarks
@@ -196,7 +199,7 @@ enum CommandRanker {
                 symbolName: "macwindow",
                 action: .switchToTab(tab.id),
                 score: score + openTabBonus,
-                shortcut: "Jump"
+                shortcut: "Jump", completionText: tab.address
             ))
         }
 
@@ -257,7 +260,7 @@ enum CommandRanker {
                 subtitle: entry.key,
                 symbolName: "clock",
                 action: .openURL(entry.url),
-                score: score + min(max(entry.visitCount, 0), maximumFrequencyBonus)
+                score: score + min(max(entry.visitCount, 0), maximumFrequencyBonus), completionText: entry.key
             ))
         }
 
@@ -276,7 +279,7 @@ enum CommandRanker {
                 subtitle: bookmark.key,
                 symbolName: "bookmark",
                 action: .openURL(bookmark.url),
-                score: score
+                score: score, completionText: bookmark.key
             ))
         }
 
@@ -297,9 +300,18 @@ enum CommandRanker {
                 results[top.offset] = CommandResult(
                     id: row.id, kind: row.kind, title: row.title, subtitle: row.subtitle,
                     symbolName: row.symbolName, action: row.action, score: row.score + topHitBonus,
-                    shortcut: row.shortcut
+                    shortcut: row.shortcut, completionText: row.completionText
                 )
             }
+        }
+
+        // Show the destination Return will open, even when it has never been
+        // visited. An existing tab/history match already represents that URL.
+        if let url = URLResolver.navigationURL(query), !claimed.contains(destinationKey(url)) {
+            let typed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            results.append(CommandResult(id: "address:\(url.absoluteString)", kind: .address,
+                title: typed, subtitle: "", symbolName: "globe", action: .openURL(url),
+                score: Tier.addressPrefix + topHitBonus, completionText: typed))
         }
 
         var ordered = Array(results.sorted(by: isOrderedBefore).prefix(limit))
@@ -311,11 +323,11 @@ enum CommandRanker {
             ordered.append(CommandResult(
                 id: "search",
                 kind: .search,
-                title: "Search \(search.engineName) for \u{201c}\(trimmed)\u{201d}",
+                title: trimmed,
                 subtitle: search.url.host() ?? search.engineName,
                 symbolName: "magnifyingglass",
                 action: .openURL(search.url),
-                score: -1
+                score: -1, completionText: trimmed
             ))
         }
         return ordered
@@ -337,12 +349,13 @@ enum CommandRanker {
 
     private static func kindPriority(_ kind: CommandResult.Kind) -> Int {
         switch kind {
-        case .openTab: return 0
-        case .space: return 1
-        case .command: return 2
-        case .bookmark: return 3
-        case .history: return 4
-        case .search: return 5
+        case .address: return 0
+        case .openTab: return 1
+        case .space: return 2
+        case .command: return 3
+        case .bookmark: return 4
+        case .history: return 5
+        case .search: return 6
         }
     }
 
