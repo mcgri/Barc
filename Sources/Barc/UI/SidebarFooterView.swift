@@ -20,6 +20,7 @@ final class SidebarFooterView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
         homeButton.setGlyph(SidebarHomeGlyph.image(),label:"Home")
+        addButton.setGlyph(SidebarAddGlyph.image(),label:"Add")
         addSubview(homeButton)
         addSubview(dock)
         addSubview(addButton)

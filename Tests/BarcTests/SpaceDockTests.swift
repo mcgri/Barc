@@ -44,6 +44,18 @@ struct SpaceDockTests {
         #expect(dock.buttons.map { $0.convert($0.bounds,to:root).midX } == centers)
     }
 
+    @Test("The dock centers a 14-point symbol and 18-point emoji on the same baseline")
+    func sourceArtworkWells() throws {
+        let button = SpaceDockButton(id:UUID())
+        for (icon,side) in [(SpaceIcon.symbol("ionicon.planet"),CGFloat(14)),(.emoji("😆"),18)] {
+            button.configure(.init(id:button.id,name:"Space",icon:icon,color:.brown),selected:true)
+            button.apply(frame:NSRect(x:0,y:0,width:24,height:50),iconSize:18)
+            let glyph = try #require(UITestSupport.descendants(of:button).compactMap { $0 as? NSImageView }.first)
+            #expect(glyph.frame.width == side && glyph.frame.height == side)
+            #expect(glyph.frame.midX == 12 && glyph.frame.midY == 25)
+        }
+    }
+
     @Test("Moving the pointer never shifts click targets or changes the scrollable width")
     func hoverKeepsRowStationary() {
         for (count, width) in [(8, CGFloat(221)), (24, CGFloat(95))] {

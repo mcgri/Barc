@@ -297,7 +297,7 @@ final class SpaceDockButton: NSButton {
         self.iconSize = iconSize
         let symbolInset: CGFloat = {
             guard let item, case .symbol = item.icon else { return 0 }
-            return 2
+            return 4
         }()
         let drawnSide = max(0,iconSize-symbolInset)
         let baseline = (SpaceDockLayout.height-(SpaceDockLayout.iconSide-symbolInset))/2
@@ -329,7 +329,11 @@ final class SpaceDockButton: NSButton {
     private func applyArtworkState() {
         let image = isSelectedSpace ? coloredImage : mutedImage
         if glyph.image !== image { glyph.image = image }
-        glyph.alphaValue = (isSelectedSpace ? 1 : 0.58) * (isEnabled ? 1 : 0.5)
+        let inactiveOpacity: CGFloat = {
+            guard let item, case .symbol = item.icon else { return 0.35 }
+            return 0.175
+        }()
+        glyph.alphaValue = (isSelectedSpace ? 1 : inactiveOpacity) * (isEnabled ? 1 : 0.5)
     }
 
     @objc private func selectSpace() { onSelect?() }
