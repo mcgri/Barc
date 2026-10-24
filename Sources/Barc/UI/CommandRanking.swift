@@ -1,4 +1,4 @@
-// Modified for Barc: Arc's literal search placement and URL editor suggestions, 2026-10-24.
+// Modified for Barc: Arc's literal URL matching, folder queries and search placement, 2026-10-24.
 import Foundation
 
 /// What activating a command-bar row does.
@@ -236,7 +236,7 @@ enum CommandRanker {
         for folder in folders where sources.spaces {
             let title = "Open \(folder.path)"
             guard let score = [folder.name, folder.path, title]
-                .compactMap({ scoreText(query: normalisedQuery, in: $0) }).max() else { continue }
+                .compactMap({ scoreFolderText(query: normalisedQuery, in: $0) }).max() else { continue }
             results.append(CommandResult(id:"folder:\(folder.spaceID):\(folder.id)",kind:.folder,
                 title:title,subtitle:folder.path,symbolName:"folder",
                 action:.openFolder(spaceID:folder.spaceID,folderID:folder.id),
@@ -246,12 +246,12 @@ enum CommandRanker {
 
         // 3. Commands & Actions
         for cmd in commands where sources.commands {
-            var bestScore: Int? = scoreText(query: normalisedQuery, in: cmd.title)
-            if let sub = cmd.subtitle, let subScore = scoreText(query: normalisedQuery, in: sub) {
+            var bestScore: Int? = scoreCommandText(query: normalisedQuery, in: cmd.title)
+            if let sub = cmd.subtitle, let subScore = scoreCommandText(query: normalisedQuery, in: sub) {
                 bestScore = max(bestScore ?? 0, subScore - 10)
             }
             for kw in cmd.keywords {
-                if let kwScore = scoreText(query: normalisedQuery, in: kw) {
+                if let kwScore = scoreCommandText(query: normalisedQuery, in: kw) {
                     bestScore = max(bestScore ?? 0, kwScore)
                 }
             }
@@ -402,11 +402,11 @@ enum CommandRanker {
         if title.hasPrefix(query) { return Tier.titlePrefix }
         if startsAWord(query, in: title) || startsAWord(query, in: address) { return Tier.wordPrefix }
         if address.contains(query) || title.contains(query) { return Tier.substring }
-        if matchesFuzzy(query, in: title) || matchesFuzzy(query, in: address) { return 15 }
         return nil
     }
 
-    /// Scores a query against arbitrary text (such as space names or command titles).
+    /// Local names require a contiguous match. Letters scattered through an
+    /// unrelated title or opaque URL identifier are not a destination match.
     static func scoreText(query: String, in text: String) -> Int? {
         let query = normalise(query)
         guard !query.isEmpty else { return nil }
@@ -417,8 +417,23 @@ enum CommandRanker {
         if text.hasPrefix(query) { return Tier.titlePrefix }
         if startsAWord(query, in: text) { return Tier.wordPrefix }
         if text.contains(query) { return Tier.substring }
-        if matchesFuzzy(query, in: text) { return 15 }
         return nil
+    }
+
+    /// Arc also accepts complete folder words in any order, including the
+    /// "Open" action word. Partial words still require a contiguous phrase.
+    private static func scoreFolderText(query: String, in text: String) -> Int? {
+        if let score = scoreText(query: query, in: text) { return score }
+        let words = normalise(query).split(whereSeparator: { $0.isWhitespace })
+        guard words.count > 1 else { return nil }
+        let candidateWords = Set(normalise(text).split(whereSeparator: { !$0.isLetter && !$0.isNumber }))
+        return words.allSatisfy(candidateWords.contains) ? 15 : nil
+    }
+
+    /// Keep deliberate action abbreviations separate from page and name search.
+    private static func scoreCommandText(query: String, in text: String) -> Int? {
+        if let score = scoreText(query: query, in: text) { return score }
+        return matchesFuzzy(normalise(query), in: normalise(text)) ? 15 : nil
     }
 
     /// Subsequence / fuzzy matching for quick typing: characters in `query` appear
