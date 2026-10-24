@@ -50,8 +50,8 @@ final class ShortcutManager {
             title: "Pin / Unpin Tab",
             category: .tabs,
             selector: #selector(BrowserWindowController.togglePinActiveTab(_:)),
-            defaultKey: "p",
-            defaultModifiers: [.command, .shift]
+            defaultKey: "d",
+            defaultModifiers: [.command]
         ),
         ShortcutDefinition(
             id: "duplicate-tab",

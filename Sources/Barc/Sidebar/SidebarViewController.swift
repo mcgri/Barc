@@ -511,6 +511,8 @@ final class SidebarViewController: NSViewController {
         tableView.allowsMultipleSelection = true
         tableView.dataSource = self
         tableView.delegate = self
+        tableView.target = self
+        tableView.action = #selector(activateTabRow(_:))
         // Resolve the event's row without AppKit's square contextual highlight.
         tableView.menuForRow = { [weak self] row in self?.makeRowMenu(at: row) ?? NSMenu() }
         // The space around the list keeps the generic sidebar menu.
@@ -1536,10 +1538,15 @@ final class SidebarViewController: NSViewController {
             colorTag: tab.colorTag,
             hasUnreadChange: tab.hasUnreadChange && !session.visibleTabIDs.contains(tab.id),
             emoji: tab.emoji,
-            sidebarSymbolName: tab.sidebarSymbolName
+            sidebarSymbolName: tab.sidebarSymbolName,
+            canResetPinnedPage: session.canResetSidebarPin(tab)
         ))
         cell.onToggleMute = { [weak tab] in
             tab?.toggleMute()
+        }
+        cell.onResetPinnedPage = { [weak self, weak tab] keepCurrent in
+            guard let self, let tab else { return false }
+            return self.session.resetSidebarPin(tab, keepingCurrentPage: keepCurrent)
         }
         // `tab.url` deliberately, not `displayURL`: the latter follows a typed
         // address before it commits, which would swap one site's icon for
@@ -2901,6 +2908,15 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard rows.indices.contains(row) else { return false }
         if case .tab = rows[row] { return true }
         return false
+    }
+
+    @objc private func activateTabRow(_ sender: NSTableView) {
+        guard let event = NSApp.currentEvent, event.clickCount == 1,
+              event.type == .leftMouseUp || event.type == .leftMouseDown,
+              sender.clickedRow >= 0,
+              let cell = sender.view(atColumn: 0, row: sender.clickedRow, makeIfNecessary: false) as? TabRowView else { return }
+        cell.activatePinnedIcon(at: cell.convert(event.locationInWindow, from: nil),
+                                keepingCurrentPage: event.modifierFlags.contains(.command))
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {

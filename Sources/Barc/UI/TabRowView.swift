@@ -49,6 +49,7 @@ struct TabRowContent {
     /// An emoji standing in for the favicon.
     var emoji: String? = nil
     var sidebarSymbolName: String? = nil
+    var canResetPinnedPage: Bool = false
 
     init(
         title: String,
@@ -67,7 +68,8 @@ struct TabRowContent {
         colorTag: TabColorTag? = nil,
         hasUnreadChange: Bool = false,
         emoji: String? = nil,
-        sidebarSymbolName: String? = nil
+        sidebarSymbolName: String? = nil,
+        canResetPinnedPage: Bool = false
     ) {
         self.title = title
         self.address = address
@@ -86,6 +88,7 @@ struct TabRowContent {
         self.hasUnreadChange = hasUnreadChange
         self.emoji = emoji
         self.sidebarSymbolName = sidebarSymbolName
+        self.canResetPinnedPage = canResetPinnedPage
     }
 }
 
@@ -108,6 +111,7 @@ final class TabRowView: NSTableCellView {
 
     /// Toggle mute clicked for playing audio.
     var onToggleMute: (() -> Void)?
+    var onResetPinnedPage: ((_ keepingCurrentPage: Bool) -> Bool)?
 
     /// Exposed so the caller can drive it from a `Tab` without this view ever
     /// seeing one.
@@ -156,6 +160,14 @@ final class TabRowView: NSTableCellView {
     var showsCustomSymbol: Bool { !symbolView.isHidden }
     var isEditingName = false { didSet { titleLabel.alphaValue = isEditingName ? 0 : 1 } }
     func nameEditorFrame(in view: NSView) -> NSRect { titleLabel.convert(titleLabel.bounds, to: view) }
+
+    /// The table owns the pointer sequence so an icon can still start a drag.
+    /// Only its completed single-click action calls this method.
+    @discardableResult
+    func activatePinnedIcon(at point: NSPoint, keepingCurrentPage: Bool) -> Bool {
+        guard content.canResetPinnedPage, favicon.frame.contains(point) else { return false }
+        return onResetPinnedPage?(keepingCurrentPage) ?? false
+    }
 
     /// The colour tag on the favicon's lower trailing corner.
     private let tagDot = NSView()
@@ -436,6 +448,11 @@ final class TabRowView: NSTableCellView {
         subtitleLabel.isHidden = content.subtitle?.isEmpty != false
         titleLabel.textColor = Style.Colors.primaryText
         toolTip = content.address
+        setAccessibilityCustomActions(content.canResetPinnedPage ? [
+            NSAccessibilityCustomAction(name: "Reset Tab") { [weak self] in
+                self?.onResetPinnedPage?(false) ?? false
+            }
+        ] : [])
 
         emojiLabel.stringValue = content.emoji ?? ""
         emojiLabel.isHidden = content.emoji == nil
@@ -691,6 +708,8 @@ final class TabRowView: NSTableCellView {
         // fading out of the previous row's selection.
         isFresh = true
         onToggleMute = nil
+        onResetPinnedPage = nil
+        setAccessibilityCustomActions([])
         isHovered = false
         isSelected = false
         content = TabRowContent(title: "")

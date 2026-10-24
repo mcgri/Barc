@@ -10,6 +10,28 @@ extension BrowserSession {
         return spaces.first { $0.tabs.contains(where: { $0 === tab }) }
     }
 
+    /// Space pins and profile-wide Favorites are different destinations.
+    func canChangeSidebarPin(_ tab: Tab) -> Bool {
+        sidebarOwner(of: tab) != nil && tab.pinnedSiteID == nil && !tab.isLocked
+            && !tab.isSidebarPlaceholder && !isInLiveFolder(tab)
+    }
+
+    func setSidebarPin(_ retained: Bool, for tab: Tab) {
+        guard canChangeSidebarPin(tab), let owner = sidebarOwner(of: tab),
+              retained != tab.isSidebarRetained else { return }
+        selectSpace(owner)
+        if retained {
+            positionSidebarItem(.tab(tab), before: nil, retained: true)
+        } else {
+            removeSidebarPin(tab, in: owner)
+        }
+    }
+
+    func canResetSidebarPin(_ tab: Tab) -> Bool {
+        sidebarOwner(of: tab) != nil && tab.pinnedSiteID == nil && tab.isSidebarRetained
+            && tab.pinnedPageURL != nil && tab.pinnedPageURL != tab.url && !isInLiveFolder(tab)
+    }
+
     func todayTabs(in space: Space) -> [Tab] {
         SidebarOrder.items(groups: [], tabs: space.sidebarVisibleTabs.filter {
             $0.groupID == nil && !$0.keepsInSidebar && !$0.isSidebarPlaceholder
@@ -42,7 +64,8 @@ extension BrowserSession {
     }
 
     func removeSidebarPin(_ tab: Tab, in owner: Space) {
-        guard spaces.contains(where: { $0 === owner }), owner.tabs.contains(where: { $0 === tab }), !tab.isLocked else { return }
+        guard spaces.contains(where: { $0 === owner }), owner.tabs.contains(where: { $0 === tab }),
+              !tab.isLocked, !isInLiveFolder(tab) else { return }
         selectSpace(owner)
         if tab.pinnedSiteID != nil { unpin(tab); return }
         tab.setKeepsInSidebar(false)

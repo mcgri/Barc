@@ -621,6 +621,24 @@ final class BrowserSession {
         return tab
     }
 
+    /// Resetting a Space pin keeps its identity and saved address. Command-click
+    /// also keeps the departing page in Today, in that same Space and profile.
+    @discardableResult
+    func resetSidebarPin(_ tab: Tab, keepingCurrentPage: Bool = false) -> Bool {
+        guard canResetSidebarPin(tab), let owner = sidebarOwner(of: tab),
+              let savedURL = tab.pinnedPageURL else { return false }
+        if keepingCurrentPage {
+            let previous = Tab(url: tab.url, identity: owner.identity)
+            // Domain routing is for newly requested destinations. This page
+            // already belongs to the pin's profile and must remain there.
+            insert(previous, into: owner, at: owner.tabs.count, select: false)
+        }
+        selectSpace(owner)
+        selectTab(tab)
+        tab.load(savedURL)
+        return true
+    }
+
     private func routedSpace(for url: URL, origin: SpaceRouter.Origin) -> Space? {
         guard case .route(let id) = routing.decision(
             for: url,

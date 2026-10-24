@@ -1092,11 +1092,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     @objc func togglePinActiveTab(_ sender: Any?) {
         guard let tab = session.activeTab else { return }
-        if let site = session.activeSpace.pinnedSites.first(where: { $0.id == tab.pinnedSiteID || $0.matches(tab.url) }) {
-            session.removePinnedSite(site)
-        } else {
-            session.pin(tab)
-        }
+        session.setSidebarPin(!tab.isSidebarRetained, for: tab)
+    }
+
+    @objc func favoriteActiveTab(_ sender: Any?) {
+        guard let tab = session.activeTab else { return }
+        session.pin(tab)
+    }
+
+    @objc func resetActivePin(_ sender: Any?) {
+        guard let tab = session.activeTab else { return }
+        session.resetSidebarPin(tab)
     }
 
     @objc func duplicateActiveTab(_ sender: Any?) {
@@ -1226,7 +1232,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 )
             }
 
-            let commands = CommandCatalog.all + AutomationService.shared.paletteCommands
+            let commands = CommandCatalog.available(in: self.session) + AutomationService.shared.paletteCommands
 
             return CommandRanker.rank(
                 query: query,
@@ -2164,7 +2170,15 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case "duplicate-tab":
             duplicateActiveTab(nil)
         case "pin-tab":
-            togglePinActiveTab(nil)
+            if let tab = session.activeTab { session.setSidebarPin(true, for: tab) }
+        case "unpin-tab":
+            if let tab = session.activeTab { session.setSidebarPin(false, for: tab) }
+        case "favorite-tab":
+            favoriteActiveTab(nil)
+        case "reset-tab":
+            resetActivePin(nil)
+        case "replace-pin-with-current-page":
+            if let tab = session.activeTab, session.canResetSidebarPin(tab) { tab.setPinnedPageURL(tab.url) }
         case "copy-url":
             copyCurrentURL(nil)
         case "copy-markdown-link":
@@ -2740,6 +2754,13 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case #selector(toggleBookmark(_:)):
             menuItem.title = session.activeTabIsBookmarked ? "Remove Bookmark" : "Add Bookmark"
             return session.activeTab != nil
+        case #selector(togglePinActiveTab(_:)):
+            menuItem.title = session.activeTab?.isSidebarRetained == true ? "Unpin Tab" : "Pin Tab"
+            return session.activeTab.map(session.canChangeSidebarPin) ?? false
+        case #selector(favoriteActiveTab(_:)):
+            return session.activeTab.map { !session.isPinned($0) && session.activeSpace.pinnedSites.count < 12 } ?? false
+        case #selector(resetActivePin(_:)):
+            return session.activeTab.map(session.canResetSidebarPin) ?? false
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
             return session.activeSpace.tabs.count > 1
         case #selector(selectNextSpace(_:)), #selector(selectPreviousSpace(_:)):

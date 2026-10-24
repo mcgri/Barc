@@ -41,7 +41,7 @@ final class StoredItemsMenu: NSObject, NSMenuDelegate {
 
     private func bookmarkCommands() -> [NSMenuItem] {
         [
-            item("Add Bookmark", #selector(BrowserWindowController.toggleBookmark(_:)), "d"),
+            item("Add Bookmark", #selector(BrowserWindowController.toggleBookmark(_:))),
             item("Bookmark Manager & Search\u{2026}", #selector(BrowserWindowController.openBookmarkManager(_:)), "b", modifiers: [.command, .shift]),
             item("Clean Up Duplicate Bookmarks", #selector(BrowserWindowController.cleanupDuplicateBookmarks(_:)))
         ]

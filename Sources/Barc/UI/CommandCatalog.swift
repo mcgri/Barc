@@ -4,6 +4,22 @@ import Foundation
 /// Catalog of actions and commands executable from the Command Palette (Cmd-K).
 @MainActor
 enum CommandCatalog {
+    static func available(in session: BrowserSession) -> [CommandCandidate] {
+        all.filter { command in
+            switch command.id {
+            case "pin-tab":
+                return session.activeTab.map { session.canChangeSidebarPin($0) && !$0.isSidebarRetained } ?? false
+            case "unpin-tab":
+                return session.activeTab.map { session.canChangeSidebarPin($0) && $0.isSidebarRetained } ?? false
+            case "reset-tab", "replace-pin-with-current-page":
+                return session.activeTab.map(session.canResetSidebarPin) ?? false
+            case "favorite-tab":
+                return session.activeTab.map { !session.isPinned($0) && session.activeSpace.pinnedSites.count < 12 } ?? false
+            default: return true
+            }
+        }
+    }
+
     static let all: [CommandCandidate] = [
         // Tabs
         CommandCandidate(
@@ -80,11 +96,40 @@ enum CommandCatalog {
         ),
         CommandCandidate(
             id: "pin-tab",
-            title: "Pin / Unpin Tab",
-            subtitle: "Toggle pinned shortcut in sidebar",
+            title: "Pin Tab",
+            subtitle: "Keep this tab in the current Space",
             symbolName: "pin",
-            shortcut: "⇧⌘P",
-            keywords: ["pin", "unpin", "favorite", "favourite", "tile"]
+            shortcut: "⌘D",
+            keywords: ["pin", "keep", "tab", "space"]
+        ),
+        CommandCandidate(
+            id: "unpin-tab",
+            title: "Unpin Tab",
+            subtitle: "Move this pin to Today",
+            symbolName: "pin.slash",
+            shortcut: "⌘D",
+            keywords: ["unpin", "remove pin", "today"]
+        ),
+        CommandCandidate(
+            id: "favorite-tab",
+            title: "Favorite Tab",
+            subtitle: "Add a Favorite shared by Spaces in this profile",
+            symbolName: "star",
+            keywords: ["favorite", "favourite", "tile"]
+        ),
+        CommandCandidate(
+            id: "reset-tab",
+            title: "Reset Tab",
+            subtitle: "Return to this pin's saved page",
+            symbolName: "arrow.uturn.backward",
+            keywords: ["reset", "pin", "original", "saved page"]
+        ),
+        CommandCandidate(
+            id: "replace-pin-with-current-page",
+            title: "Replace Pin with Current Page",
+            subtitle: "Save this page as the pin's original address",
+            symbolName: "pin.circle",
+            keywords: ["replace", "pin", "saved page", "address"]
         ),
         CommandCandidate(
             id: "next-tab",
