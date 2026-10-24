@@ -51,8 +51,9 @@ enum TabOptionsMenu {
         let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
         let spaces = NSMenu(); spaces.autoenablesItems = false
         for candidate in destinations {
-            let item = add(candidate.name, .move(candidate.id), to: spaces, enabled: candidate !== owner)
+            let item = add(candidate.name, .move(candidate.id), to: spaces)
             item.state = candidate === owner ? .on : .off
+            item.image = candidate.dotImage(side: 16)
         }
         spaces.addItem(.separator())
         add("New Space…", .newSpace, to: spaces)

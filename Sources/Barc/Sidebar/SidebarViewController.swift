@@ -1821,7 +1821,7 @@ final class SidebarViewController: NSViewController {
         return TabOptionsMenu.make(retained: retained, muted: tab.isMuted, canMute: tab.isPlayingAudio || tab.isMuted,
             canRemove: retained ? !tab.isLocked : canArchive(.tab), canSplit: (owner?.tabs.count ?? 0) > 1,
             canReplacePinnedURL: (tab.pinnedPageURL ?? tab.url) != tab.url,
-            owner: owner, destinations: session.spaces, canArchiveOther: canArchive(.other),
+            owner: owner, destinations: session.sidebarSpaces, canArchiveOther: canArchive(.other),
             canArchiveAbove: canArchive(.above), canArchiveBelow: canArchive(.below), extended: makeExtendedTabMenu(for: tab)) {
             [weak self, weak tab, weak owner, weak anchor] action in
             guard let self, let tab, let owner, session.spaces.contains(where: { $0 === owner }),
@@ -1881,7 +1881,7 @@ final class SidebarViewController: NSViewController {
     /// Older lifecycle and annotation tools stay available by holding Option.
     func makeExtendedTabMenu(for tab: Tab) -> NSMenu {
         let menu = NSMenu()
-        let space = session.activeSpace
+        let space = session.sidebarOwner(of: tab) ?? session.activeSpace
         func add(_ title: String, _ selector: Selector, symbol: String? = nil, key: String = "",
                  modifiers: NSEvent.ModifierFlags = .command, enabled: Bool = true) {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
@@ -1929,7 +1929,7 @@ final class SidebarViewController: NSViewController {
         let move = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: "")
         move.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
         let spaces = NSMenu()
-        for candidate in session.spaces where candidate !== space {
+        for candidate in session.sidebarSpaces where candidate !== space {
             let item = NSMenuItem(title: candidate.name, action: #selector(moveTabToSpaceFromMenu(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = [tab, candidate]
@@ -2028,12 +2028,13 @@ final class SidebarViewController: NSViewController {
             add(group.isCollapsed ? "Expand" : "Collapse", #selector(toggleGroupCollapsedFromMenu(_:)), alternate: true)
             let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
             let spaces = NSMenu(); spaces.autoenablesItems = false
-            for candidate in session.spaces {
+            for candidate in session.sidebarSpaces {
                 let item = NSMenuItem(title: candidate.name, action: #selector(moveGroupToSpaceFromMenu(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = [group, candidate]
                 item.state = candidate === owner ? .on : .off
-                item.isEnabled = candidate !== owner
+                item.isEnabled = true
+                item.image = candidate.dotImage(side: 16)
                 spaces.addItem(item)
             }
             spaces.addItem(.separator())
@@ -2528,7 +2529,7 @@ final class SidebarViewController: NSViewController {
         let moveItem = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: "")
         moveItem.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
         let spacesMenu = NSMenu()
-        for candidate in session.spaces where candidate !== space {
+        for candidate in session.sidebarSpaces where candidate !== space {
             let item = NSMenuItem(title: candidate.name, action: #selector(moveSelectedTabsToSpaceFromMenu(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = [tabs, candidate]
