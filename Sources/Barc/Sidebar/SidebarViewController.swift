@@ -2097,7 +2097,12 @@ final class SidebarViewController: NSViewController {
         tableView.addSubview(field)
         tableView.scrollRowToVisible(row)
         positionFolderNameEditor()
-        field.beginEditing()
+        // A menu restores its previous responder as tracking ends. Focusing
+        // synchronously would immediately blur and commit this new editor.
+        DispatchQueue.main.async { [weak self, weak field] in
+            guard let self, let field, folderNameEdit?.field === field else { return }
+            field.beginEditing()
+        }
     }
 
     private func positionFolderNameEditor() {

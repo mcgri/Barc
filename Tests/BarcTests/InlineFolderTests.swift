@@ -15,9 +15,12 @@ struct InlineFolderTests {
         return (sidebar, window)
     }
 
-    private func perform(_ title: String, in menu: NSMenu) throws {
+    private func perform(_ title: String, in menu: NSMenu) async throws {
         let item = try #require(menu.items.first { $0.title == title })
         #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private func editor(_ sidebar: SidebarViewController) throws -> FolderNameEditor {
@@ -30,11 +33,11 @@ struct InlineFolderTests {
     }
 
     @Test("New Folder appears directly above New Tab with its name selected, without a sheet")
-    func newFolder() throws {
+    func newFolder() async throws {
         let session = TestSession.make().0
         let (sidebar, window) = host(session); defer { window.close() }
         let tab = session.activeTab
-        try perform("New Folder", in: sidebar.makeAddMenu())
+        try await perform("New Folder", in: sidebar.makeAddMenu())
         let field = try editor(sidebar)
         let folder = try #require(session.activeSpace.groups.last)
         #expect(folder.name == "Untitled")
@@ -56,11 +59,11 @@ struct InlineFolderTests {
     }
 
     @Test("Rename edits the row, Escape preserves its name and Return trims the new title")
-    func renameAndCancel() throws {
+    func renameAndCancel() async throws {
         let session = TestSession.make().0
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let first = try editor(sidebar)
         type("Discard this", into: first)
         #expect(first.control(first, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:))))
@@ -68,7 +71,7 @@ struct InlineFolderTests {
         // The late field-editor end notification must not turn Escape into a save.
         first.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification))
         #expect(folder.name == "Original")
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let second = try editor(sidebar)
         type("  Project notes  ", into: second)
         second.commit()
@@ -77,29 +80,29 @@ struct InlineFolderTests {
     }
 
     @Test("Clicking elsewhere commits the name once and empty input keeps the old title")
-    func blurAndEmptyName() throws {
+    func blurAndEmptyName() async throws {
         let session = TestSession.make().0
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let field = try editor(sidebar)
         type("Saved on blur", into: field)
         #expect(window.makeFirstResponder(sidebar.tabListTableView))
         #expect(folder.name == "Saved on blur")
         type("Late notification", into: field); field.commit()
         #expect(folder.name == "Saved on blur")
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let empty = try editor(sidebar); type("   ", into: empty); empty.commit()
         #expect(folder.name == "Saved on blur")
         #expect(empty.superview == nil)
     }
 
     @Test("Unrelated row rebuilds keep the same editor and the name being typed")
-    func survivesRebuild() throws {
+    func survivesRebuild() async throws {
         let session = TestSession.make().0
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let field = try editor(sidebar)
         type("Still typing", into: field)
         _ = session.createGroup(named: "Another folder")
@@ -111,13 +114,13 @@ struct InlineFolderTests {
     }
 
     @Test("A nested folder opens its parent and editing never reparents existing tabs")
-    func nestedFolder() throws {
+    func nestedFolder() async throws {
         let session = TestSession.make().0
         let parent = session.createGroup(named: "Parent")
         session.toggleCollapsed(parent)
         let page = session.newTab(url: URL(string: "https://folder-fixture.invalid/")!)
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("New Nested Folder…", in: sidebar.makeGroupMenu(for: parent))
+        try await perform("New Nested Folder…", in: sidebar.makeGroupMenu(for: parent))
         let child = try #require(session.activeSpace.groups.last)
         #expect(child !== parent && child.parentID == parent.id)
         #expect(!parent.isCollapsed && page.groupID == nil)
@@ -127,12 +130,12 @@ struct InlineFolderTests {
     }
 
     @Test("A Space switch saves to the folder's owning Space, never the newly selected one")
-    func switchSpace() throws {
+    func switchSpace() async throws {
         let session = TestSession.make().0
         let original = session.activeSpace
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let field = try editor(sidebar); type("Saved in original", into: field)
         let other = session.addSpace(named: "Other")
         #expect(folder.name == "Saved in original")
@@ -141,11 +144,11 @@ struct InlineFolderTests {
     }
 
     @Test("A removed folder cannot be renamed by an outstanding editor callback")
-    func removalDuringEdit() throws {
+    func removalDuringEdit() async throws {
         let session = TestSession.make().0
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let field = try editor(sidebar); type("Must not return", into: field)
         session.removeGroup(folder)
         field.commit()
@@ -154,16 +157,16 @@ struct InlineFolderTests {
     }
 
     @Test("Creating a folder with selected tabs uses the same inline editor")
-    func foldersWithTabs() throws {
+    func foldersWithTabs() async throws {
         let session = TestSession.make().0
         let a = session.newTab(url: URL(string: "https://folder-fixture.invalid/a")!)
         let b = session.newTab(url: URL(string: "https://folder-fixture.invalid/b")!)
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("New Folder with Tab", in: sidebar.makeTabMenu(for: a))
+        try await perform("New Folder with Tab", in: sidebar.makeTabMenu(for: a))
         let first = try #require(a.groupID.flatMap { session.activeSpace.group(withID: $0) })
         let field = try editor(sidebar); type("First", into: field); field.commit()
         #expect(first.name == "First" && b.groupID == nil)
-        try perform("New Folder with 2 Tabs", in: sidebar.makeMultiTabMenu(for: [a, b]))
+        try await perform("New Folder with 2 Tabs", in: sidebar.makeMultiTabMenu(for: [a, b]))
         let second = try #require(b.groupID.flatMap { session.activeSpace.group(withID: $0) })
         #expect(second !== first && a.groupID == second.id)
         let other = try editor(sidebar); type("Together", into: other); other.commit()
@@ -171,28 +174,47 @@ struct InlineFolderTests {
     }
 
     @Test("Folding an edited child's parent ends the edit instead of leaving a field over another row")
-    func collapseDuringEdit() throws {
+    func collapseDuringEdit() async throws {
         let session = TestSession.make().0
         let parent = session.createGroup(named: "Parent")
         let child = session.createGroup(named: "Child", parent: parent)
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: child))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: child))
         let field = try editor(sidebar); type("Saved before folding", into: field)
         session.toggleCollapsed(parent)
         #expect(child.name == "Saved before folding" && field.superview == nil)
     }
 
     @Test("Opening the Library commits the edit and resizing keeps the field inside the row")
-    func layoutAndLibrary() throws {
+    func layoutAndLibrary() async throws {
         let session = TestSession.make().0
         let folder = session.createGroup(named: "Original")
         let (sidebar, window) = host(session); defer { window.close() }
-        try perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
+        try await perform("Rename…", in: sidebar.makeGroupMenu(for: folder))
         let field = try editor(sidebar); type("Before Library", into: field)
         window.setContentSize(NSSize(width: 190, height: 800))
         window.contentView?.layoutSubtreeIfNeeded()
         #expect(field.frame.width > 40 && field.frame.maxX <= sidebar.tabListTableView.bounds.maxX)
         sidebar.showLibrary(category: .spaces)
         #expect(folder.name == "Before Library" && field.superview == nil)
+    }
+
+    @Test("The menu can restore its responder before inline editing takes keyboard focus")
+    func menuTrackingFocus() async throws {
+        let session = TestSession.make().0
+        let folder = session.createGroup(named: "Original")
+        let (sidebar, window) = host(session); defer { window.close() }
+        #expect(window.makeFirstResponder(sidebar.tabListTableView))
+        let item = try #require(sidebar.makeGroupMenu(for: folder).items.first { $0.title == "Rename…" })
+        #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
+        let field = try editor(sidebar)
+        // NSMenu does this after dispatching its action. The new name field
+        // must not interpret that restoration as the user finishing an edit.
+        #expect(window.makeFirstResponder(sidebar.tabListTableView))
+        await withCheckedContinuation { continuation in DispatchQueue.main.async { continuation.resume() } }
+        #expect(field.superview === sidebar.tabListTableView)
+        #expect(field.currentEditor() != nil)
+        field.cancel()
+        #expect(folder.name == "Original")
     }
 }
