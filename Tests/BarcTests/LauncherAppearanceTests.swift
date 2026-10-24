@@ -6,6 +6,10 @@ import Testing
 @Suite("Launcher appearance", .serialized)
 @MainActor
 struct LauncherAppearanceTests {
+    private final class ResultHost: NSView {
+        var outsidePresses = 0
+        override func mouseDown(with event: NSEvent) { outsidePresses += 1 }
+    }
     private let light = ImportedChrome.Color(red: 0.826347351, green: 0.591038585, blue: 0.47506243, alpha: 1)
     private let dark = ImportedChrome.Color(red: 0.720435321, green: 0.341610074, blue: 0.154899195, alpha: 0.8075)
     private func theme() -> [String: Any] {
@@ -125,5 +129,27 @@ struct LauncherAppearanceTests {
         let arrowRect = arrow.convert(arrow.bounds,to:panel)
         #expect(arrowRect.width == 24 && abs(panel.bounds.maxX-arrowRect.maxX-22)<0.5)
         command.cancelOperation(nil)
+    }
+
+    @Test("A result consumes its press and runs on release, while releasing outside cancels")
+    func mousePressSequence() throws {
+        _ = NSApplication.shared
+        let host = ResultHost(frame:NSRect(x:0,y:0,width:400,height:100))
+        let row = CommandRowView(frame:NSRect(x:0,y:0,width:300,height:46))
+        host.addSubview(row)
+        row.configure(.init(id:"row",kind:.openTab,title:"Research",subtitle:"",symbolName:"globe",
+            action:.switchToTab(UUID()),score:0),splitChoice:true)
+        var chosen = 0;row.onClick = { chosen += 1 }
+        func event(_ type:NSEvent.EventType,_ point:NSPoint) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with:type,location:point,modifierFlags:[],timestamp:0,
+                windowNumber:0,context:nil,eventNumber:1,clickCount:1,pressure:1))
+        }
+        row.mouseDown(with:try event(.leftMouseDown,NSPoint(x:280,y:23)))
+        #expect(host.outsidePresses == 0 && chosen == 0)
+        row.mouseUp(with:try event(.leftMouseUp,NSPoint(x:280,y:23)))
+        #expect(chosen == 1)
+        row.mouseDown(with:try event(.leftMouseDown,NSPoint(x:280,y:23)))
+        row.mouseUp(with:try event(.leftMouseUp,NSPoint(x:350,y:23)))
+        #expect(chosen == 1 && host.outsidePresses == 0)
     }
 }

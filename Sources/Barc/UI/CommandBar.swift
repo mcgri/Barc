@@ -527,7 +527,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             let inset = min(80, max(0, (bounds.width - width) / 2))
             let x = min(max(rect.midX, bounds.minX + inset + width / 2), bounds.maxX - inset - width / 2)
             centeredConstraints[0].constant = x - center.midX
-            centeredConstraints[1].constant = rect.midY - center.midY
+            // Anchor rectangles use AppKit's upward Y; layout constants run
+            // downward. Arc's chooser rests just above the pane's centre.
+            centeredConstraints[1].constant = center.midY - rect.midY - 10
         }
     }
 

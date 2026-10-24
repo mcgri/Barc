@@ -228,11 +228,13 @@ final class CommandRowView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         if acceptsSpringPress { press.down() }
-        super.mouseDown(with: event)
+        // This press belongs to the result. Forwarding it reaches the
+        // launcher's outside-click handler and dismisses it before mouseUp.
     }
 
     override func mouseUp(with event: NSEvent) {
         press.up()
+        guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onClick?()
     }
 

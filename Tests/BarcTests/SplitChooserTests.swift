@@ -44,6 +44,7 @@ struct SplitChooserTests {
         let panelFrame = panel.convert(panel.bounds, to: root)
         #expect(panelFrame.midX > root.bounds.midX, "panel \(panelFrame), empty \(empty(controller)?.convert(empty(controller)!.bounds, to: root) ?? .zero), root \(root.bounds)")
         #expect(panelFrame.maxX <= root.bounds.maxX - 79)
+        #expect(abs(panelFrame.midY - root.bounds.midY - 10) < 0.5)
         session.saveNow()
         #expect(try store.load()?.spaces[0].tabs.count == count)
         command.cancelOperation(nil)
@@ -82,6 +83,11 @@ struct SplitChooserTests {
         defer { cleanup(controller) }
         controller.splitStacked(nil)
         let command = try bar(controller)
+        let root = try #require(controller.window?.contentView)
+        let panel = try #require(UITestSupport.descendants(of:command).compactMap { $0 as? CommandPanelView }.first)
+        let pane = try #require(empty(controller)?.superview)
+        let panelRect = panel.convert(panel.bounds,to:root), paneRect = pane.convert(pane.bounds,to:root)
+        #expect(abs(panelRect.midY - paneRect.midY - 10) < 0.5)
         let field = try #require(UITestSupport.descendants(of: command).compactMap { $0 as? NSTextField }.first { $0.isEditable })
         command.setResults([])
         field.stringValue = url("chosen").absoluteString
