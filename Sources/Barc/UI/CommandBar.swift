@@ -67,6 +67,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
     }
 
+    var textSelectionColor: NSColor = .selectedTextBackgroundColor {
+        didSet { applyTextSelection() }
+    }
+    private weak var themedEditor: NSTextView?
+    private var originalSelectionAttributes: [NSAttributedString.Key: Any]?
+
     /// Performs a chosen row, or the address the user typed. The bar resolves
     /// text into a `URL` itself so that the caller has one case to handle
     /// rather than two, but it never navigates: it has no session to navigate.
@@ -476,6 +482,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         field.stringValue = text
         setResults([])
         window?.makeFirstResponder(field)
+        applyTextSelection()
         field.currentEditor()?.selectAll(nil)
     }
 
@@ -487,6 +494,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         isNewTabMode = false
         queryTask?.cancel()
         queryTask = nil
+        restoreTextSelection()
         isHidden = true
         field.stringValue = ""
         setResults([])
@@ -517,6 +525,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     func focusField() {
         window?.makeFirstResponder(field)
+        applyTextSelection()
         field.currentEditor()?.selectAll(nil)
     }
 
@@ -758,7 +767,40 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         close()
     }
 
+    /// A window shares one field editor between controls. Restore its exact
+    /// attributes before another control starts editing, including on submit.
+    private func applyTextSelection() {
+        guard isOpen, let editor = field.currentEditor() as? NSTextView,
+              editor.delegate === field else { return }
+        if themedEditor !== editor {
+            restoreTextSelection()
+            themedEditor = editor
+            originalSelectionAttributes = editor.selectedTextAttributes
+        }
+        var attributes = editor.selectedTextAttributes
+        attributes[.backgroundColor] = textSelectionColor
+        attributes[.foregroundColor] = field.textColor ?? Style.Colors.primaryText
+        editor.selectedTextAttributes = attributes
+        editor.needsDisplay = true
+    }
+
+    private func restoreTextSelection() {
+        if let themedEditor, let originalSelectionAttributes {
+            themedEditor.selectedTextAttributes = originalSelectionAttributes
+        }
+        themedEditor = nil
+        originalSelectionAttributes = nil
+    }
+
     // MARK: - NSTextFieldDelegate
+
+    func controlTextDidBeginEditing(_ obj: Notification) {
+        applyTextSelection()
+    }
+
+    func controlTextDidEndEditing(_ obj: Notification) {
+        restoreTextSelection()
+    }
 
     func controlTextDidChange(_ obj: Notification) {
         if usesLauncherRows, !isSplitMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

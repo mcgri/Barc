@@ -1794,6 +1794,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     private func applyLook(of space: Space) {
         commandBar.selectionColor = space.commandFocusColor
+        commandBar.textSelectionColor = space.commandTextSelectionColor
         content.showImportedChrome(space.activeImportedChrome, grain: sidebar.isLibraryVisible ? 0 : space.chromeGrain,
                                    materialStrength: sidebar.isLibraryVisible ? LibraryMetrics.materialStrength : 0.21)
         // Light or dark for this window only. The Settings window and the

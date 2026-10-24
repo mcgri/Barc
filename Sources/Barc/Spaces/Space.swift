@@ -127,6 +127,19 @@ final class Space: Identifiable {
         }
     }
 
+    /// URL text has a softer highlight than the selected result underneath it.
+    var commandTextSelectionColor: NSColor {
+        let chrome = activeImportedChrome
+        let fallback = color.blended(withFraction: 0.35, of: .gray) ?? color
+        let lightFocus = chrome?.lightFocus?.nsColor ?? fallback
+        let darkFocus = chrome?.darkFocus?.nsColor ?? fallback
+        let light = chrome?.lightSubtitle?.nsColor ?? lightFocus.blended(withFraction: 0.2, of: .white) ?? lightFocus
+        let dark = chrome?.darkSubtitle?.nsColor ?? darkFocus.blended(withFraction: 0.35, of: .gray) ?? darkFocus
+        return NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
     var chromeGrain: Double { (activeImportedChrome?.noise ?? 0) * look.washOpacity }
 
     /// The solid wash while this tab is in front: the page's own colour if the

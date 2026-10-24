@@ -423,7 +423,8 @@ final class BrowserSession {
             space.look.appearance = appearance
             if let chrome = space.look.importedChrome {
                 space.look.importedChrome = ImportedChrome(color: chrome.color, intensity: chrome.intensity, noise: chrome.noise,
-                    usesDarkText: !dark, usesLightMaterial: !dark, lightFocus: chrome.lightFocus, darkFocus: chrome.darkFocus)
+                    usesDarkText: !dark, usesLightMaterial: !dark, lightFocus: chrome.lightFocus, darkFocus: chrome.darkFocus,
+                    lightSubtitle: chrome.lightSubtitle, darkSubtitle: chrome.darkSubtitle)
             }
         }
         changes.send(.spaces)
@@ -2841,7 +2842,7 @@ final class BrowserSession {
                    !space.look.importedChromeWasCustomized,
                    space.look.customColorHex?.lowercased() == built.look.customColorHex?.lowercased(),
                    let chrome = built.look.importedChrome {
-                    space.look.importedChrome = space.look.importedChrome?.enrichingFocus(from: chrome) ?? chrome
+                    space.look.importedChrome = space.look.importedChrome?.enrichingPalette(from: chrome) ?? chrome
                 }
                 if let engine = stored.searchEngineID { space.searchEngineID = engine }
                 for group in built.groups where !space.groups.contains(where: { $0.id == group.id }) { space.addGroup(group); addedFolders += 1 }

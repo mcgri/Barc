@@ -12,6 +12,8 @@ struct LauncherAppearanceTests {
     }
     private let light = ImportedChrome.Color(red: 0.826347351, green: 0.591038585, blue: 0.47506243, alpha: 1)
     private let dark = ImportedChrome.Color(red: 0.720435321, green: 0.341610074, blue: 0.154899195, alpha: 0.8075)
+    private let lightSubtitle = ImportedChrome.Color(red: 0.861077845, green: 0.67283082, blue: 0.580049932, alpha: 1)
+    private let darkSubtitle = ImportedChrome.Color(red: 0.501807392, green: 0.459225595, blue: 0.444477081, alpha: 1)
     private func theme() -> [String: Any] {
         func raw(_ c: ImportedChrome.Color) -> [String: Any] {
             ["colorSpace":"extendedSRGB","red":c.red,"green":c.green,"blue":c.blue,"alpha":c.alpha]
@@ -19,20 +21,21 @@ struct LauncherAppearanceTests {
         return ["background":["single":["_0":["contentOverBackgroundAppearance":"light",
             "style":["color":["_0":["blendedSingleColor":["_0":["color":raw(.init(red:1,green:0.522,blue:0.344,alpha:1)),
                 "translucencyStyle":"light"]]]]]]]],
-            "semanticColorPalette":["appearanceBased":["light":["focus":raw(light)],"dark":["focus":raw(dark)]]]]
+            "semanticColorPalette":["appearanceBased":["light":["focus":raw(light),"subtitle":raw(lightSubtitle)],"dark":["focus":raw(dark),"subtitle":raw(darkSubtitle)]]]]
     }
 
     @Test("Semantic focus colours survive import and storage while older sessions still decode")
     func retainedPalette() throws {
         let chrome = try #require(ImportedChrome.read(theme()))
         #expect(chrome.lightFocus == light && chrome.darkFocus == dark)
+        #expect(chrome.lightSubtitle == lightSubtitle && chrome.darkSubtitle == darkSubtitle)
         let restored = try JSONDecoder().decode(ImportedChrome.self, from: JSONEncoder().encode(chrome))
         #expect(restored == chrome)
         var old = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(chrome)) as? [String: Any])
-        old.removeValue(forKey: "lightFocus"); old.removeValue(forKey: "darkFocus")
+        for key in ["lightFocus", "darkFocus", "lightSubtitle", "darkSubtitle"] { old.removeValue(forKey: key) }
         let legacy = try JSONDecoder().decode(ImportedChrome.self, from: JSONSerialization.data(withJSONObject: old))
         #expect(legacy.isValid && legacy.lightFocus == nil && legacy.darkFocus == nil)
-        #expect(legacy.enrichingFocus(from: chrome) == chrome)
+        #expect(legacy.enrichingPalette(from: chrome) == chrome)
     }
 
     @Test("Missing or invalid semantic colours do not invalidate a usable imported background")
@@ -50,6 +53,7 @@ struct LauncherAppearanceTests {
         let space = session.activeSpace
         let chrome = try #require(ImportedChrome.read(theme()))
         var legacy = chrome; legacy.lightFocus = nil; legacy.darkFocus = nil
+        legacy.lightSubtitle = nil; legacy.darkSubtitle = nil
         space.theme = .custom; space.look.customColorHex = "#ff8558"; space.look.importedChrome = legacy
         let tabs = space.tabs.map(\.id), identity = space.identity
         var incoming = session.snapshot().spaces[0]; incoming.look?.importedChrome = chrome
@@ -57,6 +61,7 @@ struct LauncherAppearanceTests {
         #expect(space.look.importedChrome == chrome && space.tabs.map(\.id) == tabs && space.identity == identity)
         session.setBrowserAppearance(.dark)
         #expect(space.look.importedChrome?.lightFocus == light && space.look.importedChrome?.darkFocus == dark)
+        #expect(space.look.importedChrome?.lightSubtitle == lightSubtitle && space.look.importedChrome?.darkSubtitle == darkSubtitle)
         session.setCustomColor(.green, for: space)
         _ = try session.applyArcSpaces([incoming])
         #expect(space.look.importedChrome == nil && space.look.customColor == .green)
@@ -78,20 +83,71 @@ struct LauncherAppearanceTests {
         }
     }
 
-    @Test("Opaque panel colours keep website colours out of both light and dark launchers")
-    func opaquePanel() throws {
+    @Test("URL selection follows the Space separately from its selected result")
+    func spaceTextSelection() throws {
+        let space = TestSession.make().0.activeSpace
+        space.theme = .custom; space.look.importedChrome = try #require(ImportedChrome.read(theme()))
+        for (name, expected) in [(NSAppearance.Name.aqua, lightSubtitle), (.darkAqua, darkSubtitle)] {
+            NSAppearance(named: name)!.performAsCurrentDrawingAppearance {
+                let color = space.commandTextSelectionColor.usingColorSpace(.extendedSRGB)!
+                #expect(abs(color.redComponent - expected.red) < 0.0001)
+                #expect(abs(color.greenComponent - expected.green) < 0.0001)
+                #expect(abs(color.blueComponent - expected.blue) < 0.0001)
+            }
+        }
+    }
+
+    @Test("Closing, submitting and moving focus restore the shared field editor's original highlight")
+    func fieldEditorRestoration() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: NSRect(x:0,y:0,width:1200,height:800),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let root = try #require(window.contentView)
+        let other = NSTextField(frame: NSRect(x:0,y:0,width:120,height:24)); root.addSubview(other)
+        let bar = CommandBar(); bar.install(in:root)
+        let editor = try #require(window.fieldEditor(true, for:other) as? NSTextView)
+        window.makeFirstResponder(other)
+        let original = editor.selectedTextAttributes
+        for exit in 0..<3 {
+            bar.textSelectionColor = lightSubtitle.nsColor
+            bar.openLocation(text:"https://example.invalid/",suggestions:[])
+            let active = try #require(window.firstResponder as? NSTextView)
+            #expect(active === editor)
+            #expect((active.selectedTextAttributes[.backgroundColor] as? NSColor) == lightSubtitle.nsColor)
+            var attributes = active.selectedTextAttributes
+            attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            active.selectedTextAttributes = attributes
+            bar.textSelectionColor = darkSubtitle.nsColor
+            #expect(active.selectedTextAttributes[.underlineStyle] as? Int == NSUnderlineStyle.single.rawValue)
+            #expect((active.selectedTextAttributes[.backgroundColor] as? NSColor) == darkSubtitle.nsColor)
+            if exit == 0 { bar.close() }
+            if exit == 1 { bar.submit() }
+            if exit == 2 { window.makeFirstResponder(other) }
+            #expect(NSDictionary(dictionary:editor.selectedTextAttributes).isEqual(to:original))
+            window.makeFirstResponder(other)
+            #expect(NSDictionary(dictionary:editor.selectedTextAttributes).isEqual(to:original))
+            bar.close()
+        }
+    }
+
+    @Test("Light and dark launchers blur within their window with a translucent tint above the effect")
+    func frostedPanel() throws {
         _ = NSApplication.shared
         let host = NSView(frame:NSRect(x:0,y:0,width:1400,height:900))
         let command = CommandBar(); command.install(in:host)
         let panel = try #require(UITestSupport.descendants(of:command).compactMap { $0 as? CommandPanelView }.first)
+        #expect(panel.material == .hudWindow && panel.blendingMode == .withinWindow && panel.state == .active)
+        let tint = try #require(panel.subviews.first)
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             command.appearance = NSAppearance(named:name)
-            command.viewDidChangeEffectiveAppearance()
             panel.viewDidChangeEffectiveAppearance()
-            let rgb = NSColor(cgColor:try #require(panel.layer?.backgroundColor))!.usingColorSpace(.sRGB)!
-            #expect(rgb.alphaComponent == 1)
-            #expect(abs(rgb.redComponent - (name == .aqua ? 249.0/255 : 0.1)) < 0.002)
+            let rgb = NSColor(cgColor:try #require(tint.layer?.backgroundColor))!.usingColorSpace(.sRGB)!
+            #expect(abs(rgb.alphaComponent - 0.8) < 0.001)
+            #expect(abs(rgb.redComponent - (name == .aqua ? 253.0/255 : 20.0/255)) < 0.002)
         }
+        #expect(panel.layer?.masksToBounds == true)
     }
 
     @Test("The title, icon and separate arrow all invoke the same selectable result")
