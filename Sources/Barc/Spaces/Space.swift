@@ -1,14 +1,8 @@
-// Modified for Barc: saturated custom Space colors for Arc sidebar fidelity, 2026-10-24.
+// Modified for Barc: compact sidebar themes and profile-owned browsing data, 2026-10-24.
 import AppKit
 
-/// A named browsing workspace, and an identity.
-///
-/// One thing, deliberately. A space is the set of tabs you switch between and
-/// the person the browser is signed in as while you are there: every space
-/// keeps its own cookies, logins and site data, so the same website can be
-/// signed into as one account in Personal and another in Work. Switching
-/// spaces is switching identities. This replaced the earlier split into
-/// spaces and profiles.
+/// A named tab layout. Its profile owns the browsing identity and Favorites;
+/// several Spaces can use one profile without duplicating its open Favorites.
 ///
 /// The mutators below are called only by `BrowserSession`, which is what
 /// announces every change to the UI. Mutating a `Space` directly would change
@@ -77,10 +71,8 @@ final class Space: Identifiable {
     let id: UUID
 
     var name: String
-    /// The identity every tab in this space browses under. Fixed for the life
-    /// of the space: WebKit binds a web view to its data store at creation,
-    /// and a space that changed identity would have to tear down every page.
-    let identity: Identity
+    private(set) var profile: BrowserProfile
+    var identity: Identity { profile.identity }
     /// What the window looks like while this space is the one in front.
     var theme: SpaceTheme
     /// The rim around the window while this space is in front. Per space,
@@ -179,7 +171,10 @@ final class Space: Identifiable {
     /// being kept.
     var isPrivate: Bool { identity.isPrivate }
 
-    private(set) var tabs: [Tab] = []
+    private(set) var workspaceTabs: [Tab] = []
+    var tabs: [Tab] {
+        profile.favoriteTabs.isEmpty ? workspaceTabs : workspaceTabs + profile.favoriteTabs
+    }
     private(set) var activeTabID: Tab.ID?
 
     /// Named clusters inside this space, in sidebar order. Tabs point at a
@@ -187,38 +182,68 @@ final class Space: Identifiable {
     private(set) var groups: [TabGroup] = []
 
     /// Sites pinned to the tile strip at the top of the sidebar.
-    private(set) var pinnedSites: [PinnedSite] = []
+    var pinnedSites: [PinnedSite] { profile.pinnedSites }
     /// Per-space auto-archive delay in hours, or nil to follow global preferences.
     /// Setting to 0 disables auto-archiving for this space.
-    var archiveHours: Int?
+    var archiveHours: Int? {
+        get { profile.preferences.archiveHours }
+        set { profile.preferences.archiveHours = newValue }
+    }
 
     /// Per-space downloads directory override path (e.g. "~/Downloads/Work"), or nil for global Downloads.
-    var downloadsDirectoryPath: String?
+    var downloadsDirectoryPath: String? {
+        get { profile.preferences.downloadsDirectoryPath }
+        set { profile.preferences.downloadsDirectoryPath = newValue }
+    }
 
     /// Dedicated bookmarks folder shown on this space's bookmarks bar, or nil for all bookmarks.
-    var bookmarkFolder: String?
+    var bookmarkFolder: String? {
+        get { profile.preferences.bookmarkFolder }
+        set { profile.preferences.bookmarkFolder = newValue }
+    }
 
     /// Set of extension IDs enabled in this space. If nil, all globally enabled extensions run.
-    var enabledExtensionIDs: Set<UUID>?
+    var enabledExtensionIDs: Set<UUID>? {
+        get { profile.preferences.enabledExtensionIDs }
+        set { profile.preferences.enabledExtensionIDs = newValue }
+    }
 
     /// Account or vault name used by password managers/extensions for this space (e.g. "Work", "Personal").
-    var passwordVaultAccount: String?
+    var passwordVaultAccount: String? {
+        get { profile.preferences.passwordVaultAccount }
+        set { profile.preferences.passwordVaultAccount = newValue }
+    }
 
     /// Space-specific network proxy override. When nil or disabled, browser global proxy settings apply.
-    var customProxy: ProxySettings?
+    var customProxy: ProxySettings? {
+        get { profile.preferences.customProxy }
+        set { profile.preferences.customProxy = newValue }
+    }
 
     /// The search engine this space's omnibox uses, by id, or nil for the
     /// one in Settings.
-    var searchEngineID: String?
+    var searchEngineID: String? {
+        get { profile.preferences.searchEngineID }
+        set { profile.preferences.searchEngineID = newValue }
+    }
     /// A user agent for every page in this space, or nil for the default.
     /// A per-site choice in Websites still wins over it.
-    var userAgent: String?
+    var userAgent: String? {
+        get { profile.preferences.userAgent }
+        set { profile.preferences.userAgent = newValue }
+    }
     /// Minutes before a background tab here sleeps: nil follows Settings,
     /// 0 never sleeps.
-    var sleepMinutes: Int?
+    var sleepMinutes: Int? {
+        get { profile.preferences.sleepMinutes }
+        set { profile.preferences.sleepMinutes = newValue }
+    }
     /// The zoom pages here start at, as a `SiteSettings` zoom step such as
     /// "1.25", or nil for the default. A per-site zoom still wins over it.
-    var defaultZoom: String?
+    var defaultZoom: String? {
+        get { profile.preferences.defaultZoom }
+        set { profile.preferences.defaultZoom = newValue }
+    }
 
     /// Effective proxy settings for this space: space-specific if enabled, otherwise global.
     var effectiveProxy: ProxySettings? {
@@ -245,13 +270,14 @@ final class Space: Identifiable {
 
     var effectivePasswordAccount: String {
         let trimmed = passwordVaultAccount?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return trimmed.isEmpty ? name : trimmed
+        return trimmed.isEmpty ? profile.name : trimmed
     }
 
     init(
         id: UUID = UUID(),
         name: String,
         identity: Identity,
+        profile: BrowserProfile? = nil,
         theme: SpaceTheme = .default,
         border: WindowBorder = .none,
         look: SpaceLook = SpaceLook(),
@@ -268,20 +294,15 @@ final class Space: Identifiable {
     ) {
         self.id = id
         self.name = name
-        self.identity = identity
+        self.profile = profile ?? BrowserProfile(name: identity == .standard ? "Default" : name, identity: identity)
         self.theme = theme
         self.border = border
         self.look = look
-        self.archiveHours = archiveHours
-        self.downloadsDirectoryPath = downloadsDirectoryPath
-        self.bookmarkFolder = bookmarkFolder
-        self.enabledExtensionIDs = enabledExtensionIDs
-        self.passwordVaultAccount = passwordVaultAccount
-        self.customProxy = customProxy
-        self.searchEngineID = searchEngineID
-        self.userAgent = userAgent
-        self.sleepMinutes = sleepMinutes
-        self.defaultZoom = defaultZoom
+        if profile == nil {
+            self.profile.preferences = ProfilePreferences(archiveHours: archiveHours, downloadsDirectoryPath: downloadsDirectoryPath,
+                bookmarkFolder: bookmarkFolder, enabledExtensionIDs: enabledExtensionIDs, passwordVaultAccount: passwordVaultAccount,
+                customProxy: customProxy, searchEngineID: searchEngineID, userAgent: userAgent, sleepMinutes: sleepMinutes, defaultZoom: defaultZoom)
+        }
     }
 
     /// The idle time before a tab here sleeps, or nil for never; falls back
@@ -303,24 +324,32 @@ final class Space: Identifiable {
     // MARK: - Mutators (BrowserSession only)
 
     func insert(_ tab: Tab, at index: Int) {
-        tabs.insert(tab, at: min(max(index, 0), tabs.count))
+        if tab.pinnedSiteID != nil, let canonical = profile.adoptFavorite(tab) {
+            // Old per-Space copies can have different navigations or notes.
+            // Preserve a divergent page as an ordinary tab when coalescing.
+            if canonical === tab || BrowserProfile.sameFavoriteCopy(canonical, tab) { return }
+        }
+        if tab.pinnedSiteID != nil { tab.setPinnedSiteID(nil) }
+        guard !workspaceTabs.contains(where: { $0 === tab }) else { return }
+        workspaceTabs.insert(tab, at: min(max(index, 0), workspaceTabs.count))
     }
 
     /// Removes the tab and returns the index it occupied, or nil if absent.
     @discardableResult
     func remove(_ tab: Tab) -> Int? {
         guard let index = index(of: tab) else { return nil }
-        tabs.remove(at: index)
+        if let local = workspaceTabs.firstIndex(where: { $0 === tab }) { workspaceTabs.remove(at: local) }
+        else { profile.removeFavorite(tab) }
         return index
     }
 
     /// `destination` is a pre-removal insertion point, matching the index a
     /// table view reports from a drop.
     func move(from source: Int, to destination: Int) {
-        guard tabs.indices.contains(source) else { return }
-        let tab = tabs.remove(at: source)
+        guard workspaceTabs.indices.contains(source) else { return }
+        let tab = workspaceTabs.remove(at: source)
         let target = source < destination ? destination - 1 : destination
-        tabs.insert(tab, at: min(max(target, 0), tabs.count))
+        workspaceTabs.insert(tab, at: min(max(target, 0), workspaceTabs.count))
     }
 
     func setActiveTabID(_ id: Tab.ID?) {
@@ -332,7 +361,7 @@ final class Space: Identifiable {
     @discardableResult
     func replaceTabs(with ordered: [Tab]) -> Bool {
         guard ordered.count == tabs.count, Set(ordered.map(\.id)) == Set(tabs.map(\.id)) else { return false }
-        tabs = ordered
+        workspaceTabs = ordered.filter { $0.pinnedSiteID == nil }
         return true
     }
 
@@ -401,23 +430,27 @@ final class Space: Identifiable {
     // MARK: - Pinned sites
 
     func addPinnedSite(_ site: PinnedSite) {
-        guard !pinnedSites.contains(where: { $0.matches(site.url) }) else { return }
-        pinnedSites.append(site)
+        profile.addPinnedSite(site)
     }
 
     func removePinnedSite(_ site: PinnedSite) {
-        pinnedSites.removeAll { $0.id == site.id }
+        profile.removePinnedSite(site)
     }
 
     func movePinnedSite(from source: Int, to destination: Int) {
-        guard pinnedSites.indices.contains(source) else { return }
-        let site = pinnedSites.remove(at: source)
-        let target = source < destination ? destination - 1 : destination
-        pinnedSites.insert(site, at: min(max(target, 0), pinnedSites.count))
+        profile.movePinnedSite(from: source, to: destination)
     }
 
     func restore(groups: [TabGroup], pinnedSites: [PinnedSite]) {
         self.groups = groups
-        self.pinnedSites = pinnedSites
+        for site in pinnedSites { profile.addPinnedSite(site) }
+    }
+
+    func useProfile(_ profile: BrowserProfile) { self.profile = profile }
+
+    func promoteFavorite(_ tab: Tab) {
+        guard profile.adoptFavorite(tab) != nil else { return }
+        tab.setGroupID(nil)
+        workspaceTabs.removeAll { $0 === tab }
     }
 }

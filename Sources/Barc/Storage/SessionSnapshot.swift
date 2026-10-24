@@ -60,13 +60,13 @@ struct SessionSnapshot: Codable, Equatable {
         var tint: String?
         var tabs: [Tab]
         var activeTabIndex: Int?
-        /// Which profile this space browsed under, in sessions written while
-        /// profiles were separate from spaces. Read for migration, never
         /// The space's own identifier. Absent in sessions written before a
         /// space's id was saved, which are given new ones on the way in.
         var id: UUID?
-        /// written; see `profiles`.
+        /// The profile registry entry assigned to this layout.
         var profileID: UUID?
+        var profileName: String?
+        var activeFavoriteID: UUID?
         /// Where this space's website data lives. Absent in sessions written
         /// before a space was its own identity, which are migrated from
         /// `profileID`.
@@ -111,6 +111,8 @@ struct SessionSnapshot: Codable, Equatable {
             tabs: [Tab] = [],
             activeTabIndex: Int? = nil,
             profileID: UUID? = nil,
+            profileName: String? = nil,
+            activeFavoriteID: UUID? = nil,
             identity: Barc.Space.Identity? = nil,
             theme: String? = nil,
             border: WindowBorder? = nil,
@@ -137,6 +139,8 @@ struct SessionSnapshot: Codable, Equatable {
             self.tabs = tabs
             self.activeTabIndex = activeTabIndex
             self.profileID = profileID
+            self.profileName = profileName
+            self.activeFavoriteID = activeFavoriteID
             self.identity = identity
             self.theme = theme
             self.border = border
@@ -200,8 +204,8 @@ struct SessionSnapshot: Codable, Equatable {
         var title: String
     }
 
-    /// A profile, from sessions written while profiles were a separate thing
-    /// from spaces. Decoded so those sessions migrate; never written.
+    /// A browsing identity and its shared Favorites. Older profile records
+    /// without these optional fields still restore their original stores.
     struct Profile: Codable, Equatable {
         /// The shape the earlier build encoded, kept exactly so its files
         /// still decode. `ephemeral` carried no identifier then.
@@ -215,11 +219,16 @@ struct SessionSnapshot: Codable, Equatable {
         var name: String
         var kind: Kind
         var theme: String?
+        var pinnedSites: [Pinned]? = nil
+        var favoriteTabs: [Tab]? = nil
+        var importedFavoriteIDs: [String]? = nil
+        var preferences: ProfilePreferences? = nil
+        var hasCustomName: Bool? = nil
     }
 
     var spaces: [Space]
     var activeSpaceIndex: Int
-    /// Present only in sessions written while profiles existed.
+    /// Profiles retain their browsing identity and Favorites even with no Spaces.
     var profiles: [Profile]?
 }
 

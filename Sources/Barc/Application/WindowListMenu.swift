@@ -1,3 +1,4 @@
+// Modified for Barc: profile-scoped data actions shared by assigned Spaces, 2026-10-24.
 import AppKit
 
 /// Fills the View menu's Tabs, Pinned Sites and Spaces submenus when they
@@ -105,7 +106,7 @@ final class WindowListMenu: NSObject, NSMenuDelegate {
         }
         items.append(.separator())
         let clearItem = NSMenuItem(
-            title: "Clear This Space's Data\u{2026}",
+            title: "Clear This Profile's Data\u{2026}",
             action: #selector(BrowserWindowController.clearCurrentSpaceData(_:)),
             keyEquivalent: ""
         )

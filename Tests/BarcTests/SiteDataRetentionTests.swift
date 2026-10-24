@@ -95,7 +95,7 @@ struct SiteDataRetentionTests {
     func commandCatalogIncludesClearSpaceData() {
         let command = CommandCatalog.all.first { $0.id == "clear-space-data" }
         #expect(command != nil)
-        #expect(command?.title.contains("Space") == true)
+        #expect(command?.title.contains("Profile") == true)
         #expect(command?.keywords.contains("clear") == true)
         #expect(command?.keywords.contains("cookies") == true)
     }

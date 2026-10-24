@@ -4,10 +4,13 @@ import AppKit
 @MainActor
 enum SpaceOptionsMenu {
     enum Action: Equatable {
-        case icon, rename, theme, newFolder, github, manage, delete
+        case icon, rename, theme, newFolder, github, manage, delete, newProfile
+        case profile(UUID)
     }
 
-    static func make(canDelete: Bool, hasGitHubFolder: Bool, perform: @escaping (Action) -> Void) -> NSMenu {
+    static func make(canDelete: Bool, hasGitHubFolder: Bool, profiles: [BrowserProfile] = [],
+                     selectedProfileID: UUID? = nil, allowsProfileChange: Bool = true,
+                     perform: @escaping (Action) -> Void) -> NSMenu {
         let menu = NSMenu(title: "Space Options")
         menu.autoenablesItems = false
         func add(_ title: String, _ action: Action, to menu: NSMenu) -> NSMenuItem {
@@ -21,6 +24,18 @@ enum SpaceOptionsMenu {
         _ = add("Change Space Icon…", .icon, to: menu)
         _ = add("Rename Space…", .rename, to: menu)
         _ = add("Edit Theme Color…", .theme, to: menu)
+        let setProfile = NSMenuItem(title: "Set Profile", action: nil, keyEquivalent: "")
+        let choices = NSMenu(title: "Set Profile"); choices.autoenablesItems = false
+        for profile in profiles.filter({ !$0.identity.isPrivate }).sorted(by: {
+            if ($0.identity == .standard) != ($1.identity == .standard) { return $0.identity == .standard }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }) {
+            add(profile.name, .profile(profile.id), to: choices).state = profile.id == selectedProfileID ? .on : .off
+        }
+        choices.addItem(.separator())
+        _ = add("New Profile…", .newProfile, to: choices)
+        setProfile.submenu = choices; setProfile.isEnabled = allowsProfileChange
+        menu.addItem(setProfile)
         menu.addItem(.separator())
         _ = add("New Folder", .newFolder, to: menu)
         let live = NSMenuItem(title: "Live Folders", action: nil, keyEquivalent: "")

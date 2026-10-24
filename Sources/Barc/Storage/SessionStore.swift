@@ -1,3 +1,4 @@
+// Modified for Barc: private session snapshots with profile persistence, 2026-10-24.
 import CryptoKit
 import Foundation
 
@@ -54,6 +55,7 @@ final class SessionStore {
         let digest = SHA256.hash(data: data)
         guard digest != lastWrittenDigest else { return }
         try data.write(to: fileURL, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         lastWrittenDigest = digest
     }
 

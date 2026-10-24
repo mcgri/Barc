@@ -22,7 +22,7 @@ struct PerSpaceExtrasTests {
     @Test("Space resolves effective password vault account name")
     func passwordAccountResolution() {
         let space = Space(name: "Personal", identity: .standard)
-        #expect(space.effectivePasswordAccount == "Personal")
+        #expect(space.effectivePasswordAccount == space.profile.name)
 
         space.passwordVaultAccount = "My 1Password Vault"
         #expect(space.effectivePasswordAccount == "My 1Password Vault")

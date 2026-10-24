@@ -1022,7 +1022,7 @@ final class SidebarViewController: NSViewController {
             accessibilityLabel: "Space",
             tooltip: space.isPrivate
                 ? "\(space.name). Private: nothing is written to disk."
-                : "\(space.name). Its own cookies and logins.",
+                : "\(space.name). Profile: \(space.profile.name).",
             identity: space.id
         )
         if previewSpace == nil {
@@ -1087,7 +1087,8 @@ final class SidebarViewController: NSViewController {
             if case .github = source { return true }
             return false
         }
-        return SpaceOptionsMenu.make(canDelete: session.spaces.count > 1, hasGitHubFolder: hasGitHub) {
+        return SpaceOptionsMenu.make(canDelete: session.spaces.count > 1, hasGitHubFolder: hasGitHub,
+                                     profiles: session.profiles, selectedProfileID: space.profile.id, allowsProfileChange: !space.isPrivate) {
             [weak self, weak space, weak anchor] action in
             guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
             if isLibraryVisible, [.rename, .newFolder, .github].contains(action) { hideLibrary() }
@@ -1097,6 +1098,20 @@ final class SidebarViewController: NSViewController {
             DispatchQueue.main.async { [weak self, weak space, weak anchor] in
                 guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
                 switch action {
+                case .profile(let id):
+                    if let profile = session.profiles.first(where: { $0.id == id }) { session.assignProfile(profile, to: space) }
+                case .newProfile:
+                    let alert = NSAlert()
+                    alert.messageText = "New Profile"
+                    alert.informativeText = "Profiles keep logins, history and Favorites separate."
+                    let name = NSTextField(string: "New Profile"); name.placeholderString = "Profile name"
+                    name.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+                    alert.accessoryView = name
+                    alert.addButton(withTitle: "Create Profile"); alert.addButton(withTitle: "Cancel")
+                    alert.window.initialFirstResponder = name
+                    guard alert.runModal() == .alertFirstButtonReturn,
+                          let profile = session.addProfile(named: name.stringValue) else { return }
+                    session.assignProfile(profile, to: space)
                 case .rename:
                     diaHeader.spaceButton.beginRenaming { [weak self, weak space] name in
                         guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
@@ -1117,7 +1132,7 @@ final class SidebarViewController: NSViewController {
                 case .delete:
                     guard session.spaces.count > 1 else { return }
                     confirm(message: "Delete the Space \u{201c}\(space.name)\u{201d}?",
-                            detail: space.isPrivate ? "Its tabs will be closed." : "Its tabs will be closed and its cookies, logins and site data will be erased.",
+                            detail: space.isPrivate ? "Its tabs will be closed." : "Its tabs will be closed. Its profile, Favorites and saved browsing data will be kept.",
                             action: "Delete") { [weak self, weak space] in
                         guard let self, let space else { return }
                         session.removeSpace(space)
@@ -1695,7 +1710,8 @@ final class SidebarViewController: NSViewController {
             let space = session.addSpace(
                 named: options.name,
                 isPrivate: options.isPrivate,
-                icon: options.icon
+                icon: options.icon,
+                profile: options.isPrivate ? nil : (session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile)
             )
             if options.keepsItsOwnColour {
                 switch options.wash {

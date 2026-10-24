@@ -32,6 +32,8 @@ Open Settings → Import → **Import from Arc…**, choose `~/Library/Applicati
 
 Each Arc profile gets a separate website identity in Barc. Arc Spaces that share a profile keep sharing it. The importer restores supported tabs, nested folders, favourites, archives, full history, bookmarks, saved passwords, cookies, local storage, addresses, search shortcuts and download records. Archived web tabs from deleted Spaces go into a separate Unassigned Arc archive Space. Payment cards stay in Arc.
 
+Use a Space's **Set Profile** menu to select or create a profile. Spaces using the same profile share Favorites and browsing data while keeping their own tab lists and appearance. Deleting a Space keeps its profile and saved data. Switching Spaces needs no browser restart.
+
 Barc reads a private copy of Arc's files, including pending database writes. Existing Barc data is kept. Repeating an import uses source identifiers to avoid duplicating imported records and preserves existing destination passwords, cookies and local-storage values. macOS may ask for access to **Arc Safe Storage** to read encrypted passwords and cookies. If access is declined, the other selected categories can still be imported.
 
 Importing the sidebar restores the selected Arc Spaces' relative order while keeping unrelated Barc Spaces in their current positions. Arc's extended-sRGB Space colours are mapped into Barc's supported colour range.

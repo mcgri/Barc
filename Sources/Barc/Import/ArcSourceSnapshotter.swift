@@ -1,3 +1,4 @@
+// Modified for Barc: retain Arc's profile labels separately from Space names, 2026-10-24.
 import Foundation
 import SQLite3
 
@@ -49,7 +50,7 @@ enum ArcSourceSnapshotter {
                 var profiles: [ArcProfile] = []
                 for name in cache.keys.sorted(by: { $0.localizedStandardCompare($1) == .orderedAscending }) {
                     guard validProfileName(name), manager.fileExists(atPath: source.appending(path: "User Data/\(name)").path) else { continue }
-                    let display = name == "Default" ? "Personal" : cache[name]?["name"] as? String ?? name
+                    let display = name == "Default" ? "Default" : cache[name]?["name"] as? String ?? name
                     profiles.append(ArcProfile(folder: name, name: display))
                 }
                 guard !profiles.isEmpty else { throw ArcImportFailure.invalidFolder }

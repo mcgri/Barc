@@ -93,6 +93,7 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
     private let session: BrowserSession
     private let name = NSTextField()
     private let icon = NSImageView()
+    private let profileButton = LibraryProfileButton()
     private let more = IconButton(symbolName: "pencil", label: "Space Options", side: 22, symbolSize: 12)
     private let scroll = NSScrollView()
     private let rows = LibraryFlippedStack()
@@ -115,20 +116,28 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
             guard let self, let menu = menuProvider?(more) else { return }
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: more.bounds.maxY), in: more)
         }
+        profileButton.setClickHandler { [weak self] in
+            guard let self, let menu = menuProvider?(profileButton),
+                  let profiles = menu.items.first(where: { $0.title == "Set Profile" })?.submenu else { return }
+            profiles.popUp(positioning: nil, at: NSPoint(x: 0, y: profileButton.bounds.maxY), in: profileButton)
+        }
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false; scroll.hasVerticalScroller = true; scroll.automaticallyAdjustsContentInsets = false
         rows.orientation = .vertical; rows.alignment = .leading; rows.spacing = 0
         rows.translatesAutoresizingMaskIntoConstraints = false
         scroll.documentView = rows
         let add = IconButton(symbolName: "plus", label: "New Tab in \(space.name)", side: 26, symbolSize: 15) { [weak self] in self?.onNewTab?() }
-        [icon, name, more, scroll, add].forEach(addSubview)
+        [icon, name, profileButton, more, scroll, add].forEach(addSubview)
         NSLayoutConstraint.activate([
             grain.leadingAnchor.constraint(equalTo: leadingAnchor), grain.trailingAnchor.constraint(equalTo: trailingAnchor),
             grain.topAnchor.constraint(equalTo: topAnchor), grain.bottomAnchor.constraint(equalTo: bottomAnchor),
             icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 18), icon.topAnchor.constraint(equalTo: topAnchor, constant: 16),
             icon.widthAnchor.constraint(equalToConstant: 18), icon.heightAnchor.constraint(equalToConstant: 18),
             name.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8), name.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
-            name.trailingAnchor.constraint(equalTo: more.leadingAnchor, constant: -4),
+            name.trailingAnchor.constraint(equalTo: profileButton.leadingAnchor, constant: -6),
+            profileButton.trailingAnchor.constraint(equalTo: more.leadingAnchor, constant: -6),
+            profileButton.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
+            profileButton.widthAnchor.constraint(lessThanOrEqualToConstant: 90), profileButton.heightAnchor.constraint(equalToConstant: 20),
             more.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8), more.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), scroll.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
             scroll.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 10), scroll.bottomAnchor.constraint(equalTo: add.topAnchor, constant: -6),
@@ -140,6 +149,7 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
     required init?(coder: NSCoder) { fatalError("LibrarySpaceCard is created in code only") }
     func reload() {
         if name.currentEditor() == nil { name.stringValue = space.name }
+        profileButton.show(space.profile.name, isPrivate: space.isPrivate)
         icon.image = space.dotImage(side: 18)
         let dark = space.activeImportedChrome.map { !$0.usesDarkText } ?? (space.look.appearance == .dark)
         appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
@@ -166,6 +176,40 @@ private final class LibrarySpaceCard: NSView, NSTextFieldDelegate {
     }
     private func append(_ row: NSView) { rows.addArrangedSubview(row); row.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true }
     func controlTextDidEndEditing(_ notification: Notification) { session.rename(space, to: name.stringValue); name.stringValue = space.name }
+}
+
+@MainActor
+private final class LibraryProfileButton: NSButton {
+    private var invoke: (() -> Void)?
+    init() {
+        super.init(frame: .zero)
+        translatesAutoresizingMaskIntoConstraints = false
+        font = .systemFont(ofSize: 10)
+        isBordered = false
+        imagePosition = .imageLeading
+        image = NSImage(systemSymbolName: "face.smiling", accessibilityDescription: nil)?.withSymbolConfiguration(.init(pointSize: 10, weight: .regular))
+        lineBreakMode = .byTruncatingTail
+        target = self; action = #selector(open)
+        setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+    }
+    required init?(coder: NSCoder) { fatalError("Created in code only") }
+    func setClickHandler(_ handler: @escaping () -> Void) { invoke = handler }
+    func show(_ name: String, isPrivate: Bool) {
+        title = name
+        isEnabled = !isPrivate
+        setAccessibilityLabel("Profile: " + name)
+        toolTip = "Set Profile"
+        invalidateIntrinsicContentSize()
+    }
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: min(90, (title as NSString).size(withAttributes: [.font: font ?? NSFont.systemFont(ofSize: 10)]).width + 26), height: 20)
+    }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.white.withAlphaComponent(0.16).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 10, yRadius: 10).fill()
+        super.draw(dirtyRect)
+    }
+    @objc private func open() { invoke?() }
 }
 
 @MainActor

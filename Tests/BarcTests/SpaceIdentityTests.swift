@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import Barc
 
-@Suite("A space is an identity")
+@Suite("Spaces use browsing identities")
 @MainActor
 struct SpaceIdentityTests {
     @Test("A fresh session has one space, on WebKit's default store")
@@ -94,13 +94,14 @@ struct SpaceIdentityTests {
         #expect(research.theme != session.spaces[0].theme)
     }
 
-    @Test("Deleting a space takes its identity with it")
+    @Test("Deleting a Space keeps its profile available")
     func deletingASpace() {
         let session = TestSession.make().0
         let work = session.addSpace(named: "Work")
         session.removeSpace(work)
         #expect(session.spaces.count == 1)
         #expect(session.activeSpace.identity == .standard)
+        #expect(session.profiles.contains { $0 === work.profile })
     }
 
     @Test("The last space cannot be deleted")
@@ -182,10 +183,10 @@ struct SpaceIdentityTests {
             settings: Settings(defaults: defaults)
         )
         #expect(session.spaces.map(\.name) == ["Personal", "Research", "Work"])
-        // The first space on the default profile keeps the default store and
-        // its logins; the second one that shared it starts afresh.
+        // Both layouts continue to use the original shared profile and logins.
         #expect(session.spaces[0].identity == .standard)
-        #expect(session.spaces[1].identity != .standard)
+        #expect(session.spaces[1].identity == .standard)
+        #expect(session.spaces[0].profile === session.spaces[1].profile)
         #expect(session.spaces[1].isPrivate == false)
         // A space with its own profile keeps that profile's store.
         #expect(session.spaces[2].identity == .isolated(workStore))

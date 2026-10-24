@@ -1,12 +1,10 @@
+// Modified for Barc: website data belongs to a profile shared by its Spaces, 2026-10-24.
 import Foundation
 import WebKit
 
-/// The website data every space holds, as one thing to list and to clear.
-///
-/// Each space has its own data store, so "all website data" means the
-/// default store plus every isolated one the session knows. Private spaces
-/// hold theirs in memory and are not listed: there is nothing on disk to
-/// manage, and it goes when they do.
+/// Website data across registered profiles, including those without a Space.
+/// Spaces using a profile share its store. Private stores stay in memory and
+/// are not listed among persisted website data.
 @MainActor
 enum WebsiteData {
     /// One site's data across the stores it appears in.

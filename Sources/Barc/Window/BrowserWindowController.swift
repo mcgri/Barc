@@ -1878,19 +1878,21 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     @objc func clearCurrentSpaceData(_ sender: Any?) {
         let space = session.activeSpace
         let alert = NSAlert()
-        alert.messageText = "Clear Data for \"\(space.name)\"?"
-        alert.informativeText = "This will delete cookies, cache, local storage, and database records for this space. Open tabs in this space will be reloaded."
+        alert.messageText = "Clear Data for Profile \"\(space.profile.name)\"?"
+        let names = session.spaces.filter { $0.profile === space.profile }.map(\.name).joined(separator: ", ")
+        alert.informativeText = "This will delete cookies, cache, local storage, and website databases for this profile. Its open pages will reload in every Space using it: \(names). Saved passwords and history will remain."
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "Clear Space Data")
+        alert.addButton(withTitle: "Clear Profile Data")
         alert.addButton(withTitle: "Cancel")
         if let button = alert.buttons.first {
             button.hasDestructiveAction = true
         }
         let response = alert.runModal()
         guard response == .alertFirstButtonReturn else { return }
+        let confirmedIdentity = space.identity
 
         Task { [weak self] in
-            guard let self else { return }
+            guard let self, space.identity == confirmedIdentity else { return }
             await self.session.clearSpaceData(for: space)
         }
     }
@@ -2202,7 +2204,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case "previous-space":
             selectPreviousSpace(nil)
         case "new-space":
-            _ = session.addSpace(named: "New Space")
+            _ = session.addSpace(named: "New Space", profile: session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile)
         case "split-side-by-side":
             splitSideBySide(nil)
         case "split-stacked":

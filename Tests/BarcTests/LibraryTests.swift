@@ -223,4 +223,17 @@ struct LibraryTests {
         #expect(callbackCount == 1 && eventCount == 1)
         withExtendedLifetime(observer) {}
     }
+
+    @Test("Space cards show the live profile and open its checked profile menu")
+    func profilePill() throws {
+        let session = TestSession.make().0
+        let profile = try #require(session.addProfile(named: "Shared profile"))
+        let space = session.addSpace(named: "Layout", profile: profile)
+        let view = LibrarySpacesView(session: session)
+        _ = UITestSupport.host(view, width: 1000, height: 800)
+        #expect(UITestSupport.buttons(in: view).contains { $0.accessibilityLabel() == "Profile: Shared profile" })
+        session.renameProfile(profile, to: "Renamed")
+        #expect(UITestSupport.buttons(in: view).contains { $0.accessibilityLabel() == "Profile: Renamed" })
+        #expect(space.name == "Layout")
+    }
 }

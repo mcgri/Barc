@@ -170,8 +170,8 @@ enum CommandCatalog {
         ),
         CommandCandidate(
             id: "clear-space-data",
-            title: "Clear This Space's Data\u{2026}",
-            subtitle: "Erase cookies, cache and website data for current space",
+            title: "Clear This Profile's Data\u{2026}",
+            subtitle: "Erase cookies, cache and website data in Spaces using this profile",
             symbolName: "trash",
             shortcut: nil,
             keywords: ["clear", "space", "data", "cookies", "cache", "erase", "delete", "reset", "clean"]

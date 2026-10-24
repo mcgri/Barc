@@ -49,6 +49,7 @@ final class BrowserSession {
     let liveFolders = LiveFolderManager()
 
     private(set) var spaces: [Space] = []
+    private(set) var profiles: [BrowserProfile] = []
     private(set) var activeSpaceID: Space.ID
     private(set) var bookmarks: [Bookmark] = []
 
@@ -132,17 +133,19 @@ final class BrowserSession {
             newTab()
         }
 
+        profiles = Self.profileList(from: restored, spaces: self.spaces)
+        for profile in profiles { for tab in profile.favoriteTabs { adopt(tab) } }
         liveFolders.delegate = self
         loadBookmarks()
 
         NetworkConfigManager.shared.spaceProxyResolver = { [weak self] identity in
-            self?.spaces.first(where: { $0.identity == identity })?.customProxy
+            self?.profiles.first(where: { $0.identity == identity })?.preferences.customProxy
         }
         // A tab knows its identity, not its space; this is how it asks for
         // the space's user agent and starting zoom.
         Tab.spaceOverrides = { [weak self] identity in
-            guard let space = self?.spaces.first(where: { $0.identity == identity }) else { return nil }
-            return Tab.SpaceOverrides(userAgent: space.userAgent, defaultZoom: space.defaultZoom)
+            guard let profile = self?.profiles.first(where: { $0.identity == identity }) else { return nil }
+            return Tab.SpaceOverrides(userAgent: profile.preferences.userAgent, defaultZoom: profile.preferences.defaultZoom)
         }
     }
 
@@ -153,6 +156,117 @@ final class BrowserSession {
     }
 
     var activeTab: Tab? { activeSpace.activeTab }
+
+    @discardableResult
+    func addProfile(named name: String) -> BrowserProfile? {
+        let name = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+        guard !name.isEmpty else { return nil }
+        let profile = BrowserProfile(name: name, identity: .makeIsolated())
+        profile.hasCustomName = true
+        profiles.append(profile)
+        changes.send(.spaces)
+        scheduleSave()
+        return profile
+    }
+
+    func renameProfile(_ profile: BrowserProfile, to rawName: String) {
+        let name = String(rawName.trimmingCharacters(in: .whitespacesAndNewlines).prefix(64))
+        guard profiles.contains(where: { $0 === profile }), !name.isEmpty, name != profile.name else { return }
+        profile.name = name
+        profile.hasCustomName = true
+        changes.send(.spaces)
+        scheduleSave()
+    }
+
+    /// Rebinds the layout's pages to an existing identity. WebKit state never
+    /// crosses the profile seam: the old profile keeps its data and Favorites.
+    @discardableResult
+    func assignProfile(_ profile: BrowserProfile, to space: Space) -> Bool {
+        guard spaces.contains(where: { $0 === space }), profiles.contains(where: { $0 === profile }),
+              !space.isPrivate, !profile.identity.isPrivate, space.profile !== profile else { return false }
+        let oldProfile = space.profile
+        // Recently closed and archived pages also belong to their old login
+        // context. Retain their URLs and metadata, never its opaque WebKit state.
+        closedTabs = closedTabs.map { record in
+            guard record.spaceID == space.id else { return record }
+            var stored = record.snapshot; stored.interactionState = nil
+            return ClosedTab(id: record.id, snapshot: stored, spaceID: record.spaceID, closedAt: record.closedAt)
+        }
+        closedWindows = closedWindows.map { record in
+            guard record.spaceID == space.id else { return record }
+            let tabs = record.tabs.map { stored in var copy = stored; copy.interactionState = nil; return copy }
+            return ClosedWindow(id: record.id, title: record.title, spaceID: record.spaceID, tabs: tabs, closedAt: record.closedAt)
+        }
+        for index in archivedTabs.indices where archivedTabs[index].spaceID == space.id {
+            archivedTabs[index].snapshot.interactionState = nil
+        }
+        let selected = space.workspaceTabs.firstIndex { $0.id == space.activeTabID }
+        let snapshots = space.workspaceTabs.map { tab -> SessionSnapshot.Tab in
+            var stored = tab.snapshot()
+            stored.interactionState = nil
+            return stored
+        }
+        for tab in space.workspaceTabs { _ = space.remove(tab); forget(tab) }
+        space.useProfile(profile)
+        for stored in snapshots {
+            let tab = Tab(restoring: stored, identity: profile.identity); adopt(tab)
+            space.insert(tab, at: space.workspaceTabs.count)
+        }
+        if space.workspaceTabs.isEmpty {
+            let tab = Tab(url: settings.newTabURL(isPrivate: false), identity: profile.identity); adopt(tab)
+            space.insert(tab, at: 0); space.setActiveTabID(tab.id)
+        } else { space.setActiveTabID(space.workspaceTabs[min(selected ?? 0, space.workspaceTabs.count - 1)].id) }
+        splitsBySpace[space.id] = nil
+        stickyPanesBySpace[space.id] = nil
+        if !spaces.contains(where: { $0.profile === oldProfile }) {
+            for tab in oldProfile.favoriteTabs { tab.unload() }
+        }
+        if activeSpace === space { bookmarks = []; changes.send(.bookmarks); loadBookmarks() }
+        changes.send(.spaces); changes.send(.structure); changes.send(.tabs); changes.send(.activeTab)
+        scheduleSave()
+        return true
+    }
+
+    private func space(containing tab: Tab) -> Space? {
+        if activeSpace.index(of: tab) != nil { return activeSpace }
+        return spaces.first { $0.index(of: tab) != nil }
+    }
+
+    private func repairSelections(for profile: BrowserProfile) {
+        for space in spaces where space.profile === profile {
+            if space.tabs.isEmpty {
+                insert(Tab(url: settings.newTabURL(isPrivate: space.isPrivate), identity: profile.identity), into: space, at: 0, select: true)
+            } else if space.activeTab == nil { space.setActiveTabID(space.tabs.first?.id) }
+        }
+    }
+
+    private static func profileList(from snapshot: SessionSnapshot?, spaces: [Space]) -> [BrowserProfile] {
+        var result: [BrowserProfile] = []
+        for space in spaces where !result.contains(where: { $0.identity == space.identity }) { result.append(space.profile) }
+        for stored in snapshot?.profiles ?? [] {
+            let profile = BrowserProfile.restore(stored)
+            if !result.contains(where: { $0.identity == profile.identity }) { result.append(profile) }
+        }
+        return result
+    }
+
+    private func reconcileProfiles() {
+        for space in spaces {
+            if let existing = profiles.first(where: { $0.identity == space.identity }) {
+                guard existing !== space.profile else { continue }
+                let activeFavorite = space.activeTab?.pinnedSiteID == nil ? nil : space.activeTab
+                let incomingFavorites = space.profile.favoriteTabs
+                existing.mergeFavorites(from: space.profile)
+                space.useProfile(existing)
+                // Coalesce identical old copies. If a copy was on another
+                // page or had different notes, keep it as an ordinary tab.
+                for tab in incomingFavorites { space.insert(tab, at: space.workspaceTabs.count) }
+                if let pinID = activeFavorite?.pinnedSiteID, let tab = existing.favoriteTabs.first(where: { $0.pinnedSiteID == pinID }) { space.setActiveTabID(tab.id) }
+            } else { profiles.append(space.profile) }
+        }
+        let liveIDs = Set(allTabs.map(\.id))
+        for id in Array(tabSubscriptions.keys) where !liveIDs.contains(id) { tabSubscriptions[id] = nil }
+    }
 
     /// Adds a space with an identity of its own: fresh cookies, no logins.
     ///
@@ -166,18 +280,22 @@ final class BrowserSession {
         named name: String,
         isPrivate: Bool = false,
         theme: SpaceTheme? = nil,
-        icon: SpaceIcon = .automatic
+        icon: SpaceIcon = .automatic,
+        profile: BrowserProfile? = nil
     ) -> Space {
         // Held to the limit here rather than at each caller: a name reaches
         // this from a sheet, from Settings, from the menu bar and from the
         // companion iPhone, and only one of those is a text field we control.
+        let existing = !isPrivate ? profile.flatMap { candidate in profiles.first { $0 === candidate && !$0.identity.isPrivate } } : nil
         let space = Space(
             name: Space.clampName(name),
-            identity: isPrivate ? .makeEphemeral() : .makeIsolated(),
+            identity: existing?.identity ?? (isPrivate ? .makeEphemeral() : .makeIsolated()),
+            profile: existing,
             theme: theme ?? nextUnusedTheme()
         )
         space.icon = icon
         spaces.append(space)
+        if !profiles.contains(where: { $0 === space.profile }) { profiles.append(space.profile) }
         activeSpaceID = space.id
         changes.send(.spaces)
         newTab()
@@ -366,12 +484,12 @@ final class BrowserSession {
         NetworkConfigManager.shared.applyToAllStores()
     }
 
-    /// Closing a space tears down its tabs and erases its website data: the
-    /// space was the identity, and an identity with no space is nothing the
-    /// user can see or sign out of. The last space cannot be removed.
+    /// Closing a Space removes its layout and ordinary tabs. Its profile and
+    /// shared Favorites remain available to other Spaces and future layouts.
     func removeSpace(_ space: Space) {
         guard spaces.count > 1, let index = spaces.firstIndex(where: { $0.id == space.id }) else { return }
-        for tab in space.tabs { forget(tab) }
+        let previousIdentity = activeSpace.identity
+        for tab in space.workspaceTabs { forget(tab) }
         // ...and so does the picture it was wearing, for the same reason: the
         // file is the icon's, and the icon is going.
         if let fileName = space.icon.customFileName {
@@ -382,19 +500,27 @@ final class BrowserSession {
         // show them and nothing can restore them -- while still counting
         // against that space's cap if its id ever came back.
         archivedTabs.removeAll { $0.spaceID == space.id }
+        splitsBySpace[space.id] = nil
+        stickyPanesBySpace[space.id] = nil
         spaces.remove(at: index)
         routing.removeRoutes(toSpacesNotIn: Set(spaces.map(\.id)))
         if activeSpaceID == space.id {
             activeSpaceID = spaces[min(index, spaces.count - 1)].id
         }
+        if activeSpace.identity != previousIdentity {
+            bookmarks = []
+            changes.send(.bookmarks)
+            loadBookmarks()
+        }
 
-        // WebKit refuses to delete a store that is still in use. Forgetting
-        // the tabs above already tore down their web views; dropping the
-        // cached store releases the last reference we hold.
         if !spaces.contains(where: { $0.identity == space.identity }) {
-            WebEnvironment.shared.releaseDataStore(for: space.identity)
-            let identity = space.identity
-            Task { await WebEnvironment.removeStoredData(for: identity) }
+            // A profile outlives its last Space. Free page processes, retain
+            // the profile's cookies, history, passwords and saved Favorites.
+            for tab in space.profile.favoriteTabs { tab.unload() }
+            if space.isPrivate {
+                profiles.removeAll { $0 === space.profile }
+                WebEnvironment.shared.releaseDataStore(for: space.identity)
+            }
         }
 
         changes.send(.spaces)
@@ -491,7 +617,7 @@ final class BrowserSession {
     /// Adopts a web view WebKit created for `window.open`, placing it next to
     /// the tab that opened it.
     func adoptChildTab(of parent: Tab, configuration: WKWebViewConfiguration) -> Tab {
-        let space = spaces.first { $0.index(of: parent) != nil } ?? activeSpace
+        let space = space(containing: parent) ?? activeSpace
         let webView = WebEnvironment.shared.makeWebView(configuration: configuration)
         let tab = Tab(adopting: webView, identity: space.identity)
         let index = space.index(of: parent).map { $0 + 1 } ?? space.tabs.count
@@ -506,7 +632,7 @@ final class BrowserSession {
     /// glance is where the tab opens.
     @discardableResult
     func adoptGlancedTab(_ webView: WKWebView, after parent: Tab?) -> Tab {
-        let space = parent.flatMap { tab in spaces.first { $0.index(of: tab) != nil } } ?? activeSpace
+        let space = parent.flatMap { self.space(containing: $0) } ?? activeSpace
         let tab = Tab(adopting: webView, identity: space.identity)
         let index = parent.flatMap { space.index(of: $0) }.map { $0 + 1 } ?? space.tabs.count
         insert(tab, into: space, at: index, select: space.id == activeSpaceID)
@@ -556,7 +682,8 @@ final class BrowserSession {
     @discardableResult
     func closeTab(_ tab: Tab) -> Bool {
         guard !tab.isLocked else { return false }
-        guard let space = spaces.first(where: { $0.index(of: tab) != nil }) else { return false }
+        guard let space = space(containing: tab) else { return false }
+        let wasFavorite = tab.pinnedSiteID != nil
         remember(closing: tab, in: space)
         // A live folder must not offer the item again on its next poll.
         if let groupID = tab.groupID {
@@ -569,6 +696,7 @@ final class BrowserSession {
         // whole reason a site posts them that way.
         WebNotificationCentre.shared.forget(tabID: tab.id)
         detach(tab, from: space)
+        if wasFavorite { repairSelections(for: space.profile) }
         forgetDataIfNeeded(for: tabURL, in: space)
         return true
     }
@@ -585,20 +713,22 @@ final class BrowserSession {
     }
 
     private func forgetDataIfNeeded(for url: URL, in space: Space) {
-        guard let host = url.host(), !host.isEmpty else { return }
-        guard SiteSettings.shared.forgetsWhenClosed(for: url) else { return }
+        guard let identity = identityToForgetAfterClosing(url, in: space), let host = url.host() else { return }
+        Task { await WebsiteData.removeData(forHost: SiteSettingsState.normalise(host), in: [identity]) }
+    }
+
+    /// Closing a site affects only its profile, after its last page is gone
+    /// from every Space sharing that profile.
+    func identityToForgetAfterClosing(_ url: URL, in space: Space) -> Space.Identity? {
+        guard let host = url.host(), !host.isEmpty else { return nil }
+        guard SiteSettings.shared.forgetsWhenClosed(for: url) else { return nil }
         let normHost = SiteSettingsState.normalise(host)
-        guard !normHost.isEmpty else { return }
+        guard !normHost.isEmpty else { return nil }
         let hasOtherTab = allTabs.contains { other in
-            guard let otherHost = other.url.host() else { return false }
+            guard other.identity == space.identity, let otherHost = other.url.host() else { return false }
             return SiteSettingsState.normalise(otherHost) == normHost
         }
-        if !hasOtherTab {
-            let identities: [Space.Identity] = [space.identity, .standard]
-            Task {
-                await WebsiteData.removeData(forHost: normHost, in: identities)
-            }
-        }
+        return hasOtherTab ? nil : space.identity
     }
 
     /// Every tab in the space but this one.
@@ -617,7 +747,7 @@ final class BrowserSession {
     func closeTabs(_ tabsToClose: [Tab]) {
         let unlockeds = tabsToClose.filter { !$0.isLocked }
         if unlockeds.count > 1, let first = unlockeds.first,
-           let space = spaces.first(where: { $0.index(of: first) != nil }),
+           let space = space(containing: first),
            !space.isPrivate {
             recordClosedWindow(title: "Window", tabs: unlockeds, in: space)
         }
@@ -749,7 +879,7 @@ final class BrowserSession {
 
     /// Takes a tab out of its space and out of the window, tearing its page
     /// down. The half of closing that a move to another space shares.
-    private func detach(_ tab: Tab, from space: Space) {
+    private func detach(_ tab: Tab, from space: Space, keepingPage: Bool = false) {
         guard let index = space.index(of: tab) else { return }
 
         // Closing a pane is first a removal from the split, so the 2 -> 1
@@ -757,7 +887,7 @@ final class BrowserSession {
         removeFromSplit(tab)
 
         let wasActive = space.activeTabID == tab.id
-        forget(tab)
+        if !keepingPage { forget(tab) }
         space.remove(tab)
 
         if wasActive {
@@ -791,19 +921,28 @@ final class BrowserSession {
         return copy
     }
 
-    /// Moves a tab to another space, which is another identity: the page is
-    /// rebuilt there from its saved state, so history and scroll position
-    /// travel and cookies do not. It lands loose and unselected; the user
-    /// stays where they were.
+    /// Same-profile moves keep the page. Crossing profiles rebuilds from the
+    /// URL and metadata, without transferring opaque WebKit browsing state.
     func move(_ tab: Tab, toSpace target: Space) {
-        guard let source = spaces.first(where: { $0.index(of: tab) != nil }),
+        guard let source = space(containing: tab),
               source.id != target.id,
               spaces.contains(where: { $0.id == target.id })
         else { return }
+        if source.profile === target.profile {
+            // A shared Favorite already exists in both layouts.
+            guard tab.pinnedSiteID == nil else { return }
+            detach(tab, from: source, keepingPage: true)
+            tab.setGroupID(nil)
+            insert(tab, into: target, at: target.workspaceTabs.count, select: false)
+            return
+        }
         var snapshot = tab.snapshot()
         snapshot.groupID = nil
         snapshot.pinnedSiteID = nil
+        snapshot.interactionState = nil
+        let wasFavorite = tab.pinnedSiteID != nil
         detach(tab, from: source)
+        if wasFavorite { repairSelections(for: source.profile) }
         let moved = Tab(restoring: snapshot, identity: target.identity)
         insert(moved, into: target, at: target.tabs.count, select: false)
     }
@@ -837,8 +976,14 @@ final class BrowserSession {
             target.addGroup(moved)
         }
         for tab in movingTabs {
+            if source.profile === target.profile {
+                detach(tab, from: source, keepingPage: true)
+                insert(tab, into: target, at: target.workspaceTabs.count, select: false)
+                continue
+            }
             var snapshot = tab.snapshot()
             snapshot.pinnedSiteID = nil
+            snapshot.interactionState = nil
             detach(tab, from: source)
             let moved = Tab(restoring: snapshot, identity: target.identity)
             insert(moved, into: target, at: target.tabs.count, select: false)
@@ -1133,7 +1278,7 @@ final class BrowserSession {
         // came from.
         var touched: Set<Space.ID> = []
         for tab in tabs {
-            guard let space = spaces.first(where: { $0.index(of: tab) != nil }) else { continue }
+            guard let space = space(containing: tab) else { continue }
             // A private space keeps nothing that outlives it -- not even this.
             // Archiving there would write to disk exactly what "private"
             // promised would never be written, so a private tab is left alone.
@@ -1323,6 +1468,10 @@ final class BrowserSession {
     /// which is why this answers rather than assuming.
     @discardableResult
     func revealTab(id: UUID) -> Tab? {
+        if let tab = activeSpace.tabs.first(where: { $0.id == id }) {
+            selectTab(tab)
+            return tab
+        }
         guard let space = spaces.first(where: { $0.tabs.contains { $0.id == id } }),
               let tab = space.tabs.first(where: { $0.id == id }) else { return nil }
         if space.id != activeSpace.id { selectSpace(space) }
@@ -1537,6 +1686,7 @@ final class BrowserSession {
         let site = PinnedSite(url: tab.url, title: tab.displayTitle)
         space.addPinnedSite(site)
         tab.setPinnedSiteID(site.id)
+        space.promoteFavorite(tab)
         changes.send(.structure)
         scheduleSave()
     }
@@ -1551,8 +1701,14 @@ final class BrowserSession {
     func removePinnedSite(_ site: PinnedSite) {
         // The tab outlives the shortcut and rejoins the list, rather than
         // disappearing with a tile the user only meant to unpin.
-        activeSpace.tab(forPin: site.id)?.setPinnedSiteID(nil)
+        if let tab = activeSpace.tab(forPin: site.id) {
+            activeSpace.profile.removeFavorite(tab)
+            tab.setPinnedSiteID(nil)
+            tab.setGroupID(nil)
+            activeSpace.insert(tab, at: activeSpace.workspaceTabs.count)
+        }
         activeSpace.removePinnedSite(site)
+        repairSelections(for: activeSpace.profile)
         changes.send(.structure)
         scheduleSave()
     }
@@ -1567,6 +1723,7 @@ final class BrowserSession {
     /// near-duplicates, which is the whole reason a pin is not a tab.
     func openPinnedSite(_ site: PinnedSite) {
         let space = activeSpace
+        guard space.pinnedSites.contains(where: { $0.id == site.id }) else { return }
         if let existing = space.tab(forPin: site.id) {
             selectTab(existing)
             return
@@ -1575,20 +1732,26 @@ final class BrowserSession {
         // duplicated -- restoring a session, or pinning the page you are on.
         if let onSite = space.tabs.first(where: { $0.pinnedSiteID == nil && site.matches($0.url) }) {
             onSite.setPinnedSiteID(site.id)
+            space.promoteFavorite(onSite)
             selectTab(onSite)
             changes.send(.structure)
             scheduleSave()
             return
         }
-        let tab = newTab(url: site.url)
+        let tab = Tab(url: site.url, identity: space.identity)
+        insert(tab, into: space, at: space.workspaceTabs.count, select: true)
         tab.setPinnedSiteID(site.id)
+        space.promoteFavorite(tab)
         changes.send(.structure)
         scheduleSave()
     }
 
     // MARK: - Suspension
 
-    var allTabs: [Tab] { spaces.flatMap(\.tabs) }
+    var allTabs: [Tab] {
+        var seen: Set<UUID> = []
+        return (spaces.flatMap(\.workspaceTabs) + profiles.flatMap(\.favoriteTabs)).filter { seen.insert($0.id).inserted }
+    }
 
     /// The tabs actually rendered. With a split on screen that is every one of
     /// its panes, not just the focused one: they are equally visible and
@@ -1908,7 +2071,7 @@ final class BrowserSession {
     }
 
     /// Every space's identity that keeps data on disk.
-    var storedIdentities: [Space.Identity] { spaces.map(\.identity) + [.standard] }
+    var storedIdentities: [Space.Identity] { profiles.map(\.identity) + [.standard] }
 
     /// Cookies gone from every space, on the schedule the user set.
     func deleteCookiesIfDue() {
@@ -1925,7 +2088,7 @@ final class BrowserSession {
     /// work, not the web's residue.
     func resetBrowsingData() async {
         closedTabs.removeAll()
-        for identity in Set(spaces.map(\.identity)) {
+        for identity in Set(storedIdentities) {
             guard let database = database(for: identity) else { continue }
             do {
                 try await database.clearHistory()
@@ -1938,11 +2101,12 @@ final class BrowserSession {
         for tab in allTabs where tab.isLoaded { tab.reload() }
     }
 
-    /// Clears cookies, cache, databases and website data for the given space,
-    /// and reloads any open tabs in that space.
+    /// Clears the assigned profile's website data and refreshes its loaded
+    /// pages in every Space, including shared Favorites.
     func clearSpaceData(for space: Space) async {
-        await WebsiteData.clearSpaceData(for: space.identity)
-        for tab in space.tabs where tab.isLoaded {
+        let identity = space.identity
+        await WebsiteData.clearSpaceData(for: identity)
+        for tab in allTabs where tab.identity == identity && tab.isLoaded {
             tab.reload()
         }
         changes.send(.tabs)
@@ -2179,6 +2343,9 @@ final class BrowserSession {
                     // list of what was open.
                     tabs: space.isPrivate ? [] : space.tabs.map { $0.snapshot() },
                     activeTabIndex: space.isPrivate ? nil : space.activeTab.flatMap { space.index(of: $0) },
+                    profileID: space.profile.id,
+                    profileName: space.profile.name,
+                    activeFavoriteID: space.activeTab?.pinnedSiteID,
                     identity: space.identity,
                     theme: space.theme.rawValue,
                     border: space.border,
@@ -2201,7 +2368,7 @@ final class BrowserSession {
                             iconWasCustomized: $0.hasUserChosenIcon ? true : nil
                         )
                     },
-                    pinnedSites: space.pinnedSites.map {
+                    pinnedSites: space.isPrivate ? nil : space.pinnedSites.map {
                         SessionSnapshot.Pinned(id: $0.id, url: $0.url, title: $0.title)
                     },
                     archiveHours: space.archiveHours,
@@ -2223,39 +2390,53 @@ final class BrowserSession {
                     icon: space.icon
                 )
             },
-            activeSpaceIndex: spaces.firstIndex { $0.id == activeSpaceID } ?? 0
+            activeSpaceIndex: spaces.firstIndex { $0.id == activeSpaceID } ?? 0,
+            profiles: profiles.map { $0.snapshot() }
         )
     }
 
-    /// Restores the spaces, migrating a session written while profiles were
-    /// separate from spaces.
-    ///
-    /// Back then several spaces could share one profile, and one data store.
-    /// A data store can belong to only one space now, so the first space that
-    /// used a profile keeps its store -- and its logins -- and any other space
-    /// that shared it starts signed out with a store of its own. A space whose
-    /// profile was private or is missing takes the default store if no space
-    /// has it yet, which is where that space's pages were loading from before.
+    /// Restores shared profile identities without moving or copying website data.
     static func spaces(from snapshot: SessionSnapshot) -> [Space]? {
         let legacyProfiles = snapshot.profiles ?? []
-        var claimed: Set<Space.Identity> = []
+        var profilesByIdentity: [Space.Identity: BrowserProfile] = [:]
+        var hasPreferences: Set<Space.Identity> = []
+        for stored in legacyProfiles {
+            let profile = BrowserProfile.restore(stored)
+            if let existing = profilesByIdentity[profile.identity] { existing.mergeFavorites(from: profile) }
+            else { profilesByIdentity[profile.identity] = profile }
+            if stored.preferences != nil { hasPreferences.insert(profile.identity) }
+        }
 
         func migratedIdentity(for stored: SessionSnapshot.Space) -> Space.Identity {
-            let profile = legacyProfiles.first { $0.id == stored.profileID }
-            let inherited: Space.Identity = switch profile?.kind {
-            case .isolated(let identifier): .isolated(identifier)
-            case .standard, .ephemeral, nil: .standard
+            guard let profile = legacyProfiles.first(where: { $0.id == stored.profileID }) else { return .standard }
+            switch profile.kind {
+            case .standard: return .standard
+            case .isolated(let identifier): return .isolated(identifier)
+            case .ephemeral: return .ephemeral(profile.id)
             }
-            return claimed.insert(inherited).inserted ? inherited : .makeIsolated()
+        }
+
+        func profile(for stored: SessionSnapshot.Space, identity: Space.Identity) -> BrowserProfile {
+            let profile = profilesByIdentity[identity] ?? BrowserProfile(name: stored.profileName ?? (identity == .standard ? "Default" : stored.name), identity: identity)
+            profilesByIdentity[identity] = profile
+            if hasPreferences.insert(identity).inserted {
+                profile.preferences = ProfilePreferences(archiveHours: stored.archiveHours, downloadsDirectoryPath: stored.downloadsDirectoryPath,
+                    bookmarkFolder: stored.bookmarkFolder, enabledExtensionIDs: stored.enabledExtensionIDs.map(Set.init),
+                    passwordVaultAccount: stored.passwordVaultAccount, customProxy: stored.customProxy,
+                    searchEngineID: stored.searchEngineID, userAgent: stored.userAgent, sleepMinutes: stored.sleepMinutes, defaultZoom: stored.defaultZoom)
+            }
+            return profile
         }
 
         let spaces = snapshot.spaces.map { stored -> Space in
             let identity = stored.identity ?? migratedIdentity(for: stored)
+            let profile = profile(for: stored, identity: identity)
             let legacyTheme = legacyProfiles.first { $0.id == stored.profileID }?.theme
             let space = Space(
                 id: stored.id ?? UUID(),
                 name: stored.name,
                 identity: identity,
+                profile: profile,
                 theme: SpaceTheme(storedValue: stored.theme ?? legacyTheme),
                 border: stored.border ?? .none,
                 look: stored.look ?? SpaceLook(),
@@ -2303,18 +2484,21 @@ final class BrowserSession {
             for group in groups where group.parentID.map({ !knownGroupIDs.contains($0) }) ?? false {
                 group.parentID = nil
             }
+            var restoredSelection: [Tab] = []
             for tab in stored.tabs {
                 var tab = tab
                 // A tab whose group is gone becomes ungrouped rather than
                 // invisible in the sidebar.
                 if let id = tab.groupID, !knownGroupIDs.contains(id) { tab.groupID = nil }
-                space.insert(Tab(restoring: tab, identity: identity), at: space.tabs.count)
+                let restored = Tab(restoring: tab, identity: identity)
+                space.insert(restored, at: space.workspaceTabs.count)
+                restoredSelection.append(restored.pinnedSiteID.flatMap { space.tab(forPin: $0) } ?? restored)
             }
-            if let index = stored.activeTabIndex, space.tabs.indices.contains(index) {
-                space.setActiveTabID(space.tabs[index].id)
-            } else {
-                space.setActiveTabID(space.tabs.first?.id)
-            }
+            if let favoriteID = stored.activeFavoriteID, let tab = space.tab(forPin: favoriteID) {
+                space.setActiveTabID(tab.id)
+            } else if let index = stored.activeTabIndex, restoredSelection.indices.contains(index) {
+                space.setActiveTabID(restoredSelection[index].id)
+            } else { space.setActiveTabID(space.tabs.first?.id) }
             return space
         }
         return spaces.isEmpty ? nil : spaces
@@ -2359,6 +2543,7 @@ final class BrowserSession {
             }
         }
 
+        reconcileProfiles()
         changes.send(.spaces)
         changes.send(.tabs)
         changes.send(.structure)
@@ -2384,6 +2569,7 @@ final class BrowserSession {
             let space: Space
             if let existing = spaces.first(where: { $0.id == id }) {
                 space = existing
+                if !space.profile.hasCustomName, let name = stored.profileName, !name.isEmpty { space.profile.name = name }
                 // Enrich an older import only while its original accent is
                 // unchanged. User colour/gradient edits always win.
                 if space.theme == .custom, space.look.gradient == nil,
@@ -2401,7 +2587,11 @@ final class BrowserSession {
                           let badge = group.badgeIcon else { continue }
                     current.badgeIcon = badge
                 }
-                for pin in built.pinnedSites where !space.pinnedSites.contains(where: { $0.id == pin.id }) { space.addPinnedSite(pin); addedFavorites += 1 }
+                for pin in built.pinnedSites {
+                    let before = space.pinnedSites.count
+                    space.addPinnedSite(pin)
+                    addedFavorites += space.pinnedSites.count - before
+                }
             } else {
                 space = built
                 for tab in space.tabs { adopt(tab) }
@@ -2411,7 +2601,7 @@ final class BrowserSession {
                 spaces.append(space)
                 addedSpaces += 1
             }
-            let known = Set(space.tabs.compactMap(\.importedSourceID))
+            let known = Set(space.tabs.compactMap(\.importedSourceID)).union(space.profile.importedFavoriteIDs)
                 .union(archivedTabs.filter { $0.spaceID == id }.compactMap { $0.snapshot.importedSourceID })
             let incomingIcons = Dictionary(stored.tabs.compactMap { tab -> (String, PageFavicon)? in
                 guard let key = tab.importedSourceID, let icon = tab.favicon else { return nil }
@@ -2440,6 +2630,7 @@ final class BrowserSession {
                 addedArchived += 1
             }
         }
+        reconcileProfiles()
         changes.send(.spaces)
         changes.send(.tabs)
         changes.send(.structure)
@@ -2467,11 +2658,14 @@ final class BrowserSession {
     func replaceWithSnapshot(_ snapshot: SessionSnapshot) {
         guard let newSpaces = Self.spaces(from: snapshot), !newSpaces.isEmpty else { return }
 
+        for tab in allTabs { forget(tab) }
         tabSubscriptions.removeAll()
         self.spaces = newSpaces
+        self.profiles = Self.profileList(from: snapshot, spaces: newSpaces)
         let index = min(max(snapshot.activeSpaceIndex, 0), newSpaces.count - 1)
         self.activeSpaceID = newSpaces[index].id
 
+        for profile in profiles { for tab in profile.favoriteTabs { adopt(tab) } }
         for space in newSpaces {
             for tab in space.tabs { adopt(tab) }
             if space.tabs.isEmpty {

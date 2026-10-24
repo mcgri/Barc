@@ -14,6 +14,8 @@ final class SpacesSettingsViewController: NSViewController {
     private let session: BrowserSession
     private let grid = SpaceGridView()
     private let nameField = NSTextField()
+    private let profilePopUp = NSPopUpButton()
+    private let renameProfileButton = NSButton(title: "Rename Profile…", target: nil, action: nil)
     private let iconWell = IconWell()
     private let picker = SpaceThemePicker()
     private let borderSummary = NSTextField(labelWithString: "")
@@ -141,7 +143,7 @@ final class SpacesSettingsViewController: NSViewController {
         // how many columns it has room for.
         grid.widthAnchor.constraint(equalTo: list.widthAnchor).isActive = true
         reloadGrid()
-        form.addNote("Every space keeps its own cookies, logins and site data, so the same site can be signed in as a different account in each one. The window takes the colour of whichever space is in front.")
+        form.addNote("Spaces keep their own tabs and appearance. Choose different profiles for separate logins, or use the same profile to share cookies, history, passwords and Favorites.")
 
         form.addSeparator()
 
@@ -166,6 +168,15 @@ final class SpacesSettingsViewController: NSViewController {
         form.addRow("Space name", nameRow)
         form.addNote(detailLabel)
         form.addNote("The icon is shown wherever this space is named -- the sidebar header, the space menu, the window list. Choose an emoji, one of the symbols, or a picture of your own (PNG, SVG, JPEG, TIFF, HEIC, GIF or PDF).")
+
+        profilePopUp.target = self
+        profilePopUp.action = #selector(profileChanged)
+        profilePopUp.setAccessibilityLabel("Browsing profile")
+        renameProfileButton.target = self
+        renameProfileButton.action = #selector(renameProfile)
+        let newProfileButton = NSButton(title: "New Profile…", target: self, action: #selector(createProfile))
+        form.addRow("Profile", [SettingsForm.fill(profilePopUp), renameProfileButton, newProfileButton])
+        form.addNote("Changing profile reloads this Space’s pages with that profile’s logins and Favorites. The previous profile keeps its browsing data. Private Spaces always use a temporary profile.")
 
         appearanceControl.target = self
         appearanceControl.action = #selector(appearanceChoiceChanged)
@@ -289,8 +300,9 @@ final class SpacesSettingsViewController: NSViewController {
         form.addRow("Default font", [defaultFont, customizeFonts])
         form.addNote("What a page is set in when it does not choose its own fonts.")
 
-        // Per-Space Extras (F-24)
+        // Profile preferences are shared by every assigned Space.
         form.addSeparator()
+        form.addNote("The following browsing preferences apply to this profile and every Space using it.")
 
         chooseDownloadsButton.target = self
         chooseDownloadsButton.action = #selector(chooseDownloadsFolder)
@@ -304,7 +316,7 @@ final class SpacesSettingsViewController: NSViewController {
         downloadsFolderLabel.translatesAutoresizingMaskIntoConstraints = false
         downloadsFolderLabel.widthAnchor.constraint(equalToConstant: 200).isActive = true
         form.addRow("Downloads folder", [downloadsFolderLabel, chooseDownloadsButton, resetDownloadsButton])
-        form.addNote("Files downloaded from tabs in this space are saved here.")
+        form.addNote("Files downloaded with this profile are saved here.")
 
         bookmarkFolderField.placeholderString = "All Bookmarks (or enter folder name, e.g. Work)"
         bookmarkFolderField.target = self
@@ -312,7 +324,7 @@ final class SpacesSettingsViewController: NSViewController {
         bookmarkFolderField.translatesAutoresizingMaskIntoConstraints = false
         bookmarkFolderField.widthAnchor.constraint(equalToConstant: 320).isActive = true
         form.addRow("Bookmarks folder", bookmarkFolderField)
-        form.addNote("Folder of bookmarks displayed on this space's bookmarks bar.")
+        form.addNote("Folder of bookmarks displayed in Spaces using this profile.")
 
         // Per-space overrides of what Settings decides for everyone.
         searchEnginePopUp.target = self
@@ -332,15 +344,15 @@ final class SpacesSettingsViewController: NSViewController {
         userAgentField.translatesAutoresizingMaskIntoConstraints = false
         userAgentField.widthAnchor.constraint(equalToConstant: 320).isActive = true
         form.addRow("User agent", userAgentField)
-        form.addNote("These apply to every tab in this space. A site's own choice in Websites still wins for that site.")
+        form.addNote("These apply to every tab using this profile. A site's own choice in Websites still wins for that site.")
 
-        passwordVaultField.placeholderString = "Space name (e.g. Work, Personal)"
+        passwordVaultField.placeholderString = "Profile name (e.g. Work, Personal)"
         passwordVaultField.target = self
         passwordVaultField.action = #selector(passwordVaultChanged)
         passwordVaultField.translatesAutoresizingMaskIntoConstraints = false
         passwordVaultField.widthAnchor.constraint(equalToConstant: 320).isActive = true
         form.addRow("Password account", passwordVaultField)
-        form.addNote("Identifies this space's account in password autofill and vaults.")
+        form.addNote("Identifies this profile's account in password autofill and vaults.")
     }
 
     // MARK: - State
@@ -391,8 +403,18 @@ final class SpacesSettingsViewController: NSViewController {
         if space.isPrivate {
             detailLabel.stringValue = "Private. Nothing this space browses is written to disk. \(tabs)."
         } else {
-            detailLabel.stringValue = "Its own cookies and logins. \(tabs)."
+            detailLabel.stringValue = "Profile: \(space.profile.name). \(tabs)."
         }
+        profilePopUp.menu = NSMenu()
+        let available = space.isPrivate ? [space.profile] : session.profiles.filter { !$0.identity.isPrivate }
+        for profile in available {
+            let item = NSMenuItem(title: profile.name, action: nil, keyEquivalent: "")
+            item.representedObject = profile.id
+            profilePopUp.menu?.addItem(item)
+            if profile === space.profile { profilePopUp.select(item) }
+        }
+        profilePopUp.isEnabled = !space.isPrivate
+        renameProfileButton.isEnabled = !space.isPrivate
 
         if let path = space.downloadsDirectoryPath, !path.isEmpty {
             downloadsFolderLabel.stringValue = (path as NSString).abbreviatingWithTildeInPath
@@ -429,6 +451,40 @@ final class SpacesSettingsViewController: NSViewController {
     }
 
     static let sleepChoices = [0, 5, 10, 30, 60]
+
+    @objc private func profileChanged() {
+        guard let space = editing, let id = profilePopUp.selectedItem?.representedObject as? UUID,
+              let profile = session.profiles.first(where: { $0.id == id }) else { return }
+        session.assignProfile(profile, to: space)
+        select(space)
+    }
+
+    @objc private func createProfile() {
+        guard let name = requestProfileName(title: "New Profile", initial: "New Profile", button: "Create"),
+              let profile = session.addProfile(named: name) else { return }
+        if let space = editing, !space.isPrivate { session.assignProfile(profile, to: space) }
+    }
+
+    @objc private func renameProfile() {
+        guard let space = editing, !space.isPrivate,
+              let name = requestProfileName(title: "Rename Profile", initial: space.profile.name, button: "Rename") else { return }
+        session.renameProfile(space.profile, to: name)
+    }
+
+    private func requestProfileName(title: String, initial: String, button: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = "A profile keeps its own logins, history, passwords and Favorites. Several Spaces can use the same profile."
+        let field = NSTextField(string: initial)
+        field.frame.size = NSSize(width: 280, height: 24)
+        field.formatter = LimitedLengthFormatter(limit: 64)
+        alert.accessoryView = field
+        alert.addButton(withTitle: button)
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return field.stringValue
+    }
 
     @objc private func searchEngineChanged() {
         guard let space = editing else { return }
@@ -755,7 +811,8 @@ final class SpacesSettingsViewController: NSViewController {
 
     private func create(isPrivate: Bool) {
         let name = isPrivate ? "Private" : "New Space"
-        let space = session.addSpace(named: name, isPrivate: isPrivate)
+        let space = session.addSpace(named: name, isPrivate: isPrivate,
+                                     profile: isPrivate ? nil : (session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile))
         reload()
         select(space)
         view.window?.makeFirstResponder(nameField)
@@ -770,7 +827,7 @@ final class SpacesSettingsViewController: NSViewController {
         alert.messageText = "Delete the space \u{201c}\(space.name)\u{201d}?"
         alert.informativeText = space.isPrivate
             ? "Its tabs are closed. Nothing it browsed was written to disk."
-            : "Its tabs are closed and its cookies, logins and site data are erased."
+            : "Its tabs are closed. Its profile, Favorites and saved browsing data are kept."
         alert.addButton(withTitle: "Delete")
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }

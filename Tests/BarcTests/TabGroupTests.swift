@@ -256,6 +256,7 @@ struct PinnedSiteTests {
         session.newTab(url: url("https://elsewhere.example"))
 
         let site = PinnedSite(url: url("https://mail.example.com/inbox?page=2"), title: "Mail")
+        session.activeSpace.addPinnedSite(site)
         session.openPinnedSite(site)
 
         #expect(session.activeTab === existing)
@@ -266,7 +267,9 @@ struct PinnedSiteTests {
     func openingCreatesTab() {
         let session = TestSession.make().0
         let before = session.activeSpace.tabs.count
-        session.openPinnedSite(PinnedSite(url: url("https://new.example"), title: "New"))
+        let site = PinnedSite(url: url("https://new.example"), title: "New")
+        session.activeSpace.addPinnedSite(site)
+        session.openPinnedSite(site)
         #expect(session.activeSpace.tabs.count == before + 1)
         #expect(session.activeTab?.url.host() == "new.example")
     }
