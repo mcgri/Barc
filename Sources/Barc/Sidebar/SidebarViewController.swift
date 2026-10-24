@@ -2970,16 +2970,15 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
         let container = NSView()
         container.addSubview(header)
-        let divider = NSBox()
-        divider.boxType = .separator
+        let divider = SidebarSectionDivider()
         divider.isHidden = !hasVisibleRetainedRows
         divider.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(divider)
         NSLayoutConstraint.activate([
             divider.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 18),
             divider.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
-            divider.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
-            divider.heightAnchor.constraint(equalToConstant: 0.5),
+            divider.topAnchor.constraint(equalTo: container.topAnchor, constant: 11),
+            divider.heightAnchor.constraint(equalToConstant: 1),
             header.leadingAnchor.constraint(
                 equalTo: container.leadingAnchor,
                 constant: Style.Metrics.sidebarInset

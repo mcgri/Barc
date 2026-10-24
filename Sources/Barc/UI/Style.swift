@@ -76,7 +76,7 @@ enum Style {
         /// tight to read as a button and is why the strip looked like a row of
         /// swatches rather than a row of shortcuts.
         static let tileHeight: CGFloat = 46
-        static let tileSpacing: CGFloat = 4
+        static let tileSpacing: CGFloat = 8
         /// Scaled with the tile: this proportion reads as a rounded square,
         /// which is what a shortcut to an app-like site should be. Much larger
         /// and it becomes a lozenge and stops rhyming with the favicon in it.
@@ -323,7 +323,8 @@ enum Style {
         static var folderPlateStroke: NSColor { ink(light: 0.05, dark: 0.07) }
 
         /// Fill behind a pinned tile.
-        static var tileFill: NSColor { veil(light: 0.06, dark: 0.07) }
+        static var tileFill: NSColor { ink(light: 0.045, dark: 0.07) }
+        static var sidebarSectionDivider: NSColor { ink(light:0.08,dark:0.09) }
         static var tileHoverFill: NSColor { veil(light: 0.68, dark: 0.13) }
         /// The dashed outline of the empty pinned slot.
         static var emptySlotStroke: NSColor { ink(light: 0.16, dark: 0.20) }
