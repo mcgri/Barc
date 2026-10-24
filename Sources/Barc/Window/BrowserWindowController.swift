@@ -1899,7 +1899,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             return
         }
         if Settings.shared.openCommandBarOnNewTab {
-            commandBar.open(openInNewTab: true)
+            let recent = Settings.shared.suggestionSources.openTabs ? session.activeSpace.tabs
+                .filter { $0 !== session.activeTab && !$0.isSidebarPlaceholder && !$0.showsStartPage }
+                .sorted {
+                    if $0.lastActiveAt != $1.lastActiveAt { return $0.lastActiveAt > $1.lastActiveAt }
+                    return $0.id.uuidString < $1.id.uuidString
+                }.prefix(5).map {
+                    CommandResult(id: "tab:\($0.id)", kind: .openTab, title: $0.displayTitle,
+                                  subtitle: AddressFormatter.display($0.displayURL), symbolName: "globe",
+                                  action: .switchToTab($0.id), score: 0)
+                } : []
+            commandBar.openNewTab(recentResults: recent)
             updateCompactSidebarForCommandBar()
         } else {
             session.newTab()
