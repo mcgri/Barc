@@ -86,6 +86,8 @@ Barc is distributed under the [Apache License 2.0](LICENSE). The original licens
 
 When redistributing Barc, include `LICENSE` and `NOTICE`, retain applicable upstream notices, and mark any files you change. These requirements come from [section 4 of the Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). Any additional third-party components must retain their own required licences and notices.
 
+The folder icon palette uses artwork from [Ionicons](https://github.com/ionic-team/ionicons), copyright Ionic, under the [MIT License](LICENSES/Ionicons.txt). Its license is also included in the app's resources.
+
 Original browser copyright notice: © 2026 Kylmora · kylmora.com. Barc-specific modifications: © 2026 Barc contributors.
 
 Barc is not an official Kylmora release and is not affiliated with or endorsed by Kylmora, Arc or The Browser Company. Their names and marks belong to their respective owners. The Apache license does not grant rights to use upstream trademarks. The Barc B icon is separate artwork inspired by Arc's visual style; Arc's original icon is not bundled as Barc's icon.

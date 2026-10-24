@@ -1,3 +1,4 @@
+// Modified for Barc: bundled folder symbols and Space conversion, 2026-10-24.
 import AppKit
 
 /// What a folder draws in its 28-point icon well.
@@ -11,7 +12,7 @@ enum FolderIcon: Equatable, Sendable {
     /// The drawn folder squircle, tinted by the folder's own colour.
     case automatic
     case emoji(String)
-    /// An SF Symbol name. Unresolvable names fall back to `automatic` at draw
+    /// An SF Symbol or bundled `ionicon.` name. Unresolvable names fall back to `automatic` at draw
     /// time rather than at assignment, so a symbol that disappears in a future
     /// macOS degrades instead of being silently rewritten in the session file.
     case symbol(String)
@@ -32,6 +33,15 @@ extension FolderIcon {
     var customFileName: String? {
         if case .custom(let name) = self { return name }
         return nil
+    }
+
+    var spaceIcon: SpaceIcon {
+        switch self {
+        case .automatic: .automatic
+        case .emoji(let text): .emoji(text)
+        case .symbol(let name): .symbol(name)
+        case .custom(let file): .custom(file)
+        }
     }
 
     /// What the icon menu should show as chosen.
@@ -85,7 +95,7 @@ extension FolderIcon {
         case .emoji(let text) where !text.isEmpty:
             return Self.glyphImage(text, font: .systemFont(ofSize: 17))
         case .symbol(let name):
-            if let symbol = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
+            if let symbol = FolderSymbols.image(named: name) {
                 return Self.templateImage(symbol, tint: tint)
             }
             return Self.squircle(tint: tint)

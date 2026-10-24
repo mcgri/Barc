@@ -31,3 +31,10 @@ Kylmora identify the origin of the inherited software. The Barc B icon is
 separate artwork inspired by Arc's visual style. Arc's original icon is not
 included as Barc's application icon. Kylmora and Arc names and marks belong
 to their respective owners; no trademark rights or endorsement are granted.
+
+The folder icon palette includes SVG artwork from Ionicons:
+https://github.com/ionic-team/ionicons
+Copyright (c) 2015-present Ionic (http://ionic.io/)
+The Ionicons artwork is distributed under the MIT License. Its complete
+license is in LICENSES/Ionicons.txt and is included with the application.
+The remaining Barc source retains its existing Apache-2.0 license.

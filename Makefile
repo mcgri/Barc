@@ -117,6 +117,7 @@ bundle: build $(ICON)
 	fi
 	@cp "$(ICON)" "$(APP_BUNDLE)/Contents/Resources/"
 	@cp LICENSE NOTICE "$(APP_BUNDLE)/Contents/Resources/"
+	@cp -R LICENSES "$(APP_BUNDLE)/Contents/Resources/"
 	@printf 'APPL????' > "$(APP_BUNDLE)/Contents/PkgInfo"
 	@cp "$(BIN)" "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
 ifeq ($(CONFIG),release)

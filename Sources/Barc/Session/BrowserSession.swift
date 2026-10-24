@@ -1,4 +1,5 @@
 // Modified for Barc: Arc import, session restoration and profile isolation, 2026-10-23.
+// Modified for Barc: nested folder duplication and promotion with profile preservation, 2026-10-24.
 import AppKit
 import Combine
 import WebKit
@@ -991,6 +992,85 @@ final class BrowserSession {
 
         changes.send(.structure)
         scheduleSave()
+    }
+
+    /// Copies the complete subtree beside its original without changing the
+    /// selected page or importing the copy again on the next Arc migration.
+    @discardableResult
+    func duplicateFolder(_ group: TabGroup, iconStore: SpaceIconStore = .shared) throws -> TabGroup? {
+        guard !group.isLive, let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
+        let ids = Set(([group] + FolderTree.descendants(of: group, in: source.groups)).map(\.id))
+        let originals = FolderTree.ordered(source.groups).map(\.folder).filter { ids.contains($0.id) }
+        let newIDs = Dictionary(uniqueKeysWithValues: originals.map { ($0.id, UUID()) })
+        var pictures: [UUID: String] = [:]
+        do {
+            for folder in originals {
+                if let name = folder.iconFileName { pictures[folder.id] = try iconStore.duplicateIcon(named: name) }
+            }
+        } catch {
+            for name in pictures.values { iconStore.remove(named: name) }
+            throw error
+        }
+        let copies = originals.map { folder in
+            TabGroup(id: newIDs[folder.id]!, name: folder.name, emoji: folder.emoji,
+                tint: folder.tint, appearance: folder.appearance, isCollapsed: folder.isCollapsed,
+                parentID: folder === group ? group.parentID.flatMap { ids.contains($0) ? nil : $0 } : folder.parentID.flatMap { newIDs[$0] },
+                symbolName: folder.symbolName, iconFileName: pictures[folder.id],
+                isLocked: folder.isLocked, sidebarPosition: folder.sidebarPosition,
+                badgeIcon: folder.badgeIcon, hasUserChosenIcon: folder.hasUserChosenIcon)
+        }
+        guard let root = copies.first(where: { $0.id == newIDs[group.id] }) else { return nil }
+        let siblings = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs, parentID: group.parentID)
+        let following = siblings.firstIndex { $0.id == group.id }.flatMap { index in
+            siblings.indices.contains(index + 1) ? siblings[index + 1] : nil
+        }
+        for copy in copies { source.addGroup(copy) }
+        // Live children become regular copies of their current contents, not
+        // unregistered live providers polling the same source in the background.
+        for tab in FolderContents.tabs(in: group, space: source) {
+            var snapshot = tab.snapshot()
+            snapshot.groupID = snapshot.groupID.flatMap { newIDs[$0] }
+            snapshot.importedSourceID = nil
+            snapshot.pinnedSiteID = nil
+            snapshot.interactionState = nil
+            insert(Tab(restoring: snapshot, identity: source.identity), into: source, at: source.workspaceTabs.count, select: false)
+        }
+        SidebarOrder.place(.folder(root), before: following, in: siblings, separatesOrdinaryTabs: group.parentID == nil)
+        changes.send(.structure)
+        scheduleSave()
+        return root
+    }
+
+    /// Promotes a folder's contents into a Space with the same profile. Existing
+    /// tabs keep their live page and nested folders keep their mixed ordering.
+    @discardableResult
+    func turnFolderIntoSpace(_ group: TabGroup) -> Space? {
+        guard !group.isLive, !group.isLocked,
+              let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
+        let contents = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs, parentID: group.id)
+        let tabs = FolderContents.tabs(in: group, space: source)
+        let selected = tabs.first { $0.id == source.activeTabID } ?? tabs.first
+        let target = Space(name: Space.clampName(group.name), identity: source.identity, profile: source.profile,
+                           theme: source.theme, border: source.border, look: source.look)
+        target.icon = group.icon.spaceIcon
+        spaces.append(target)
+        move(group, toSpace: target)
+        for (index, item) in contents.enumerated() {
+            switch item {
+            case .folder(let child): child.parentID = nil
+            case .tab(let tab): tab.setGroupID(nil); tab.setKeepsInSidebar(true)
+            }
+            item.position = index
+        }
+        // Detaching rather than deleting transfers ownership of a custom icon
+        // to the Space instead of removing its file.
+        target.detachGroup(group)
+        if let selected { target.setActiveTabID(selected.id) }
+        changes.send(.structure)
+        selectSpace(target)
+        if target.workspaceTabs.isEmpty { newTab() }
+        scheduleSave()
+        return target
     }
 
     // MARK: - Closed tabs and windows

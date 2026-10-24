@@ -1,4 +1,5 @@
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: compact folder actions and icon picker, 2026-10-24.
 import AppKit
 import Combine
 
@@ -116,6 +117,7 @@ final class SidebarViewController: NSViewController {
     /// Held while the group appearance editor is open, so it lives as long as
     /// the popover it drives.
     private var appearancePopover: NSPopover?
+    private var folderIconPopover: NSPopover?
     private let settings = Settings.shared
     /// Advances the idle badges. Only the badges, and only the rows on screen;
     /// see `tickIdleBadges`.
@@ -1718,17 +1720,19 @@ final class SidebarViewController: NSViewController {
     /// The sheet that names a space and picks its colour -- solid or a gradient
     /// with a direction -- in one step, so a space is its colour from the moment
     /// it is made.
-    private func presentNewSpaceSheet(initialPrivate: Bool) {
+    private func presentNewSpaceSheet(initialPrivate: Bool, movingFolder: TabGroup? = nil) {
         let sheet = NewSpaceSheet(
             suggestedColor: session.nextUnusedTheme().color,
             initialPrivate: initialPrivate
         ) { [weak self] options in
             guard let self else { return }
+            let folderSpace = movingFolder.flatMap { folder in session.spaces.first { $0.group(withID: folder.id) === folder } }
+            if movingFolder != nil, folderSpace == nil { return }
             let space = session.addSpace(
                 named: options.name,
                 isPrivate: options.isPrivate,
                 icon: options.icon,
-                profile: options.isPrivate ? nil : (session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile)
+                profile: options.isPrivate ? nil : (folderSpace?.profile ?? (session.activeSpace.isPrivate ? session.profiles.first { $0.identity == .standard } : session.activeSpace.profile))
             )
             if options.keepsItsOwnColour {
                 switch options.wash {
@@ -1748,6 +1752,7 @@ final class SidebarViewController: NSViewController {
             // The colour above went through the session's own setters because
             // each clears the other's fill; these are plain fields of the look.
             session.setLook(options.look(from: space.look), for: space)
+            if let movingFolder { session.move(movingFolder, toSpace: space) }
         }
         presentAsSheet(sheet)
     }
@@ -1982,77 +1987,111 @@ final class SidebarViewController: NSViewController {
         return menu
     }
 
-    /// The right-click menu on a group header: rename, recolour, fold, remove.
+    /// The compact folder menu follows Arc's grouping. Holding Option reveals
+    /// Markdown copying and the older folder appearance and locking controls.
     func makeGroupMenu(for group: TabGroup) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
+        let owner = session.spaces.first { $0.group(withID: group.id) === group }
         @discardableResult
-        func add(_ title: String, _ selector: Selector, symbol: String? = nil) -> NSMenuItem {
+        func add(_ title: String, _ selector: Selector, alternate: Bool = false) -> NSMenuItem {
             let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
             item.target = self
             item.representedObject = group
-            if let symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
+            item.isAlternate = alternate
+            if alternate { item.keyEquivalentModifierMask = .option }
             menu.addItem(item)
             return item
         }
         if !group.isLive {
-            add("New Nested Folder…", #selector(newNestedFolderFromMenu(_:)), symbol: "folder.badge.plus")
-                .isEnabled = FolderTree.canAcceptSubfolder(group, in: shownSpace.groups)
-            add("Rename\u{2026}", #selector(renameGroupFromMenu(_:)), symbol: "pencil")
-            // The same four choices a space gets, out of the same menu. A
-            // folder is the other thing in this sidebar with a name and a
-            // mark, so it marks itself the same way.
-            let icon = NSMenuItem(title: "Icon", action: nil, keyEquivalent: "")
-            icon.image = group.icon.image(tint: group.tint)
-            icon.submenu = NSMenu()
-            for item in IconMenu.items(
-                current: group.icon.asMenuChoice,
-                color: group.tint,
-                anchor: tableView
-            ) { [weak self] choice in
-                guard let self else { return }
-                session.setIcon(FolderIcon(choice), for: group)
-            } {
-                icon.submenu?.addItem(item)
-            }
-            menu.addItem(icon)
-            add("Customize Appearance\u{2026}", #selector(customizeGroupFromMenu(_:)), symbol: "paintpalette")
+            add("New Nested Folder…", #selector(newNestedFolderFromMenu(_:)))
+                .isEnabled = owner.map { FolderTree.canAcceptSubfolder(group, in: $0.groups) } ?? false
+            add("Turn “\(group.name)” into Space", #selector(turnFolderIntoSpaceFromMenu(_:))).isEnabled = !group.isLocked
+            add("Copy All Links", #selector(copyFolderLinksFromMenu(_:)))
+                .isEnabled = owner.map { !FolderContents.tabs(in: group, space: $0).isEmpty } ?? false
+            add("Copy All Links as Markdown", #selector(copyFolderMarkdownFromMenu(_:)), alternate: true)
+                .isEnabled = owner.map { !FolderContents.tabs(in: group, space: $0).isEmpty } ?? false
             menu.addItem(.separator())
-        }
-        add(group.isCollapsed ? "Expand" : "Collapse",
-            #selector(toggleGroupCollapsedFromMenu(_:)),
-            symbol: group.isCollapsed ? "chevron.down" : "chevron.right")
-        // A whole group can go to another space, the way a single tab can. A
-        // live folder is provider-managed, so it stays where it was set up.
-        if !group.isLive {
-            let others = session.spaces.filter { $0.group(withID: group.id) == nil }
-            let move = NSMenuItem(title: "Move to Space", action: nil, keyEquivalent: "")
-            move.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: nil)
-            let spaces = NSMenu()
-            for candidate in others {
+            add("Change Icon…", #selector(changeFolderIconFromMenu(_:)))
+            add("Customize Appearance…", #selector(customizeGroupFromMenu(_:)), alternate: true)
+            add("Rename…", #selector(renameGroupFromMenu(_:)))
+            menu.addItem(.separator())
+            add("Duplicate", #selector(duplicateFolderFromMenu(_:)))
+            add(group.isCollapsed ? "Expand" : "Collapse", #selector(toggleGroupCollapsedFromMenu(_:)), alternate: true)
+            let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
+            let spaces = NSMenu(); spaces.autoenablesItems = false
+            for candidate in session.spaces {
                 let item = NSMenuItem(title: candidate.name, action: #selector(moveGroupToSpaceFromMenu(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = [group, candidate]
-                item.image = candidate.isPrivate
-                    ? NSImage(systemSymbolName: "eyeglasses", accessibilityDescription: nil)
-                    : candidate.dotImage()
+                item.state = candidate === owner ? .on : .off
+                item.isEnabled = candidate !== owner
                 spaces.addItem(item)
             }
+            spaces.addItem(.separator())
+            let newSpace = NSMenuItem(title: "New Space…", action: #selector(moveFolderToNewSpaceFromMenu(_:)), keyEquivalent: "")
+            newSpace.target = self; newSpace.representedObject = group
+            spaces.addItem(newSpace)
             move.submenu = spaces
-            move.isEnabled = !spaces.items.isEmpty
             menu.addItem(move)
+        } else {
+            add(group.isCollapsed ? "Expand" : "Collapse", #selector(toggleGroupCollapsedFromMenu(_:)))
         }
         menu.addItem(.separator())
-        add(group.isLocked ? "Unlock Folder" : "Lock Folder",
-            #selector(toggleGroupLockedFromMenu(_:)),
-            symbol: group.isLocked ? "lock.open.fill" : "lock.fill")
-        let remove = NSMenuItem(title: "Delete", action: #selector(removeGroupFromMenu(_:)), keyEquivalent: "")
-        remove.target = self
-        remove.representedObject = group
-        remove.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)
-        remove.isEnabled = !group.isLocked
-        menu.addItem(remove)
+        add("Delete", #selector(removeGroupFromMenu(_:))).isEnabled = !group.isLocked
+        add(group.isLocked ? "Unlock Folder" : "Lock Folder", #selector(toggleGroupLockedFromMenu(_:)), alternate: !group.isLive)
         return menu
+    }
+
+    @objc private func copyFolderLinksFromMenu(_ sender: Any?) { copyFolderLinks(sender, markdown: false) }
+    @objc private func copyFolderMarkdownFromMenu(_ sender: Any?) { copyFolderLinks(sender, markdown: true) }
+
+    private func copyFolderLinks(_ sender: Any?, markdown: Bool) {
+        guard let group = group(from: sender),
+              let owner = session.spaces.first(where: { $0.group(withID: group.id) === group }) else { return }
+        let text = FolderContents.links(in: group, space: owner, markdown: markdown)
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    @objc private func duplicateFolderFromMenu(_ sender: Any?) {
+        guard let group = group(from: sender) else { return }
+        do { try session.duplicateFolder(group) }
+        catch {
+            if let window = view.window { NSAlert(error: error).beginSheetModal(for: window) }
+        }
+    }
+
+    @objc private func turnFolderIntoSpaceFromMenu(_ sender: Any?) {
+        guard let group = group(from: sender) else { return }
+        session.turnFolderIntoSpace(group)
+    }
+
+    @objc private func moveFolderToNewSpaceFromMenu(_ sender: Any?) {
+        guard let group = group(from: sender), !group.isLive,
+              let owner = session.spaces.first(where: { $0.group(withID: group.id) === group }) else { return }
+        presentNewSpaceSheet(initialPrivate: owner.isPrivate, movingFolder: group)
+    }
+
+    @objc private func changeFolderIconFromMenu(_ sender: Any?) {
+        guard let group = group(from: sender), !group.isLive,
+              let owner = session.spaces.first(where: { $0.group(withID: group.id) === group }) else { return }
+        session.selectSpace(owner)
+        guard let row = groupRow(of: group),
+              let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: true),
+              let header = cell.subviews.compactMap({ $0 as? TabGroupHeaderView }).first else { return }
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = FolderIconPicker(selected: group.icon) { [weak self, weak group] icon in
+            guard let self, let group,
+                  session.spaces.contains(where: { $0.group(withID: group.id) === group }) else { return }
+            session.setIcon(icon, for: group)
+            folderIconPopover?.performClose(nil)
+        }
+        folderIconPopover = popover
+        let anchor = header.iconPickerAnchor
+        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .minY)
     }
 
     @objc private func moveGroupToSpaceFromMenu(_ sender: Any?) {

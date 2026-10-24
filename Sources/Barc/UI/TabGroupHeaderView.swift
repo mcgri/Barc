@@ -40,6 +40,7 @@ final class TabGroupHeaderView: NSView {
     private let lockGlyph = NSImageView()
     private var isLocked = false
     private let titleLabel = NSTextField(labelWithString: "")
+    var iconPickerAnchor: NSView { emojiLabel.isHidden ? folderIcon : emojiLabel }
     var isEditingName = false {
         didSet {
             titleLabel.alphaValue = isEditingName ? 0 : 1
@@ -175,7 +176,7 @@ final class TabGroupHeaderView: NSView {
         if let picture {
             folderIcon.image = picture
         } else if let symbolName, symbolName != "folder", symbolName != "arc.github.folder",
-                  let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) {
+                  let image = FolderSymbols.image(named: symbolName) {
             folderIcon.image = image
             folderIcon.contentTintColor = Style.Colors.primaryText
         } else {

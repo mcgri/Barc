@@ -1,3 +1,4 @@
+// Modified for Barc: render bundled folder symbols after promotion to a Space, 2026-10-24.
 import AppKit
 
 /// What a space draws where its coloured dot goes: in the sidebar header, in
@@ -18,7 +19,7 @@ enum SpaceIcon: Equatable, Sendable {
     /// The coloured dot, as every space had before icons existed.
     case automatic
     case emoji(String)
-    /// An SF Symbol name. An unresolvable name falls back to the dot at draw
+    /// An SF Symbol or bundled `ionicon.` name. An unresolvable name falls back to the dot at draw
     /// time rather than at assignment, so a symbol that disappears in some
     /// future macOS degrades instead of being quietly rewritten in the
     /// session file.
@@ -74,7 +75,7 @@ extension SpaceIcon {
         case .emoji(let text) where !text.isEmpty:
             return Self.glyphImage(text, side: side, title: title)
         case .symbol(let name):
-            if let symbol = NSImage(systemSymbolName: name, accessibilityDescription: title) {
+            if let symbol = FolderSymbols.image(named: name, description: title) {
                 return Self.symbolImage(symbol, color: color, side: side, title: title)
             }
             return SpaceTheme.dotImage(color: color, title: title, side: side)

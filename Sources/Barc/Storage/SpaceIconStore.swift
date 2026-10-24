@@ -1,3 +1,4 @@
+// Modified for Barc: independent ownership of duplicated icon files, 2026-10-24.
 import AppKit
 import UniformTypeIdentifiers
 
@@ -121,6 +122,13 @@ final class SpaceIconStore {
         guard let image = NSImage(contentsOf: directory.appending(path: name)) else { return nil }
         cache[name] = image
         return image
+    }
+
+    /// A duplicated folder owns a separate file, so replacing either icon
+    /// cannot remove the other's artwork.
+    func duplicateIcon(named name: String) throws -> String {
+        guard !name.isEmpty, URL(fileURLWithPath: name).lastPathComponent == name else { throw Failure.unreadable }
+        return try importIcon(from: directory.appending(path: name))
     }
 
     /// Drops one picture. Called when an icon is replaced and when the space
