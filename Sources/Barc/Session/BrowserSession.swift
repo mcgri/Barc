@@ -333,10 +333,11 @@ final class BrowserSession {
         // Picking a solid swatch clears a gradient: they are the same setting,
         // and the swatch is the later word.
         let clearsGradient = space.look.gradient != nil
-        guard theme != space.theme || clearsGradient || space.look.importedChrome != nil else { return }
+        guard theme != space.theme || clearsGradient || space.look.importedChrome != nil || space.look.sidebarTheme != nil else { return }
         space.theme = theme
-        if clearsGradient || space.look.importedChrome != nil {
+        if clearsGradient || space.look.importedChrome != nil || space.look.sidebarTheme != nil {
             var look = space.look
+            look.sidebarTheme = nil
             look.gradient = nil
             look.importedChrome = nil
             look.importedChromeWasCustomized = true
@@ -365,6 +366,8 @@ final class BrowserSession {
             look.importedChrome = nil
             look.importedChromeWasCustomized = true
         }
+        if look.sidebarTheme == space.look.sidebarTheme,
+           look.customColorHex != space.look.customColorHex || look.gradient != space.look.gradient { look.sidebarTheme = nil }
         let fontsChanged = look.fonts != space.look.fonts
         space.look = look
         if fontsChanged {
@@ -378,8 +381,9 @@ final class BrowserSession {
     /// Washes a space with a gradient, or clears it back to the solid theme.
     /// The gradient supersedes the theme colour wherever the chrome is washed.
     func setSpaceGradient(_ gradient: SpaceGradient?, for space: Space) {
-        guard space.look.gradient != gradient else { return }
+        guard space.look.gradient != gradient || space.look.sidebarTheme != nil else { return }
         var look = space.look
+        look.sidebarTheme = nil
         look.gradient = gradient
         look.importedChrome = nil
         look.importedChromeWasCustomized = true
@@ -393,12 +397,45 @@ final class BrowserSession {
     /// two ways and the last one picked is the one meant.
     func setCustomColor(_ color: NSColor, for space: Space) {
         var look = space.look
+        look.sidebarTheme = nil
         look.customColor = color
         look.gradient = nil
         look.importedChrome = nil
         look.importedChromeWasCustomized = true
         space.look = look
         space.theme = .custom
+        changes.send(.spaces)
+        scheduleSave()
+    }
+
+    var browserAppearance: AppearancePreference { settings.appearance }
+
+    /// Arc's theme appearance buttons choose the whole browser's appearance.
+    func setBrowserAppearance(_ appearance: AppearancePreference) {
+        settings.appearance = appearance
+        let dark = appearance == .dark || (appearance == .system && UserDefaults.standard.string(forKey: "AppleInterfaceStyle") == "Dark")
+        for space in spaces {
+            space.look.appearance = appearance
+            if let chrome = space.look.importedChrome {
+                space.look.importedChrome = ImportedChrome(color: chrome.color, intensity: chrome.intensity, noise: chrome.noise,
+                    usesDarkText: !dark, usesLightMaterial: !dark)
+            }
+        }
+        changes.send(.spaces)
+        scheduleSave()
+    }
+
+    func setSidebarTheme(_ style: SidebarThemeStyle, for space: Space) {
+        guard spaces.contains(where: { $0 === space }) else { return }
+        let style = SidebarThemeStyle(colors: style.colors, intensity: style.intensity, grain: style.grain, hasGrain: style.hasGrain)
+        guard space.look.sidebarTheme != style else { return }
+        space.theme = style.colors.isEmpty ? .neutral : .custom
+        space.look.sidebarTheme = style
+        space.look.customColorHex = style.colors.first?.nsColor.hexString
+        space.look.gradient = nil
+        space.look.importedChrome = nil
+        space.look.importedChromeWasCustomized = true
+        space.look.washOpacity = 1
         changes.send(.spaces)
         scheduleSave()
     }

@@ -10,6 +10,8 @@ struct WashGradient: Equatable {
     let direction: GradientDirection
     /// The space's wash strength (0...1), scaling the stops down from full.
     var opacity: CGFloat = 1
+    var additionalColors: [String] = []
+    var usesFullColor = false
 }
 
 /// A flat wash of the active space's colour, laid over the chrome's material.
@@ -160,13 +162,15 @@ final class TintView: NSView {
 
         // Two stops at wash strength, resolved under this view's appearance so
         // light and dark come out right, the same as the solid wash.
-        let start = SpaceTheme.wash(of: NSColor(hexString: gradient.startHex) ?? SpaceTheme.default.color, opacity: gradient.opacity)
-        let end = SpaceTheme.wash(of: NSColor(hexString: gradient.endHex) ?? SpaceTheme.default.color, opacity: gradient.opacity)
+        let colors = ([gradient.startHex, gradient.endHex] + gradient.additionalColors).map { hex in
+            let color = NSColor(hexString: hex) ?? SpaceTheme.default.color
+            return gradient.usesFullColor ? color.withAlphaComponent(gradient.opacity * 0.8) : SpaceTheme.wash(of: color, opacity: gradient.opacity)
+        }
         let points = gradient.direction.layerPoints
         effectiveAppearance.performAsCurrentDrawingAppearance {
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            target.colors = [start.cgColor, end.cgColor]
+            target.colors = colors.map(\.cgColor)
             target.startPoint = points.start
             target.endPoint = points.end
             target.frame = bounds

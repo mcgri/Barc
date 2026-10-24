@@ -86,6 +86,7 @@ final class Space: Identifiable {
     /// the user picked. The single colour a dot or a rim needs; the chrome's
     /// wash uses the whole gradient when there is one (`washGradient(for:)`).
     var color: NSColor {
+        if let color = look.sidebarTheme?.colors.first { return color.nsColor }
         if let gradient = look.gradient { return gradient.startColor }
         return theme == .custom ? (look.customColor ?? SpaceTheme.default.color) : theme.color
     }
@@ -107,6 +108,10 @@ final class Space: Identifiable {
     var activeImportedChrome: ImportedChrome? {
         guard theme == .custom, look.gradient == nil,
               !(look.allowsWebsiteThemeColor && activeTab?.themeColor != nil) else { return nil }
+        if let style = look.sidebarTheme {
+            let dark = look.appearance == .dark || (look.appearance == .system && NSApplication.shared.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+            return style.chrome(dark: dark)
+        }
         return look.importedChrome
     }
 
@@ -125,6 +130,12 @@ final class Space: Identifiable {
     /// page that declares its own colour takes the wash over (as a solid), so
     /// the gradient yields to it exactly as the solid wash does.
     func washGradient(for tab: Tab?) -> WashGradient? {
+        if let style = look.sidebarTheme, style.colors.count > 1,
+           !(look.allowsWebsiteThemeColor && tab?.themeColor != nil) {
+            return WashGradient(startHex: style.colors[0].nsColor.hexString, endHex: style.colors[1].nsColor.hexString,
+                direction: .down, opacity: CGFloat(style.intensity * look.washOpacity),
+                additionalColors: style.colors.dropFirst(2).map { $0.nsColor.hexString }, usesFullColor: true)
+        }
         guard let gradient = look.gradient else { return nil }
         if look.allowsWebsiteThemeColor, tab?.themeColor != nil { return nil }
         return WashGradient(startHex: gradient.startHex, endHex: gradient.endHex, direction: gradient.direction, opacity: CGFloat(look.washOpacity))

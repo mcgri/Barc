@@ -1102,7 +1102,7 @@ final class SidebarViewController: NSViewController {
             if isLibraryVisible, [.rename, .newFolder, .github].contains(action) { hideLibrary() }
             // The Space being acted on comes from the menu, even when its dock
             // icon was right-clicked while a different Space was in front.
-            if [.rename, .newFolder, .github].contains(action) { session.selectSpace(space) }
+            if [.rename, .newFolder, .github, .theme].contains(action) { session.selectSpace(space) }
             DispatchQueue.main.async { [weak self, weak space, weak anchor] in
                 guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
                 switch action {
@@ -1158,33 +1158,13 @@ final class SidebarViewController: NSViewController {
     }
 
     private func showSpaceColorEditor(for space: Space, anchor: NSView) {
-        let picker = SpaceThemePicker()
-        picker.show(space.theme)
-        picker.showCustomColor(space.look.customColor)
-        picker.onSelect = { [weak self, weak space] theme in
-            guard let self, let space else { return }
-            session.setTheme(theme, for: space)
-        }
-        picker.onCustomColor = { [weak self, weak space] color in
-            guard let self, let space else { return }
-            session.setCustomColor(color, for: space)
-        }
-        let controller = NSViewController()
-        controller.view = NSView()
-        controller.view.addSubview(picker)
-        NSLayoutConstraint.activate([
-            picker.leadingAnchor.constraint(equalTo: controller.view.leadingAnchor, constant: 12),
-            picker.trailingAnchor.constraint(equalTo: controller.view.trailingAnchor, constant: -12),
-            picker.topAnchor.constraint(equalTo: controller.view.topAnchor, constant: 12),
-            picker.bottomAnchor.constraint(equalTo: controller.view.bottomAnchor, constant: -12)
-        ])
-        controller.preferredContentSize = controller.view.fittingSize
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.contentViewController = controller
+        popover.contentViewController = SidebarThemeEditor(session: session, space: space)
         spaceColorPopover?.close()
         spaceColorPopover = popover
-        popover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+        let position = anchor.convert(anchor.bounds, to: view)
+        popover.show(relativeTo: NSRect(x: view.bounds.maxX - 1, y: position.midY, width: 1, height: 1), of: view, preferredEdge: .maxX)
     }
 
     /// Recomputed on every rebuild; cheap, tens of tabs.
