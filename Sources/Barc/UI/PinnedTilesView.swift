@@ -1,4 +1,4 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: compact Favorites layout, empty-state hint and stable tab drops, 2026-10-24.
 import AppKit
 
 /// One pinned shortcut: a site, and the name it is announced by.
@@ -128,6 +128,17 @@ final class PinnedTilesView: NSView {
     /// Rows are numbered from the top, so the strip has to be too. Without
     /// this the first row is drawn at the bottom and the tiles read backwards.
     override var isFlipped: Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        guard !emptyHint.isHidden, hit === emptyHint || hit.isDescendant(of: emptyHint) else { return hit }
+        var descendant: NSView? = hit
+        while let candidate = descendant, candidate !== self {
+            if let button = candidate as? NSButton { return button }
+            descendant = candidate.superview
+        }
+        return self
+    }
 
     /// Laid out by hand rather than by a stack view, because the strip has to
     /// wrap: a stack is one line, and the tiles need to reflow into as many
@@ -407,21 +418,20 @@ private final class EmptyFavoritesHint: NSView {
     private let icon = NSImageView()
     private let title = NSTextField(labelWithString: "Drag to add Favorites")
     private let detail = NSTextField(wrappingLabelWithString: "Favorites keep your most used sites and apps close")
-    private let dismiss = IconButton(symbolName: "xmark", label: "Dismiss Favorites Hint", side: 22, symbolSize: 11)
+    private let dismiss = IconButton(symbolName: "xmark", label: "Dismiss Favorites Hint", side: 22, symbolSize: 8)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = true
         icon.image = NSImage(systemSymbolName: "star.circle.fill", accessibilityDescription: nil)
-        icon.symbolConfiguration = .init(pointSize: 16, weight: .regular)
-        icon.contentTintColor = .labelColor.withAlphaComponent(0.70)
+        icon.symbolConfiguration = .init(pointSize: 20, weight: .regular)
+        icon.contentTintColor = .labelColor.withAlphaComponent(0.90)
         icon.imageScaling = .scaleProportionallyDown
-        icon.isEnabled = false
-        title.font = .systemFont(ofSize: 14, weight: .semibold)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
         title.textColor = .labelColor.withAlphaComponent(0.70)
         title.alignment = .center
         title.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        detail.font = .systemFont(ofSize: 13)
+        detail.font = .systemFont(ofSize: 12)
         detail.textColor = .labelColor.withAlphaComponent(0.55)
         detail.alignment = .center
         detail.maximumNumberOfLines = 2
@@ -433,11 +443,11 @@ private final class EmptyFavoritesHint: NSView {
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16),
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            icon.widthAnchor.constraint(equalToConstant: 20), icon.heightAnchor.constraint(equalToConstant: 20),
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             title.topAnchor.constraint(equalTo: topAnchor, constant: 34),
-            detail.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12), detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            detail.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24), detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
             detail.topAnchor.constraint(equalTo: topAnchor, constant: 54),
             dismiss.topAnchor.constraint(equalTo: topAnchor, constant: 4), dismiss.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4)
         ])

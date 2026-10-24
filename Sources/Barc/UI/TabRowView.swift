@@ -1,3 +1,4 @@
+// Modified for Barc: compact sidebar styling and complete row gesture targets, 2026-10-24.
 import AppKit
 
 /// Everything a tab row draws, as plain values.
@@ -631,6 +632,18 @@ final class TabRowView: NSTableCellView {
 
     /// The squeeze the row gives under a click. See `SpringPress`.
     private lazy var press = SpringPress(view: self)
+
+    /// The labels and favicon are the row's face. They must not intercept the
+    /// pointer sequence that the table uses for selection and dragging.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let hit = super.hitTest(point) else { return nil }
+        var descendant: NSView? = hit
+        while let candidate = descendant, candidate !== self {
+            if let button = candidate as? NSButton { return button }
+            descendant = candidate.superview
+        }
+        return self
+    }
 
     /// The press is flicked rather than held, and the event is passed on
     /// untouched.

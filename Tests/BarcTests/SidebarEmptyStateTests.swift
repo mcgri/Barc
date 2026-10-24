@@ -6,6 +6,30 @@ import Testing
 @Suite("Empty sidebar and Favorite drops")
 @MainActor
 struct SidebarEmptyStateTests {
+    @Test("Tab text and icons pass pointer gestures to the row while its close button stays clickable")
+    func tabRowPointerFaces() throws {
+        let row = TabRowView()
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.heightAnchor.constraint(equalToConstant: Style.Metrics.rowHeight).isActive = true
+        var closed = false
+        row.onClose = { closed = true }
+        row.configure(TabRowContent(title: "Drag this tab"))
+        row.isSelected = true
+        let host = UITestSupport.host(row, width: 228, height: Style.Metrics.rowHeight)
+        host.layoutSubtreeIfNeeded()
+        let parent = try #require(row.superview)
+        let title = try #require(UITestSupport.textFields(in: row).first { $0.stringValue == "Drag this tab" })
+        for face in [title as NSView, row.favicon] {
+            let point = face.convert(NSPoint(x: face.bounds.midX, y: face.bounds.midY), to: parent)
+            #expect(row.hitTest(point) === row, "The table needs the pointer sequence to start a drag")
+        }
+        let close = try #require(UITestSupport.buttons(in: row).first { !$0.isHiddenOrHasHiddenAncestor })
+        let point = close.convert(NSPoint(x: close.bounds.midX, y: close.bounds.midY), to: parent)
+        #expect(row.hitTest(point) === close)
+        close.performClick(nil)
+        #expect(closed)
+    }
+
     private func pins(in sidebar: SidebarViewController) throws -> PinnedTilesView {
         try #require(UITestSupport.descendants(of: sidebar.view).compactMap { $0 as? PinnedTilesView }.first)
     }
@@ -87,6 +111,24 @@ struct SidebarEmptyStateTests {
         strip.setTabDragInProgress(false)
         #expect(strip.isHidden)
         #expect(strip.intrinsicContentSize.height == 0)
+    }
+
+    @Test("The empty card is one registered drop target while its dismiss button stays clickable")
+    func hintPointerFaces() throws {
+        let strip = PinnedTilesView()
+        strip.show([])
+        let host = UITestSupport.host(strip, width: 212, height: 100)
+        host.layoutSubtreeIfNeeded()
+        let parent = try #require(strip.superview)
+        for field in UITestSupport.textFields(in: strip) {
+            let point = field.convert(NSPoint(x: field.bounds.midX, y: field.bounds.midY), to: parent)
+            #expect(strip.hitTest(point) === strip)
+        }
+        let dismiss = try #require(UITestSupport.buttons(in: strip).first)
+        let point = dismiss.convert(NSPoint(x: dismiss.bounds.midX, y: dismiss.bounds.midY), to: parent)
+        var hit = strip.hitTest(point)
+        while hit != nil && !(hit is NSButton) { hit = hit?.superview }
+        #expect(hit === dismiss)
     }
 
     @Test("A real sidebar drag Favorites the same tab after its row index changes")
