@@ -176,7 +176,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         )
         // Loses to the window, wins over everything else: a narrow window
         // shrinks the panel instead of pushing it off screen.
-        preferredWidth.priority = .defaultHigh
+        preferredWidth.priority = .init(999)
 
         centeredConstraints = [
             shadowHost.centerXAnchor.constraint(equalTo: centerXAnchor),

@@ -78,6 +78,26 @@ struct URLEditorTests {
         #expect(action == .openURL(URL(string: "https://replacement.invalid")!) && !newTab)
     }
 
+    @Test("Long titles truncate inside both URL editors without widening their panels")
+    func longTitles() throws {
+        _ = NSApplication.shared
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
+        NSLayoutConstraint.activate([host.widthAnchor.constraint(equalToConstant: 1200), host.heightAnchor.constraint(equalToConstant: 800)])
+        let anchor = NSView(frame: NSRect(x: 8, y: 680, width: 220, height: 36)); host.addSubview(anchor)
+        let bar = CommandBar(); bar.install(in: host)
+        let long = CommandResult(id: "long", kind: .openTab, title: String(repeating: "A lengthy browser page title ", count: 12),
+            subtitle: "", symbolName: "globe", action: .switchToTab(UUID()), score: 0)
+        for centred in [true, false] {
+            if centred { bar.openLocation(text: "https://example.invalid/", suggestions: [long]) }
+            else { bar.openAddress(text: "https://example.invalid/", anchor: anchor, recentResults: [long]) }
+            host.layoutSubtreeIfNeeded(); host.layoutSubtreeIfNeeded()
+            let panel = try #require(UITestSupport.descendants(of: bar).compactMap { $0 as? CommandPanelView }.first)
+            #expect(abs(panel.frame.width - (centred ? 765 : 350)) < 0.5)
+            #expect(host.bounds.contains(panel.convert(panel.bounds, to: host)))
+            bar.close()
+        }
+    }
+
     @Test("Top Sites retain source ranks and skip non-web URLs, and older profile preferences still decode")
     func rankedSource() throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "url-editor-\(UUID())")
@@ -92,6 +112,12 @@ struct URLEditorTests {
         try db.run("INSERT INTO top_sites VALUES ('javascript:alert(1)','unsafe',-1);")
         try db.execute("PRAGMA wal_checkpoint(TRUNCATE);")
         #expect(try ArcProfileReader.topSites(folder) == [site("first"), site("second"), site("third")])
+        let history = try SQLiteDatabase(path: folder.appending(path: "History").path)
+        try history.execute("CREATE TABLE urls(url TEXT, title TEXT);")
+        try history.run("INSERT INTO urls VALUES (?, 'Current history title');", [.text(site("first").url.absoluteString)])
+        try history.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        var first = site("first"); first.title = "Current history title"
+        #expect(try ArcProfileReader.topSites(folder) == [first, site("second"), site("third")])
         #expect(try JSONDecoder().decode(ProfilePreferences.self, from: Data("{}".utf8)).arcTopSites == nil)
     }
 
