@@ -317,7 +317,12 @@ final class BrowserSession {
     /// files are owned by the icon that names them and referred to by nothing
     /// else, so one no space points at is a file nothing will ever draw.
     func setIcon(_ icon: SpaceIcon, for space: Space) {
-        guard space.icon != icon else { return }
+        let alreadyCustomized = space.look.spaceIconWasCustomized
+        space.look.spaceIconWasCustomized = true
+        guard space.icon != icon else {
+            if !alreadyCustomized { scheduleSave() }
+            return
+        }
         if let old = space.icon.customFileName, old != icon.customFileName {
             SpaceIconStore.shared.remove(named: old)
         }
@@ -2750,6 +2755,9 @@ final class BrowserSession {
             if let existing = spaces.first(where: { $0.id == id }) {
                 space = existing
                 if !space.profile.hasCustomName, let name = stored.profileName, !name.isEmpty { space.profile.name = name }
+                if space.icon == .automatic, !space.look.spaceIconWasCustomized, built.icon != .automatic {
+                    space.icon = built.icon
+                }
                 // Enrich an older import only while its original accent is
                 // unchanged. User colour/gradient edits always win.
                 if space.theme == .custom, space.look.gradient == nil,

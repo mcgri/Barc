@@ -76,7 +76,7 @@ enum ArcSpaceBuilder {
                 profileName: source.profiles.first { $0.folder == space.profile }?.name,
                 identity: identity, theme: space.color == nil ? "blue" : "custom", look: look, groups: groups, pinnedSites: pins,
                 archiveHours: 0, archivedTabs: archives, bookmarkFolder: "From Arc/" + space.name,
-                icon: space.emoji.map { .emoji($0) })
+                icon: space.emoji.map { .emoji($0) } ?? space.symbolName.map { .symbol($0) })
             output.append(Built(profile: space.profile, sourceSpaceID: space.id, snapshot: snapshot))
         }
         if options.sidebar {

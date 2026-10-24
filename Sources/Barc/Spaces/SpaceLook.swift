@@ -20,6 +20,8 @@ struct SpaceLook: Codable, Hashable, Sendable {
     /// A later colour edit must survive a repeated sidebar import.
     var importedChromeWasCustomized = false
     var sidebarTheme: SidebarThemeStyle?
+    /// A later icon choice, including Remove Icon, takes precedence over import enrichment.
+    var spaceIconWasCustomized = false
     /// A gradient wash, chosen when the space was made or from its settings.
     /// When set it supersedes the solid theme colour: the chrome is washed with
     /// the gradient rather than one flat hue. Nil is the plain solid wash.
@@ -68,7 +70,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
     /// Each field falls back on its own, so a session from a build with more
     /// or fewer of them still restores.
     private enum CodingKeys: String, CodingKey {
-        case appearance, customColorHex, importedChrome, importedChromeWasCustomized, sidebarTheme, gradient, washOpacity, allowsWebsiteThemeColor
+        case appearance, customColorHex, importedChrome, importedChromeWasCustomized, sidebarTheme, spaceIconWasCustomized, gradient, washOpacity, allowsWebsiteThemeColor
         case alwaysShowsToolbarInFullScreen, autoShowsSidebarInFullScreen, isOpaqueInFullScreen
         case showsBookmarksBar, bookmarksBarStyle, fonts, sidebarWidth, pinnedSectionCollapsed, favoritesHintDismissed
     }
@@ -81,6 +83,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         importedChrome = (try? container.decodeIfPresent(ImportedChrome.self, forKey: .importedChrome)).flatMap { $0.isValid ? $0 : nil }
         importedChromeWasCustomized = (try? container.decodeIfPresent(Bool.self, forKey: .importedChromeWasCustomized)) ?? false
         sidebarTheme = try? container.decodeIfPresent(SidebarThemeStyle.self, forKey: .sidebarTheme)
+        spaceIconWasCustomized = (try? container.decodeIfPresent(Bool.self, forKey: .spaceIconWasCustomized)) ?? false
         gradient = try? container.decodeIfPresent(SpaceGradient.self, forKey: .gradient)
         washOpacity = (try? container.decodeIfPresent(Double.self, forKey: .washOpacity)).flatMap { $0 }.map { min(max($0, 0), 1) } ?? fallback.washOpacity
         allowsWebsiteThemeColor = (try? container.decodeIfPresent(Bool.self, forKey: .allowsWebsiteThemeColor)) ?? fallback.allowsWebsiteThemeColor
@@ -102,6 +105,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         try container.encodeIfPresent(importedChrome, forKey: .importedChrome)
         if importedChromeWasCustomized { try container.encode(true, forKey: .importedChromeWasCustomized) }
         try container.encodeIfPresent(sidebarTheme, forKey: .sidebarTheme)
+        if spaceIconWasCustomized { try container.encode(true, forKey: .spaceIconWasCustomized) }
         try container.encodeIfPresent(gradient, forKey: .gradient)
         try container.encode(washOpacity, forKey: .washOpacity)
         try container.encode(allowsWebsiteThemeColor, forKey: .allowsWebsiteThemeColor)
