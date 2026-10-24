@@ -125,6 +125,31 @@ struct SplitCollection: Equatable, Sendable {
         return copy
     }
 
+    /// Moves complete groups through an explicit old-page to new-page binding.
+    /// Partial groups and overlapping destinations are left alone. Matching
+    /// URLs are never used as identity, since several panes may show one URL.
+    @discardableResult
+    mutating func transferCompleteGroups(from source: Self, mapping: [UUID: UUID]) -> Set<UUID> {
+        var transferred: Set<UUID> = []
+        for original in source.layouts {
+            guard let first = original.tabIDs.first,
+                  let originalID = source.identifier(containing:first),
+                  let layout = original.mappingTabs({ mapping[$0] }),
+                  layout.tabIDs.allSatisfy({ self.layout(containing:$0) == nil }) else { continue }
+            let id = identifiers.contains(originalID) ? UUID() : originalID
+            layouts.append(layout)
+            identifiers.append(id)
+            if let focus = source.preferredTab(containing:first).flatMap({ mapping[$0] }) {
+                focusedTabs[id] = focus
+            }
+            for sticky in original.tabIDs where source.stickyTabIDs.contains(sticky) {
+                if let mapped = mapping[sticky] { stickyTabIDs.insert(mapped) }
+            }
+            transferred.insert(originalID)
+        }
+        return transferred
+    }
+
     /// Slots refer to the enclosing saved tab array, so duplicate URLs remain
     /// distinct and restoring a group never needs to guess a tab's identity.
     func snapshot(tabIDs: [UUID]) -> [SessionSnapshot.Split]? {
