@@ -53,6 +53,8 @@ struct SpaceLook: Codable, Hashable, Sendable {
     /// before the setting existed, and for a new one -- a fresh space starts at
     /// whatever width the window is already showing rather than snapping.
     var sidebarWidth: Double?
+    var showsInDock = true
+    var dockVisibilityWasCustomized = false
     /// The Space heading folds the retained folders and tabs above New Tab.
     var pinnedSectionCollapsed = false
     /// The empty Favorites hint can be dismissed without hiding real Favorites.
@@ -73,6 +75,7 @@ struct SpaceLook: Codable, Hashable, Sendable {
         case appearance, customColorHex, importedChrome, importedChromeWasCustomized, sidebarTheme, spaceIconWasCustomized, gradient, washOpacity, allowsWebsiteThemeColor
         case alwaysShowsToolbarInFullScreen, autoShowsSidebarInFullScreen, isOpaqueInFullScreen
         case showsBookmarksBar, bookmarksBarStyle, fonts, sidebarWidth, pinnedSectionCollapsed, favoritesHintDismissed
+        case showsInDock, dockVisibilityWasCustomized
     }
 
     init(from decoder: Decoder) throws {
@@ -94,6 +97,8 @@ struct SpaceLook: Codable, Hashable, Sendable {
         bookmarksBarStyle = (try? container.decodeIfPresent(String.self, forKey: .bookmarksBarStyle)).flatMap { $0 }.flatMap(BookmarksBarStyle.init(rawValue:)) ?? fallback.bookmarksBarStyle
         fonts = (try? container.decodeIfPresent(WebFonts.self, forKey: .fonts)) ?? fallback.fonts
         sidebarWidth = try? container.decodeIfPresent(Double.self, forKey: .sidebarWidth)
+        showsInDock = (try? container.decodeIfPresent(Bool.self,forKey:.showsInDock)) ?? true
+        dockVisibilityWasCustomized = (try? container.decodeIfPresent(Bool.self,forKey:.dockVisibilityWasCustomized)) ?? false
         pinnedSectionCollapsed = (try? container.decodeIfPresent(Bool.self, forKey: .pinnedSectionCollapsed)) ?? false
         favoritesHintDismissed = (try? container.decodeIfPresent(Bool.self, forKey: .favoritesHintDismissed)) ?? false
     }
@@ -118,6 +123,8 @@ struct SpaceLook: Codable, Hashable, Sendable {
         // Absent rather than zero when a space has never been sized, so "no
         // width of its own" survives the round trip as itself.
         try container.encodeIfPresent(sidebarWidth, forKey: .sidebarWidth)
+        if !showsInDock { try container.encode(false,forKey:.showsInDock) }
+        if dockVisibilityWasCustomized { try container.encode(true,forKey:.dockVisibilityWasCustomized) }
         if pinnedSectionCollapsed { try container.encode(true, forKey: .pinnedSectionCollapsed) }
         if favoritesHintDismissed { try container.encode(true, forKey: .favoritesHintDismissed) }
     }

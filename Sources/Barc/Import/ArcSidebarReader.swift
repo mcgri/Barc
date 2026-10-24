@@ -1,5 +1,6 @@
-// Modified for Barc: import Arc Space icon aliases, 2026-10-24.
+// Modified for Barc: import Arc Space icons and native sidebar width, 2026-10-24.
 import Foundation
+import CoreFoundation
 
 /// Reads the current local sidebar, not the stale cloud-sync replicas beside it.
 enum ArcSidebarReader {
@@ -84,13 +85,16 @@ enum ArcSidebarReader {
         }
         var spaces: [ArcSidebar.Space] = []
         let knownProfiles = Set(profiles.map(\.folder))
-        for (key, object) in spaceObjects {
+        let sync = root["firebaseSyncState"] as? [String: Any]
+        let syncData = sync?["syncData"] as? [String: Any]
+        let order = (syncData?["orderedSpaceIDs"] as? [String: Any])?["value"] as? [String] ?? []
+        for (index, entry) in spaceObjects.enumerated() {
+            let (key, object) = entry
             guard !spaces.contains(where: { $0.id == key }), let folder = profileFolder(object["profile"]),
                   knownProfiles.contains(folder) else { throw ArcImportFailure.invalidSidebar }
             let info = object["customInfo"] as? [String: Any] ?? [:]
-            let title = info["name"] as? String ?? info["title"] as? String ?? object["title"] as? String
-            let name = title.flatMap { $0.isEmpty ? nil : $0 }
-                ?? (folder == "Default" ? "Personal" : profiles.first { $0.folder == folder }?.name ?? folder)
+            let title = [info["name"],info["title"],object["title"]].compactMap { $0 as? String }.first { !$0.isEmpty }
+            let name = title ?? "Space \((order.firstIndex(of:key) ?? index) + 1)"
             var roots: [String: String] = [:]
             if let pairs = object["containerIDs"] as? [String], pairs.count.isMultiple(of: 2) {
                 for index in stride(from: 0, to: pairs.count, by: 2) { roots[pairs[index]] = pairs[index + 1] }
@@ -120,9 +124,6 @@ enum ArcSidebarReader {
             spaces.append(.init(id: key, name: name, profile: folder, pinnedRoot: roots["pinned"], unpinnedRoot: roots["unpinned"], color: hex, emoji: emoji,
                                 symbolName: symbol, chrome: ImportedChrome.read(theme), pinnedSectionCollapsed: foldedSpaces.map { $0.contains(key) }))
         }
-        let sync = root["firebaseSyncState"] as? [String: Any]
-        let syncData = sync?["syncData"] as? [String: Any]
-        let order = (syncData?["orderedSpaceIDs"] as? [String: Any])?["value"] as? [String] ?? []
         if Set(order).isSuperset(of: Set(spaces.map(\.id))) {
             spaces.sort { (order.firstIndex(of: $0.id) ?? Int.max) < (order.firstIndex(of: $1.id) ?? Int.max) }
         }
@@ -144,6 +145,10 @@ enum ArcSidebarReader {
             }
         }
         var output = ArcSidebar(spaces: spaces, items: items, orderedItemIDs: orderedIDs, favoritesRoots: favorites, archived: archived, skippedItems: skipped)
+        if let number = frontWindow?["sidebarWidth"] as? NSNumber,
+           CFGetTypeID(number) != CFBooleanGetTypeID(), number.doubleValue.isFinite, number.doubleValue > 0 {
+            output.sidebarWidth = number.doubleValue
+        }
         if let windows, let root = try? JSONSerialization.jsonObject(with: windows) as? [String: Any] {
             output.activeSpaceID = root["lastFocusedSpaceID"] as? String
             for window in root["windows"] as? [[String: Any]] ?? [] {

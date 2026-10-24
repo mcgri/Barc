@@ -13,7 +13,7 @@ final class ArcImportWindowController: NSWindowController, NSWindowDelegate {
     private let profileStack = NSStackView()
     private let results = NSTextView()
     private var profileBoxes: [String: NSButton] = [:]
-    private let tabsBox = NSButton(checkboxWithTitle: "Tabs, folders, favourites and archives", target: nil, action: nil)
+    private let tabsBox = NSButton(checkboxWithTitle: "Sidebar layout, tabs, folders, favourites and archives", target: nil, action: nil)
     private let historyBox = NSButton(checkboxWithTitle: "History and bookmarks", target: nil, action: nil)
     private let passwordBox = NSButton(checkboxWithTitle: "Saved passwords", target: nil, action: nil)
     private let cookieBox = NSButton(checkboxWithTitle: "Website cookies", target: nil, action: nil)

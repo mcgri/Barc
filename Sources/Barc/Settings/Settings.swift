@@ -24,6 +24,7 @@ final class Settings {
         static let sidebarPosition = "sidebarPosition"
         static let sidebarWidth = "sidebarWidth"
         static let sidebarWidthPerSpace = "sidebarWidthPerSpace"
+        static let arcSidebarWidthSources = "arcSidebarWidthSources"
         static let sidebarHoverDelay = "sidebarHoverDelay"
         static let sidebarDensity = "sidebarDensity"
         static let showsTabStrip = "showsTabStrip"
@@ -955,6 +956,19 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.sidebarWidthPerSpace) }
     }
 
+    /// Restore the source window once. Subsequent imports keep divider changes
+    /// made in this browser, including changes in older imported Spaces.
+    @discardableResult
+    func importArcSidebarWidth(_ width: Double?, sourceID: String) -> Bool {
+        guard let width, width.isFinite, width > 0, !sourceID.isEmpty else { return false }
+        let sources = defaults.stringArray(forKey:Key.arcSidebarWidthSources) ?? []
+        guard !sources.contains(sourceID) else { return false }
+        sidebarWidth = min(max(width,Style.Metrics.sidebarMinWidth),Style.Metrics.sidebarMaxWidth)
+        defaults.set(sources + [sourceID],forKey:Key.arcSidebarWidthSources)
+        NotificationCenter.default.post(name:.arcSidebarWidthImported,object:self)
+        return true
+    }
+
     /// Docking position of the sidebar (Left or Right).
     var sidebarPosition: SidebarPosition {
         get {
@@ -1529,6 +1543,7 @@ public struct CustomFilterList: Codable, Identifiable, Equatable, Sendable {
 }
 
 extension Notification.Name {
+    static let arcSidebarWidthImported = Notification.Name("arcSidebarWidthImported")
     static let developMenuSettingDidChange = Notification.Name("developMenuSettingDidChange")
     static let taskManagerButtonDidChange = Notification.Name("taskManagerButtonDidChange")
     static let mouseGesturesSettingDidChange = Notification.Name("mouseGesturesSettingDidChange")

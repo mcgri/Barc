@@ -897,11 +897,12 @@ final class SidebarViewController: NSViewController {
     }
 
     private func neighbourSpace(offset: Int) -> Space? {
+        let spaces = session.sidebarSpaces
         guard offset != 0,
-              let index = session.spaces.firstIndex(where: { $0.id == session.activeSpaceID }),
-              session.spaces.indices.contains(index + offset)
+              let index = spaces.firstIndex(where: { $0.id == session.activeSpaceID }),
+              spaces.indices.contains(index + offset)
         else { return nil }
-        return session.spaces[index + offset]
+        return spaces[index + offset]
     }
 
     private func discardNeighbourStill() {
@@ -1007,7 +1008,7 @@ final class SidebarViewController: NSViewController {
         // belong to the space that is actually active.
         if previewSpace == nil {
             ensureContentAtRest()
-            diaFooter.showSpaces(session.spaces.map {
+            diaFooter.showSpaces(session.sidebarSpaces.map {
                 SpaceDockItem(id: $0.id, name: $0.name, icon: $0.icon, color: $0.color)
             }, selectedID: session.activeSpaceID)
         }
@@ -1098,6 +1099,8 @@ final class SidebarViewController: NSViewController {
         }
         return SpaceOptionsMenu.make(canDelete: session.spaces.count > 1, hasGitHubFolder: hasGitHub,
                                      profiles: session.profiles, selectedProfileID: space.profile.id, allowsProfileChange: !space.isPrivate,
+                                     isVisibleInDock:space.look.showsInDock,
+                                     canHideFromDock:session.spaces.contains { $0 !== space && $0.look.showsInDock },
                                      exportSource: space, exportDestinations: session.spaces) {
             [weak self, weak space, weak anchor] action in
             guard let self, let space, session.spaces.contains(where: { $0 === space }) else { return }
@@ -1140,6 +1143,7 @@ final class SidebarViewController: NSViewController {
                 case .newFolder: newGroupFromMenu()
                 case .github: newGitHubGroup(scope: .pullRequests)
                 case .manage: showSpaceSettings()
+                case .toggleDock: session.setDockVisible(!space.look.showsInDock,for:space)
                 case .delete:
                     guard session.spaces.count > 1 else { return }
                     confirm(message: "Delete the Space \u{201c}\(space.name)\u{201d}?",

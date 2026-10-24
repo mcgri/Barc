@@ -21,6 +21,7 @@ enum ArcImportBench {
             "containerIDs": ["pinned", "personal-pins", "unpinned", "personal-tabs"]] as [String: Any]]
         if twoProfiles {
             spaces += ["work-space", ["id": "work-space", "profile": ["custom": ["_0": ["directoryBasename": "Profile 1"]]],
+                                      "customInfo": ["title":"Work"],
                                       "containerIDs": ["pinned", "work-pins", "unpinned", "work-tabs"]] as [String: Any]]
         }
         let items: [Any] = [

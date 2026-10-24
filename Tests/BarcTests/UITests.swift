@@ -1117,7 +1117,7 @@ struct SidebarContextMenuTests {
         #expect(titles == [
             "Change Space Icon…", "Rename Space…", "Edit Theme Color…", "Set Profile", "-",
             "New Folder", "Live Folders", "-", "Export “\(session.activeSpace.name)” into Folder", "-",
-            "Manage Spaces…", "-", "Delete Space"
+            "Manage Spaces…", "Hide from Switcher", "-", "Delete Space"
         ])
         #expect(sidebar.makeContextMenu().items.allSatisfy { $0.image == nil })
     }

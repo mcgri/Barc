@@ -596,10 +596,28 @@ final class BrowserSession {
     }
 
     func selectSpace(offsetBy offset: Int) {
-        guard spaces.count > 1,
-              let index = spaces.firstIndex(where: { $0.id == activeSpaceID }) else { return }
-        let wrapped = (index + offset % spaces.count + spaces.count) % spaces.count
-        selectSpace(spaces[wrapped])
+        let visible = sidebarSpaces
+        guard visible.count > 1,
+              let index = visible.firstIndex(where: { $0.id == activeSpaceID }) else { return }
+        let wrapped = (index + offset % visible.count + visible.count) % visible.count
+        selectSpace(visible[wrapped])
+    }
+
+    /// Hidden Spaces keep their data and remain available in the Library. A
+    /// Space opened from there stays in the dock until the user leaves it.
+    var sidebarSpaces: [Space] { spaces.filter { $0.look.showsInDock || $0.id == activeSpaceID } }
+
+    @discardableResult
+    func setDockVisible(_ visible: Bool, for space: Space) -> Bool {
+        guard spaces.contains(where: { $0 === space }) else { return false }
+        let next = spaces.first { $0 !== space && $0.look.showsInDock }
+        guard visible || next != nil else { return false }
+        var look = space.look
+        look.showsInDock = visible
+        look.dockVisibilityWasCustomized = true
+        setLook(look,for:space)
+        if !visible, space.id == activeSpaceID, let next { selectSpace(next) }
+        return true
     }
 
     // MARK: - Tabs
@@ -2884,6 +2902,12 @@ final class BrowserSession {
                 if !space.profile.hasCustomName, let name = stored.profileName, !name.isEmpty { space.profile.name = name }
                 if space.icon == .automatic, !space.look.spaceIconWasCustomized, built.icon != .automatic {
                     space.icon = built.icon
+                }
+                if space.look.sidebarWidth == nil, let width = built.look.sidebarWidth {
+                    space.look.sidebarWidth = width
+                }
+                if !space.look.dockVisibilityWasCustomized, !built.look.showsInDock {
+                    space.look.showsInDock = false
                 }
                 // Enrich an older import only while its original accent is
                 // unchanged. User colour/gradient edits always win.

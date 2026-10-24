@@ -14,4 +14,7 @@ struct LibrarySidebarWidth {
         return category == .spaces ? LibraryMetrics.rail : LibraryMetrics.rail + LibraryMetrics.list
     }
     mutating func close() -> CGFloat? { defer { resting = nil }; return resting }
+    mutating func updateRestingWidth(_ width: CGFloat) {
+        if resting != nil { resting = width }
+    }
 }

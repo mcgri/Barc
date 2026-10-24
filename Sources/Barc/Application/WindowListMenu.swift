@@ -90,7 +90,7 @@ final class WindowListMenu: NSObject, NSMenuDelegate {
     /// Command-1 through 9 belong to the tabs.
     private func spaceItems() -> [NSMenuItem] {
         let active = session.activeSpaceID
-        var items = session.spaces.enumerated().map { index, space in
+        var items = session.sidebarSpaces.enumerated().map { index, space in
             let item = NSMenuItem(
                 title: space.name,
                 action: #selector(BrowserWindowController.selectSpaceByNumber(_:)),

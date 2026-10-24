@@ -84,6 +84,7 @@ struct ArcSidebar: Sendable {
     var skippedItems: Int
     var selectedItems: [String: String] = [:]
     var activeSpaceID: String? = nil
+    var sidebarWidth: Double? = nil
 }
 
 struct ArcSourceSnapshot: Sendable {

@@ -188,6 +188,19 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
 
         NotificationCenter.default.addObserver(
+            forName: .arcSidebarWidthImported, object: Settings.shared, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let space = self.session.activeSpace
+                let width = self.restingSidebarWidth(for:space)
+                self.lastSidebarWidth = width
+                self.libraryWidth.updateRestingWidth(width)
+                if self.compact.controller.state.isEnabled { self.compact.controller.setMeasuredSidebarWidth(width) }
+                self.applySidebarWidth(for:space)
+            }
+        }
+        NotificationCenter.default.addObserver(
             forName: .sidebarModeDidChange, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -2521,8 +2534,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     /// Control-1 to 9: a space by position, as the sidebar's menu lists them.
     @objc func selectSpaceByNumber(_ sender: Any?) {
-        guard let item = sender as? NSMenuItem, session.spaces.indices.contains(item.tag - 1) else { return }
-        let space = session.spaces[item.tag - 1]
+        guard let item = sender as? NSMenuItem, session.sidebarSpaces.indices.contains(item.tag - 1) else { return }
+        let space = session.sidebarSpaces[item.tag - 1]
         guard space.id != session.activeSpaceID else { return }
         session.selectSpace(space)
     }
@@ -2629,7 +2642,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         // The outgoing space leaves first and the space changes while nothing
         // is on screen, so the switch is one view leaving and returning rather
         // than two spaces needing to exist at once.
-        let space = session.spaces[target]
+        let space = session.sidebarSpaces[target]
         sidebar.animateSwitch(offset: offset) { [weak self] in
             self?.session.selectSpace(space)
         }
@@ -2839,7 +2852,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case #selector(selectTabByNumber(_:)):
             return session.activeSpace.listedTabs.indices.contains(menuItem.tag - 1)
         case #selector(selectSpaceByNumber(_:)):
-            return session.spaces.indices.contains(menuItem.tag - 1)
+            return session.sidebarSpaces.indices.contains(menuItem.tag - 1)
         case #selector(stopLoading(_:)): return session.activeTab?.isLoading ?? false
         case #selector(splitSideBySide(_:)), #selector(splitStacked(_:)), #selector(splitGrid(_:)):
             return session.activeTab != nil && session.activeSplit?.isFull != true
@@ -2904,7 +2917,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
             return session.activeSpace.tabs.count > 1
         case #selector(selectNextSpace(_:)), #selector(selectPreviousSpace(_:)):
-            return session.spaces.count > 1
+            return session.sidebarSpaces.count > 1
         default: return true
         }
     }
@@ -3127,10 +3140,10 @@ extension BrowserWindowController: SidebarSwipeDelegate {
     /// A two-finger swipe across the sidebar does exactly what the dots in the
     /// sidebar's footer do: it moves one step along the spaces. Matching the
     /// dots is the whole requirement; the dots are the visible count.
-    var switchableCount: Int { session.spaces.count }
+    var switchableCount: Int { session.sidebarSpaces.count }
 
     var activeSwitchableIndex: Int {
-        session.spaces.firstIndex { $0.id == session.activeSpaceID } ?? 0
+        session.sidebarSpaces.firstIndex { $0.id == session.activeSpaceID } ?? 0
     }
 
     /// A drag that starts while the strip is still travelling would kill the

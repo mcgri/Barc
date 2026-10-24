@@ -67,6 +67,7 @@ enum ArcSpaceBuilder {
             var look = SpaceLook()
             look.customColorHex = space.color
             look.importedChrome = space.chrome
+            look.sidebarWidth = sidebar.sidebarWidth
             look.pinnedSectionCollapsed = space.pinnedSectionCollapsed ?? false
             let selected = sidebar.selectedItems[space.id].flatMap { selected in
                 tabs.firstIndex { $0.importedSourceID == prefix + "/tab/" + space.id + "/" + selected }
@@ -84,12 +85,14 @@ enum ArcSpaceBuilder {
             let unknown = sidebar.archived.filter { $0.spaceID.map { !knownIDs.contains($0) } ?? true }
             if !unknown.isEmpty {
                 let id = ArcImportID.uuid(prefix + "/unassigned-archive")
+                var archiveLook = SpaceLook()
+                archiveLook.showsInDock = false
                 let records = unknown.map { record in
                     SessionSnapshot.Archived(tab: SessionSnapshot.Tab(url: record.url, title: record.title, customName: record.customName,
                         importedSourceID: prefix + "/archive/" + record.id), archivedAt: record.date)
                 }
                 output.append(Built(profile: nil, sourceSpaceID: "unassigned-archive", snapshot: SessionSnapshot.Space(
-                    id: id, name: "Unassigned Arc archive", identity: .isolated(id), archiveHours: 0, archivedTabs: records)))
+                    id: id, name: "Unassigned Arc archive", identity: .isolated(id), look:archiveLook, archiveHours: 0, archivedTabs: records)))
             }
         }
         return output

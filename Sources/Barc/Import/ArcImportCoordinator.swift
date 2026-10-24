@@ -275,6 +275,9 @@ final class ArcImportCoordinator {
             ], notes: ["These entries belonged to deleted Arc Spaces. No account or website-session data was assigned to this Space."]))
         }
         if options.sidebar { try session.applyArcSpaceOrder(built.compactMap { $0.snapshot.id }) }
+        if options.sidebar, !built.isEmpty {
+            settings.importArcSidebarWidth(source.sidebar.sidebarWidth,sourceID:source.sourceFingerprint)
+        }
         if source.sidebar.skippedItems > 0 { report.notes.append("\(source.sidebar.skippedItems) Arc-specific or invalid sidebar/archive items could not be opened in Barc and remain in Arc.") }
         report.finishedAt = Date(); report.completed = true
         try save(report, runID: runID)

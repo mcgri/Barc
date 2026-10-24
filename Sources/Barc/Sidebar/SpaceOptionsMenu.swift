@@ -4,13 +4,14 @@ import AppKit
 @MainActor
 enum SpaceOptionsMenu {
     enum Action: Equatable {
-        case icon, rename, theme, newFolder, github, manage, delete, newProfile
+        case icon, rename, theme, newFolder, github, manage, delete, newProfile, toggleDock
         case profile(UUID)
         case exportInto(UUID)
     }
 
     static func make(canDelete: Bool, hasGitHubFolder: Bool, profiles: [BrowserProfile] = [],
                      selectedProfileID: UUID? = nil, allowsProfileChange: Bool = true,
+                     isVisibleInDock: Bool = true, canHideFromDock: Bool = true,
                      exportSource: Space? = nil, exportDestinations: [Space] = [],
                      perform: @escaping (Action) -> Void) -> NSMenu {
         let menu = NSMenu(title: "Space Options")
@@ -60,6 +61,7 @@ enum SpaceOptionsMenu {
             menu.addItem(.separator())
         }
         _ = add("Manage Spaces…", .manage, to: menu)
+        add(isVisibleInDock ? "Hide from Switcher" : "Show in Switcher",.toggleDock,to:menu).isEnabled = !isVisibleInDock || canHideFromDock
         menu.addItem(.separator())
         add("Delete Space", .delete, to: menu).isEnabled = canDelete
         return menu
