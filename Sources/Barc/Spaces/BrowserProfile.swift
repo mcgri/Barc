@@ -1,4 +1,4 @@
-// Modified for Barc: browsing profiles outlive Spaces and share their Favorites, 2026-10-24.
+// Modified for Barc: shared Favorites retain distinct split members and geometry, 2026-10-25.
 import Foundation
 
 @MainActor
@@ -27,7 +27,7 @@ final class BrowserProfile: Identifiable {
     }
 
     func addPinnedSite(_ site: PinnedSite) {
-        if let existing = pinnedSites.first(where: { $0.id == site.id || $0.matches(site.url) }) {
+        if let existing = pinnedSites.first(where: { $0.id == site.id || (site.split == nil && $0.matches(site.url)) }) {
             pinAliases[site.id] = existing.id
             return
         }
@@ -60,6 +60,7 @@ final class BrowserProfile: Identifiable {
         func content(_ tab: Tab) -> SessionSnapshot.Tab {
             var stored = tab.snapshot()
             stored.pinnedSiteID = nil
+            stored.pinnedMemberID = nil
             stored.importedSourceID = nil
             stored.sidebarPosition = nil
             stored.lastActiveAt = nil
@@ -75,7 +76,11 @@ final class BrowserProfile: Identifiable {
               let pinID = pinAliases[originalID] ?? pinnedSites.first(where: { $0.id == originalID })?.id else { return nil }
         if let source = tab.importedSourceID { importedFavoriteIDs.insert(source) }
         if originalID != pinID { tab.setPinnedSiteID(pinID) }
-        if let existing = favoriteTabs.first(where: { $0.pinnedSiteID == pinID }) { return existing }
+        guard let site = pinnedSites.first(where:{ $0.id == pinID }) else { return nil }
+        if let split = site.split {
+            guard let member = tab.pinnedMemberID,split.members.contains(where:{ $0.id == member }) else { return nil }
+        } else if tab.pinnedMemberID != nil { tab.setPinnedMemberID(nil) }
+        if let existing = favoriteTabs.first(where: { $0.pinnedSiteID == pinID && $0.pinnedMemberID == tab.pinnedMemberID }) { return existing }
         favoriteTabs.append(tab)
         return tab
     }
@@ -94,7 +99,7 @@ final class BrowserProfile: Identifiable {
         case .ephemeral: .ephemeral
         }
         return .init(id: id, name: name, kind: kind, theme: nil,
-                     pinnedSites: identity.isPrivate ? nil : pinnedSites.map { .init(id: $0.id, url: $0.url, title: $0.title) },
+                     pinnedSites: identity.isPrivate ? nil : pinnedSites.map { .init(id: $0.id, url: $0.url, title: $0.title,split:$0.split) },
                      favoriteTabs: identity.isPrivate ? nil : favoriteTabs.map { $0.snapshot() },
                      importedFavoriteIDs: identity.isPrivate || importedFavoriteIDs.isEmpty ? nil : importedFavoriteIDs.sorted(),
                      preferences: preferences, hasCustomName: hasCustomName)
@@ -110,9 +115,30 @@ final class BrowserProfile: Identifiable {
         profile.hasCustomName = stored.hasCustomName ?? true
         profile.preferences = stored.preferences ?? ProfilePreferences()
         guard !identity.isPrivate else { return profile }
-        for pin in stored.pinnedSites ?? [] { profile.addPinnedSite(.init(id: pin.id, url: pin.url, title: pin.title)) }
+        for pin in stored.pinnedSites ?? [] { profile.addPinnedSite(.init(id: pin.id, url: pin.url, title: pin.title,split:pin.split)) }
         profile.importedFavoriteIDs = Set(stored.importedFavoriteIDs ?? [])
         for tab in stored.favoriteTabs ?? [] { profile.adoptFavorite(Tab(restoring: tab, identity: identity)) }
         return profile
+    }
+
+    /// Persist only edits to an existing complete unit. Loading another Space
+    /// must not overwrite the profile destination with its older saved layout.
+    func updateFavoriteSplits(before:SplitCollection,after:SplitCollection) {
+        for index in pinnedSites.indices {
+            guard var saved = pinnedSites[index].split,saved.isValid else { continue }
+            let tabs = saved.members.compactMap { member in
+                favoriteTabs.first { $0.pinnedSiteID == pinnedSites[index].id && $0.pinnedMemberID == member.id }
+            }
+            guard tabs.count == saved.members.count,
+                  let old = before.snapshot(tabIDs:tabs.map(\.id))?.first,
+                  let new = after.snapshot(tabIDs:tabs.map(\.id))?.first,
+                  old.tabIndices.count == tabs.count,new.tabIndices.count == tabs.count,old != new else { continue }
+            let bindings = Dictionary(uniqueKeysWithValues:zip(tabs.map(\.id),saved.members.map(\.id)))
+            guard let layout = new.layout.mappingTabs({ bindings[$0] }) else { continue }
+            saved.layout = layout
+            saved.focusedMemberID = new.focusedTabIndex.flatMap { saved.members.indices.contains($0) ? saved.members[$0].id:nil }
+            saved.stickyMemberID = new.stickyTabIndex.flatMap { saved.members.indices.contains($0) ? saved.members[$0].id:nil }
+            pinnedSites[index].split = saved
+        }
     }
 }

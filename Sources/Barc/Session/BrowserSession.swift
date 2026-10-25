@@ -766,7 +766,7 @@ final class BrowserSession {
     /// Whether an address is one of the active space's pinned sites. Glance's
     /// off-site rule asks this; it ships switched off.
     func isPinnedSite(_ url: URL) -> Bool {
-        activeSpace.pinnedSites.contains { $0.matches(url) }
+        activeSpace.pinnedSites.contains { $0.contains(url) }
     }
 
     /// Closes a tab, unless it is locked.
@@ -2272,20 +2272,55 @@ final class BrowserSession {
     }
 
     func isPinned(_ tab: Tab) -> Bool {
-        tab.pinnedSiteID != nil || activeSpace.pinnedSites.contains { $0.matches(tab.url) }
+        if tab.pinnedSiteID != nil { return true }
+        if activeSpace.splits.layout(containing:tab.id) != nil { return false }
+        return activeSpace.pinnedSites.contains { $0.matches(tab.url) }
     }
 
     /// Turns a tab into a tile. The tab becomes the tile's own, so it leaves
     /// the list rather than showing the same site twice.
     func pin(_ tab: Tab) {
         let space = activeSpace
-        guard space.index(of: tab) != nil, !isPinned(tab), space.pinnedSites.count < 12 else { return }
+        guard let members = favoriteUnit(for:tab) else { return }
+        if members.count > 1,let layout = space.splits.layout(containing:tab.id) {
+            changes.batch {
+                let destination = FavoriteSplit(id:space.splits.identifier(containing:tab.id) ?? UUID(),
+                    members:members.map { page in
+                        var saved = page.snapshot()
+                        saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.groupID = nil
+                        saved.interactionState = nil
+                        return .init(id:page.id,page:saved)
+                    },layout:layout,focusedMemberID:space.splits.preferredTab(containing:tab.id),
+                    stickyMemberID:layout.tabIDs.first(where:space.splits.stickyTabIDs.contains))
+                let site = PinnedSite(url:members[0].url,title:members.map(\.displayTitle).joined(separator:" / "),split:destination)
+                space.addPinnedSite(site)
+                for page in members {
+                    page.setPinnedSiteID(site.id);page.setPinnedMemberID(page.id)
+                    space.promoteFavorite(page)
+                }
+                changes.send(.structure)
+                scheduleSave()
+            }
+            return
+        }
         let site = PinnedSite(url: tab.url, title: tab.displayTitle)
         space.addPinnedSite(site)
         tab.setPinnedSiteID(site.id)
         space.promoteFavorite(tab)
         changes.send(.structure)
         scheduleSave()
+    }
+
+    func canFavorite(_ tab:Tab) -> Bool { favoriteUnit(for:tab) != nil }
+
+    private func favoriteUnit(for tab:Tab) -> [Tab]? {
+        let space = activeSpace
+        guard space.index(of:tab) != nil,!isPinned(tab),space.pinnedSites.count < 12 else { return nil }
+        guard let layout = space.splits.layout(containing:tab.id) else { return [tab] }
+        let members = layout.tabIDs.compactMap { id in space.workspaceTabs.first { $0.id == id } }
+        guard members.count == layout.paneCount,
+              members.allSatisfy({ $0.pinnedSiteID == nil && !$0.isLocked && !isInLiveFolder($0) && !$0.isSidebarPlaceholder }) else { return nil }
+        return members
     }
 
     /// Unpins a tab if it was pinned as a tile shortcut.
@@ -2296,6 +2331,24 @@ final class BrowserSession {
     }
 
     func removePinnedSite(_ site: PinnedSite) {
+        if let current = activeSpace.pinnedSites.first(where:{ $0.id == site.id }),current.split != nil {
+            changes.batch {
+                let space = activeSpace
+                restoreFavoriteSplit(current,select:false)
+                let members = space.profile.favoriteTabs.filter { $0.pinnedSiteID == site.id }
+                space.removePinnedSite(current)
+                for other in spaces where other !== space && other.profile === space.profile {
+                    for member in members { other.splits.dissolve(containing:member.id) }
+                }
+                for member in members {
+                    space.profile.removeFavorite(member);member.setPinnedSiteID(nil);member.setGroupID(nil)
+                    insert(member,into:space,at:space.workspaceTabs.count,select:false)
+                }
+                repairSelections(for:space.profile)
+                changes.send(.structure);scheduleSave()
+            }
+            return
+        }
         // The tab outlives the shortcut and rejoins the list, rather than
         // disappearing with a tile the user only meant to unpin.
         if let tab = activeSpace.tab(forPin: site.id) {
@@ -2320,7 +2373,11 @@ final class BrowserSession {
     /// near-duplicates, which is the whole reason a pin is not a tab.
     func openPinnedSite(_ site: PinnedSite) {
         let space = activeSpace
-        guard space.pinnedSites.contains(where: { $0.id == site.id }) else { return }
+        guard let current = space.pinnedSites.first(where: { $0.id == site.id }) else { return }
+        if current.split != nil {
+            changes.batch { restoreFavoriteSplit(current,select:true) }
+            return
+        }
         if let existing = space.tab(forPin: site.id) {
             selectTab(existing)
             return
@@ -2341,6 +2398,38 @@ final class BrowserSession {
         space.promoteFavorite(tab)
         changes.send(.structure)
         scheduleSave()
+    }
+
+    /// Rebind destination members to the profile's live pages. URL equality
+    /// never identifies a pane, and an existing pane is never reloaded.
+    private func restoreFavoriteSplit(_ site:PinnedSite,select:Bool) {
+        let space = activeSpace
+        guard let saved = site.split,saved.isValid else { return }
+        var members:[Tab] = []
+        for member in saved.members {
+            if let existing = space.profile.favoriteTabs.first(where:{ $0.pinnedSiteID == site.id && $0.pinnedMemberID == member.id }) {
+                members.append(existing)
+            } else {
+                var snapshot = member.page
+                snapshot.pinnedSiteID = site.id;snapshot.pinnedMemberID = member.id
+                snapshot.groupID = nil;snapshot.interactionState = nil
+                let page = Tab(restoring:snapshot,identity:space.identity)
+                insert(page,into:space,at:space.workspaceTabs.count,select:false)
+                members.append(page)
+            }
+        }
+        let collection = SplitCollection.restoring([saved.record],tabIDs:members.map(\.id))
+        // Replace stale arrangements in this Space, leaving other Space-only
+        // pages available. The canonical Favorite destination remains intact.
+        for member in members { space.splits.dissolve(containing:member.id) }
+        space.splits.copyCompleteGroups(from:collection,
+            mapping:Dictionary(uniqueKeysWithValues:members.map { ($0.id,$0.id) }))
+        if select {
+            let focus = space.splits.preferredTab(containing:members[0].id) ?? members[0].id
+            space.setActiveTabID(focus);space.splits.focus(focus)
+            changes.send(.activeTab)
+        }
+        changes.send(.structure);scheduleSave()
     }
 
     // MARK: - Suspension
@@ -3028,7 +3117,7 @@ final class BrowserSession {
                         )
                     },
                     pinnedSites: space.isPrivate ? nil : space.pinnedSites.map {
-                        SessionSnapshot.Pinned(id: $0.id, url: $0.url, title: $0.title)
+                        SessionSnapshot.Pinned(id: $0.id, url: $0.url, title: $0.title,split:$0.split)
                     },
                     archiveHours: space.archiveHours,
                     // Written in the order archived, so the list restores the
@@ -3139,7 +3228,7 @@ final class BrowserSession {
             space.restore(
                 groups: groups,
                 pinnedSites: (stored.pinnedSites ?? []).map {
-                    PinnedSite(id: $0.id, url: $0.url, title: $0.title)
+                    PinnedSite(id: $0.id, url: $0.url, title: $0.title,split:$0.split)
                 }
             )
 
@@ -3157,10 +3246,14 @@ final class BrowserSession {
                 if let id = tab.groupID, !knownGroupIDs.contains(id) { tab.groupID = nil }
                 let restored = Tab(restoring: tab, identity: identity)
                 space.insert(restored, at: space.workspaceTabs.count)
-                restoredSelection.append(restored.pinnedSiteID.flatMap { space.tab(forPin: $0) } ?? restored)
+                let canonical = restored.pinnedSiteID.flatMap { pin in
+                    space.profile.favoriteTabs.first { $0.pinnedSiteID == pin && $0.pinnedMemberID == restored.pinnedMemberID }
+                }
+                restoredSelection.append(canonical ?? restored)
             }
             if let favoriteID = stored.activeFavoriteID, let tab = space.tab(forPin: favoriteID) {
-                space.setActiveTabID(tab.id)
+                let selected = stored.activeTabIndex.flatMap { restoredSelection.indices.contains($0) ? restoredSelection[$0]:nil }
+                space.setActiveTabID(selected?.pinnedSiteID == favoriteID ? selected?.id:tab.id)
             } else if let index = stored.activeTabIndex, restoredSelection.indices.contains(index) {
                 space.setActiveTabID(restoredSelection[index].id)
             } else { space.setActiveTabID(space.tabs.first?.id) }
@@ -3188,18 +3281,29 @@ final class BrowserSession {
                 }
 
                 // Merge pinned sites
-                let existingPinnedURLs = Set(existing.pinnedSites.map(\.url.absoluteString))
-                for pin in incomingSpace.pinnedSites where !existingPinnedURLs.contains(pin.url.absoluteString) {
-                    existing.addPinnedSite(pin)
-                }
+                for pin in incomingSpace.pinnedSites { existing.addPinnedSite(pin) }
 
                 // Merge tabs if enabled
                 if mergeTabs {
                     let existingURLs = Set(existing.tabs.map(\.url.absoluteString))
-                    for tab in incomingSpace.tabs where !existingURLs.contains(tab.url.absoluteString) {
-                        adopt(tab)
-                        existing.insert(tab, at: existing.tabs.count)
+                    var bindings:[UUID:UUID] = [:]
+                    for tab in incomingSpace.tabs {
+                        if let pinID = tab.pinnedSiteID,
+                           incomingSpace.pinnedSites.contains(where:{ $0.id == pinID && $0.split != nil }) {
+                            var saved = tab.snapshot()
+                            if tab.identity != existing.identity { saved.interactionState = nil }
+                            let page = Tab(restoring:saved,identity:existing.identity)
+                            adopt(page);existing.insert(page,at:existing.tabs.count)
+                            let canonical = page.pinnedSiteID.flatMap { id in
+                                existing.profile.favoriteTabs.first { $0.pinnedSiteID == id && $0.pinnedMemberID == page.pinnedMemberID }
+                            }
+                            bindings[tab.id] = canonical?.id ?? page.id
+                        } else if !existingURLs.contains(tab.url.absoluteString) {
+                            adopt(tab);existing.insert(tab,at:existing.tabs.count)
+                            bindings[tab.id] = tab.id
+                        }
                     }
+                    existing.splits.copyCompleteGroups(from:incomingSpace.splits,mapping:bindings)
                 }
             } else {
                 for tab in incomingSpace.tabs { adopt(tab) }

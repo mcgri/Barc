@@ -14,7 +14,7 @@ enum CommandCatalog {
             case "reset-tab", "replace-pin-with-current-page":
                 return session.activeTab.map(session.canResetSidebarPin) ?? false
             case "favorite-tab":
-                return session.activeTab.map { !session.isPinned($0) && session.activeSpace.pinnedSites.count < 12 } ?? false
+                return session.activeTab.map(session.canFavorite) ?? false
             default: return true
             }
         }

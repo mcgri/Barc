@@ -2911,7 +2911,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             menuItem.title = session.activeTab?.isSidebarRetained == true ? "Unpin Tab" : "Pin Tab"
             return session.activeTab.map(session.canChangeSidebarPin) ?? false
         case #selector(favoriteActiveTab(_:)):
-            return session.activeTab.map { !session.isPinned($0) && session.activeSpace.pinnedSites.count < 12 } ?? false
+            return session.activeTab.map(session.canFavorite) ?? false
         case #selector(resetActivePin(_:)):
             return session.activeTab.map(session.canResetSidebarPin) ?? false
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):

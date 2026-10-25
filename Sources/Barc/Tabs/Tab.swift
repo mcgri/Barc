@@ -314,6 +314,7 @@ final class Tab: Identifiable {
     /// a pin for `slack.com` and the site sends you to `slack.com/intl/en-in/`,
     /// after which the pin no longer recognises its own tab and opens another.
     private(set) var pinnedSiteID: UUID?
+    private(set) var pinnedMemberID: UUID?
 
     /// When this tab was last on screen. Drives suspension and archiving.
     private(set) var lastActiveAt: Date = .now
@@ -598,6 +599,13 @@ final class Tab: Identifiable {
     func setPinnedSiteID(_ id: UUID?) {
         guard id != pinnedSiteID else { return }
         pinnedSiteID = id
+        if id == nil { pinnedMemberID = nil }
+        didChange.send()
+    }
+
+    func setPinnedMemberID(_ id:UUID?) {
+        guard id != pinnedMemberID else { return }
+        pinnedMemberID = id
         didChange.send()
     }
 
@@ -730,6 +738,7 @@ final class Tab: Identifiable {
         self.identity = identity
         self.groupID = snapshot.groupID
         self.pinnedSiteID = snapshot.pinnedSiteID
+        self.pinnedMemberID = snapshot.pinnedSiteID == nil ? nil:snapshot.pinnedMemberID
         self.savedInteractionState = snapshot.interactionState
         // A session written before the clock was persisted restores as "just
         // now", which is the safe direction to be wrong in: a tab is never
@@ -775,7 +784,8 @@ final class Tab: Identifiable {
             sidebarPosition: sidebarPosition,
             favicon: restoredFavicon.flatMap { $0.matches(url) ? $0 : nil },
             sidebarSymbolName: sidebarSymbolName,
-            pinnedPageURL: pinnedPageURL
+            pinnedPageURL: pinnedPageURL,
+            pinnedMemberID: pinnedMemberID
         )
     }
 

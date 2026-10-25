@@ -54,6 +54,8 @@ struct SessionSnapshot: Codable, Equatable {
         /// Optional custom sidebar symbol and the original retained page address.
         var sidebarSymbolName: String? = nil
         var pinnedPageURL: URL? = nil
+        /// Stable within a multi-pane Favorite, independent of runtime tab IDs.
+        var pinnedMemberID: UUID? = nil
     }
 
     struct Split: Codable, Equatable, Sendable {
@@ -227,6 +229,7 @@ struct SessionSnapshot: Codable, Equatable {
         var id: UUID
         var url: URL
         var title: String
+        var split: FavoriteSplit? = nil
     }
 
     /// A browsing identity and its shared Favorites. Older profile records

@@ -1,3 +1,4 @@
+// Modified for Barc: Favorite destinations can retain complete split groups, 2026-10-25.
 import Foundation
 
 /// A site pinned to the top of the sidebar as a tile.
@@ -14,23 +15,33 @@ struct PinnedSite: Identifiable, Equatable, Sendable {
     var url: URL
     /// Shown as the tile's tooltip and used when a favicon is unavailable.
     var title: String
+    var split: FavoriteSplit?
 
-    init(id: UUID = UUID(), url: URL, title: String) {
+    init(id: UUID = UUID(), url: URL, title: String, split:FavoriteSplit? = nil) {
         self.id = id
         self.url = url
         self.title = title
+        self.split = split
     }
 
     /// Two pins are "the same site" when host and path match, ignoring the
     /// query and fragment, which is what makes reopening a pin land on the tab
     /// you already have rather than a near-duplicate.
     func matches(_ other: URL) -> Bool {
+        guard split == nil else { return false }
         guard let a = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let b = URLComponents(url: other, resolvingAgainstBaseURL: false) else {
             return url == other
         }
         return a.host?.lowercased() == b.host?.lowercased()
             && a.path.trimmingTrailingSlash == b.path.trimmingTrailingSlash
+    }
+
+    /// Navigation rules consider every saved destination in a Favorite unit.
+    func contains(_ other:URL) -> Bool {
+        matches(other) || split?.members.contains(where:{
+            Self(url:$0.page.url,title:"").matches(other)
+        }) == true
     }
 }
 

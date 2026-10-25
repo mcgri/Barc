@@ -240,7 +240,9 @@ final class Space: Identifiable {
     /// being kept.
     var isPrivate: Bool { identity.isPrivate }
 
-    var splits = SplitCollection()
+    var splits = SplitCollection() {
+        didSet { profile.updateFavoriteSplits(before:oldValue,after:splits) }
+    }
     /// Source units already considered, including those later separated locally.
     var importedSplitIDs: Set<UUID> = []
 

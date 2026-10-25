@@ -1099,7 +1099,7 @@ final class SidebarViewController: NSViewController {
                     // The tab the shortcut owns, not a URL comparison: the
                     // site navigates away from the pinned address immediately
                     // and the tile would stop recognising its own page.
-                    isActive: activeID != nil && space.tab(forPin: site.id)?.id == activeID,
+                    isActive: activeID != nil && space.activeTab?.pinnedSiteID == site.id,
                     favicon: space.tab(forPin: site.id)?.restoredFavicon
                 )
             },
@@ -1112,7 +1112,7 @@ final class SidebarViewController: NSViewController {
         guard previewSpace == nil, shownSpace === session.activeSpace,
               session.activeSpace.pinnedSites.count < 12,
               let tab = session.activeSpace.tabs.first(where: { $0.id == id }),
-              !StartPage.isStartPage(tab.url), !session.isPinned(tab) else { return false }
+              !StartPage.isStartPage(tab.url), session.canFavorite(tab) else { return false }
         return true
     }
     func makeSpaceOptionsMenu(for space: Space, anchor: NSView) -> NSMenu {
