@@ -1,6 +1,6 @@
 # Sidebar batch findings
 
-2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `548a04b`, including the search batch in `7442ccb` and the earlier sidebar batch. Current release: **build 231**. Full Arc parity remains unproven.
+2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `5db18d7`, including search-interaction changes in `e2bb808`. Current release: **build 234**. Full Arc parity remains unproven.
 
 ## Completed fixes
 
@@ -50,20 +50,29 @@ Native sample-data inspection verified predictions from all three supported engi
 
 The implementation follows the [documented Arc site-search shortcut](https://resources.arc.net/hc/en-us/articles/20855018192791-Site-Search-Directly-Search-any-Website). Built-in prediction endpoints are checked against the [public engine definitions](https://chromium.googlesource.com/external/search_engines_data/+/refs/heads/main/definitions/prepopulated_engines.json). The actual app review found a command-ranking problem; the final suite/build include that correction.
 
+## Search interactions: build 234
+
+- One physical sidebar click now dismisses search before AppKit dispatches the original event. New Tab opens immediately, a Space button switches immediately, and a tab's context menu opens from the first right-click. Clicks inside the panel stay with the editor; page clicks keep their existing dismissal behavior.
+- Compact mode keeps the sidebar available during the click handoff, then releases the temporary hold. This fixes the additional native-review failure where dismissing search started hiding its intended click target.
+- Literal searches, engine predictions and their input previews keep magnifying glasses after an engine's page favicon has loaded. Actual page/tab suggestions retain favicons.
+- Ordinary queries such as `weather?`, `cats & dogs`, `why: now?` and `C# tutorial` are eligible for predictions. Default-engine requests exclude credentials, URL queries/fragments/ports, secure paths and local schemes. A selected keyword/site mode explicitly searches its term through that engine. This uses [Chromium's published privacy distinction](https://github.com/chromium/chromium/blob/main/components/omnibox/browser/search_provider.cc) with Barc's navigation classification; it does not claim Chromium's complete input parser.
+
+Final combined suite: **2,334 tests in 367 suites passed**, 94.434 seconds. The suite includes input-position checks, original pointer event routing, panel/page/foreign-window boundaries, the real compact-window New Tab target, available engine icons and punctuation/address eligibility. A boundary failure found during verification was corrected by intersecting native visible rectangles with actual sidebar bounds.
+
+Final release: **build 234**, `0.1.64-136-g5db18d7`, compiled in 71.47 seconds. Strict signature verification passed. The bundle is `build/Barc.app`.
+
+Native review in build 233 confirmed one-click expanded New Tab, an immediate sidebar context menu, a physical Space switch, predictions for questions/ampersands, and magnifying glasses after the DuckDuckGo page favicon loaded. Both appearances were inspected. That review exposed the compact handoff issue; build 234 corrects it, and its one-click New Tab was then verified with the pointer in both populated Personal and empty Work Spaces. Search input remained at its opening position as result counts changed. The search rendering and prediction changes are unchanged between these two builds.
+
+All review copies are closed. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No social/sharing features, remote push or hosted environment changes were made.
+
 ## Remaining to-do list
 
 These are remaining differences or verification gaps within the requested areas. They are not claims of completed parity.
 
-### Confirmed follow-up fixes
-
-- [ ] Let a single pointer click reach sidebar controls while the launcher is open. In the native review, the first click on New Tab dismissed the launcher and the second opened it. A successful accessibility Space activation does not prove physical click-through. Arc documents sidebar interaction with the command bar open in its [April 18, 2024 release notes](https://resources.arc.net/hc/en-us/articles/20498293324823-Arc-for-macOS-2024-2026-Release-Notes).
-- [ ] Keep magnifying-glass icons on literal searches and predictions after visiting an engine. The current image provider can substitute the engine's cached favicon; this was visible in the dark native review.
-- [ ] Refine prediction eligibility for normal questions and punctuation. The current input filter rejects question marks/ampersands alongside private address-shaped input, so some ordinary searches receive no predictions.
-
 ### Search
 
 - [ ] Compare ranking against Arc across a larger saved query set. The local ranker has corrected prefix behavior, but exact Chromium scoring is not established.
-- [x] Add basic remote engine predictions. Built-in DuckDuckGo, Google and Bing feeds are implemented and checked in the native app.
+- [ ] Compare partial URL classification against Chromium, including incomplete schemes, credentials and forced queries. Ordinary punctuation and the private-address cases below now have regression coverage; identical classification for every intermediate input is not established.
 - [ ] Compare richer provider result types and ranking metadata with Arc. The current list adds plain query predictions; exact Chromium scoring and all navigation/entity result types are not reproduced.
 - [ ] Check Japanese/Chinese composition with a real input method. Native marked-text composition is now exercised with real AppKit text-input APIs; a human input-method session has not been observed.
 - [ ] Compare placement and truncation during full-screen transitions and at unusually large accessibility text sizes. Ordinary resizing and both appearances are covered.

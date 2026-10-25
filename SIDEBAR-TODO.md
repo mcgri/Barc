@@ -56,7 +56,9 @@ Search follow-up combined suite passed: 2,329 tests in 366 suites, 94.566 second
 
 Scan complete. Implement these together before running the combined suite and owned app review. Arc remains untouched.
 
-- [ ] R1. Let native sidebar pointer clicks reach their controls while search is open. Dismiss before normal event dispatch, preserving the original click and context-menu/drag behavior.
-- [ ] R2. Keep search rows and the query preview as magnifying glasses after an engine favicon has been cached; preserve actual page favicons.
-- [ ] R3. Accept punctuation in ordinary question predictions. Keep address credentials, secure paths and local schemes out of default-engine requests; recognize an explicitly chosen site/keyword search.
-- [ ] R4. Run one combined automated/native review, check input stability and saved data, and consolidate remaining differences.
+- [x] R1. Let native sidebar pointer clicks reach their controls while search is open. Dismiss before normal event dispatch, preserving the original click and context-menu/drag behavior.
+- [x] R2. Keep search rows and the query preview as magnifying glasses after an engine favicon has been cached; preserve actual page favicons.
+- [x] R3. Accept punctuation in ordinary question predictions. Keep address credentials, secure paths and local schemes out of default-engine requests; recognize an explicitly chosen site/keyword search.
+- [x] R4. Run one combined automated/native review, check input stability and saved data, and consolidate remaining differences.
+
+Final search-interaction verification: 2,334 tests in 367 suites passed in 94.434 seconds. Build 234, `0.1.64-136-g5db18d7`, passed strict signature verification. Native review confirmed the compact click correction in both a populated Personal Space and an empty Work Space. The same consolidated remaining list is maintained in SIDEBAR-VERIFICATION.md.
