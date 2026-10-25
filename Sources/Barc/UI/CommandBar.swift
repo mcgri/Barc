@@ -68,6 +68,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private(set) var siteSearchEngine:SearchEngine?
     /// The sidebar stays interactive while the launcher owns the rest of the window.
     weak var sidebarInteractionView:NSView?
+    var onSidebarInteraction:(() -> Void)?
     private nonisolated(unsafe) var sidebarPointerMonitor:Any?
     var resultImageProvider: ((CommandResult) -> NSImage?)?
     var onClose: (() -> Void)?
@@ -1033,6 +1034,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
               !sidebar.isHiddenOrHasHiddenAncestor,
               sidebar.visibleRect.intersection(sidebar.bounds).contains(sidebar.convert(event.locationInWindow,from:nil)),
               !shadowHost.bounds.contains(shadowHost.convert(event.locationInWindow,from:nil)) else { return }
+        onSidebarInteraction?()
         close()
         // Closing a compact editor can reparent its sidebar. Resolve layout now
         // so AppKit targets the visible control rather than a stale overlay.

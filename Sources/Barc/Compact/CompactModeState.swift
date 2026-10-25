@@ -53,6 +53,8 @@ struct CompactRevealReason: OptionSet, Sendable, Equatable {
     /// The pointer left the window across this element's edge and the
     /// grace timer has not expired yet.
     static let pointerLeftWindow = Self(rawValue: 1 << 9)
+    /// A native pointer press is being handed from the command bar to the sidebar.
+    static let pointerInteraction = Self(rawValue: 1 << 10)
 
     /// The reasons the `show-chrome-on-hover` preference is allowed to veto.
     /// Everything else is either an explicit user action or a state that would

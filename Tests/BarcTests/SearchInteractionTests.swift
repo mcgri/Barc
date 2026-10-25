@@ -44,6 +44,37 @@ struct SearchInteractionTests {
         }
         #expect(target.received == [type])
     }
+    @Test("A compact sidebar keeps its native click target in place when search closes")
+    func compactHandoff() throws {
+        let settings = Settings.shared
+        let oldMode = settings.sidebarMode,oldCompact = settings.compactModeEnabled
+        let oldConfiguration = settings.compactModeConfiguration,oldCommand = settings.openCommandBarOnNewTab
+        defer {
+            settings.sidebarMode = oldMode;settings.compactModeEnabled = oldCompact
+            settings.compactModeConfiguration = oldConfiguration;settings.openCommandBarOnNewTab = oldCommand
+        }
+        settings.openCommandBarOnNewTab = true
+        let session = TestSession.make().0
+        _ = session.newTab(url:URL(string:"https://fixture.invalid")!)
+        let controller = BrowserWindowController(session:session)
+        defer { controller.window?.delegate = nil;controller.window?.close() }
+        controller.setSidebarMode(.compact);controller.newTab(nil)
+        let window = try #require(controller.window),root = try #require(window.contentView)
+        let bar = try #require(UITestSupport.descendants(of:root).compactMap { $0 as? CommandBar }.first)
+        let sidebar = try #require(bar.sidebarInteractionView)
+        root.layoutSubtreeIfNeeded();root.layoutSubtreeIfNeeded()
+        let row = try #require(UITestSupport.descendants(of:sidebar).compactMap { $0 as? ActionRowView }.first)
+        let before = row.convert(row.bounds,to:root)
+        let point = row.convert(NSPoint(x:row.bounds.midX,y:row.bounds.midY),to:nil)
+        bar.prepareSidebarInteraction(try event(.leftMouseDown,at:point,window:window))
+        #expect(!bar.isOpen && row.convert(row.bounds,to:root) == before)
+        let hit = try #require(root.hitTest(root.convert(point,from:nil)))
+        #expect(hit === row || hit.isDescendant(of:row))
+        hit.mouseDown(with:try event(.leftMouseDown,at:point,window:window))
+        #expect(bar.isOpen && bar.queryText.isEmpty)
+        bar.close()
+    }
+
     @Test("Panel overlap, hidden sidebars, hover, foreign windows and page presses do not pass through")
     func boundaries() throws {
         let window = window(),other = self.window();defer { window.close();other.close() }

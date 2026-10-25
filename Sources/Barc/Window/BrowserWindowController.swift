@@ -1217,6 +1217,16 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private func wireCommandBar() {
         commandBar.install(in: root.view, centeredIn: content.view)
         commandBar.sidebarInteractionView = sidebar.view
+        commandBar.onSidebarInteraction = { [weak self] in
+            guard let self,compact.controller.state.isEnabled else { return }
+            // Preserve the sidebar's geometry until AppKit dispatches the click,
+            // even when hover reveal is disabled or its debounce has not fired.
+            compact.controller.addReason(.pointerInteraction,to:.sidebar)
+            compact.controller.addReason(.pointerHover,to:.sidebar)
+            DispatchQueue.main.async { [weak self] in
+                self?.compact.controller.removeReason(.pointerInteraction,from:.sidebar)
+            }
+        }
         commandBar.ownerTokenProvider = { [weak self] in
             guard let self else { return "" }
             return "\(session.activeSpace.id):\(session.activeSpace.profile.id)"
