@@ -1,6 +1,6 @@
 # Sidebar batch findings
 
-2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `d5aa8bf`, including Favorite drag and transfer support. Current release: **build 239**. Full Arc parity remains unproven.
+2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `b1772a0`, including typed-address fixup and destination identity corrections. Current release: **build 241**. Full Arc parity remains unproven.
 
 ## Completed fixes
 
@@ -97,6 +97,21 @@ Native pointer review confirmed tile reordering, ordinary tile activation, a sin
 
 The review process is closed. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No sharing/social features, remote push or hosted environment changes were made.
 
+## Address classification and destination identity: build 241
+
+- Bracketed IPv6 addresses now navigate, including ports. Loopback, unique-local, link-local and locally mapped IPv4 addresses use HTTP by default; an explicitly supplied scheme wins. IPv6 validation uses the system address parser.
+- Pasted protocol-relative addresses and HTTP/HTTPS addresses with omitted slashes are normalized. URL path/query spaces are encoded while whitespace in the authority, invalid ports and malformed hosts are rejected. Slash-qualified intranet names, named local servers with ports and internationalized host labels are recognized. A bare email remains a search.
+- Direct Return and ranked address rows use the same resolution. Default-engine prediction filtering recognizes the corrected private URL forms; explicit site/keyword searches retain their existing contract. A verification failure caught `file:/…` being mistaken for a slash-qualified intranet host. Known local schemes now retain their scheme before host classification.
+- Local/provider deduplication shares one destination key. It preserves case in paths, query values and fragments, and preserves meaningful non-root trailing slashes. It retains the existing scheme/www web-display aliases and normalizes default ports and the root slash. Provider parsing no longer discards a second website solely because its path differs in capitalization.
+
+These classification changes follow the published [Chromium input classifier](https://github.com/chromium/chromium/blob/main/components/omnibox/browser/autocomplete_input.cc), [URL fixup implementation](https://github.com/chromium/chromium/blob/main/components/url_formatter/url_fixer.cc) and [prediction privacy rules](https://github.com/chromium/chromium/blob/main/components/omnibox/browser/search_provider.cc). The resource-case correction follows [URI case-normalization rules](https://www.rfc-editor.org/rfc/rfc3986.html#section-6.2.2.1). This is an inference about Arc's Chromium behavior, not a version-matched Arc runtime comparison. Historical leading-`?` forced-query handling is deprecated in current Chromium; Barc's behavior remains unchanged pending a matching Arc reference.
+
+Combined suite: **2,370 tests in 372 suites passed**, 94.576 seconds. A final boundary correction keeps an empty web port valid without treating an unknown custom path scheme as an intranet address. All **90 affected search/address tests in 11 suites passed** afterward, 0.809 seconds. These include actual window result routing, direct Return, unchanged input geometry, provider navigation, private URL filtering and destination identity. The broader suite was not rerun after that final correction.
+
+Final release: **build 241**, `0.1.64-143-gb1772a0`, compiled in 74.32 seconds. Strict signature verification passed. The bundle is `build/Barc.app`.
+
+Native review verified that `https:/example.com/a b` becomes the actual `https://example.com/a%20b` destination, an IPv6 input receives a globe/navigation result, and the input stays at the same position as four recent rows become two address/search rows and then seven query/prediction rows. The review used a separately identified copy with sample data, then closed it. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No sharing/social features, remote push or hosted environment changes were made.
+
 ## Remaining to-do list
 
 These are remaining differences or verification gaps within the requested areas. They are not claims of completed parity.
@@ -104,7 +119,7 @@ These are remaining differences or verification gaps within the requested areas.
 ### Search
 
 - [ ] Compare ranking against Arc across a larger saved query set. The local ranker has corrected prefix behavior, but exact Chromium scoring is not established.
-- [ ] Compare partial URL classification against Chromium, including incomplete schemes, credentials and forced queries. Ordinary punctuation and the private-address cases below now have regression coverage; identical classification for every intermediate input is not established.
+- [ ] Compare remaining partial URL classification against a version-matched Arc reference. IPv6, pasted web-scheme fixup, path/query spaces, internationalized hosts, email intent and private URL filtering now have regression coverage. Unknown-TLD heuristics, external schemes, every intermediate input and the source's leading-question-mark behavior remain unverified.
 - [ ] Compare richer provider result types and ranking metadata with Arc. Plain query and typed website predictions are implemented. Exact Chromium scoring, rich entity/answer annotations, complete provider metadata and source-specific URL-label formatting are not reproduced.
 - [ ] Check Japanese/Chinese composition with a real input method. Native marked-text composition is now exercised with real AppKit text-input APIs; a human input-method session has not been observed.
 - [ ] Compare placement and truncation during full-screen transitions and at unusually large accessibility text sizes. Ordinary resizing and both appearances are covered.

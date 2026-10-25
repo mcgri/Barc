@@ -92,9 +92,11 @@ Favorite transfer verification: **2,360 tests in 370 suites passed**, 93.478 sec
 
 Scan complete. Compare Chromium's published omnibox/parser behavior while keeping Arc windows untouched. Implement all changes before combined verification. Leading-question-mark behavior remains unchanged until a version-matched Arc reference establishes it.
 
-- [ ] A1. Recognize valid bracketed IPv6 destinations, including ports, and use HTTP for local IPv6 ranges.
-- [ ] A2. Normalize pasted protocol-relative and incomplete explicit HTTP/HTTPS addresses without treating malformed authorities as navigable.
-- [ ] A3. Preserve spaces in URL paths/queries while rejecting whitespace in authorities; recognize explicitly slash-qualified intranet hosts and valid internationalized host labels.
-- [ ] A4. Apply the same corrected resolution to direct Return, ranked address rows and private-address prediction filtering.
-- [ ] A5. Preserve case-sensitive paths, query values and meaningful trailing slashes during local/provider destination deduplication, while retaining the existing web host/scheme aliases.
-- [ ] A6. Run the combined suite once implementation is complete, inspect one release app, audit saved data and consolidate remaining differences.
+- [x] A1. Recognize valid bracketed IPv6 destinations, including ports, and use HTTP for local IPv6 ranges.
+- [x] A2. Normalize pasted protocol-relative and incomplete explicit HTTP/HTTPS addresses without treating malformed authorities as navigable.
+- [x] A3. Preserve spaces in URL paths/queries while rejecting whitespace in authorities; recognize explicitly slash-qualified intranet hosts and valid internationalized host labels.
+- [x] A4. Apply the same corrected resolution to direct Return, ranked address rows and private-address prediction filtering.
+- [x] A5. Preserve case-sensitive paths, query values and meaningful trailing slashes during local/provider destination deduplication, while retaining the existing web host/scheme aliases.
+- [x] A6. Run the combined suite once implementation is complete, inspect one release app, audit saved data and consolidate remaining differences.
+
+Address classification verification: **2,370 tests in 372 suites passed**, 94.576 seconds. After the final empty-port/custom-scheme correction, **90 affected search/address tests in 11 suites passed**, 0.809 seconds. The broader suite was not rerun after that final boundary correction. Build **241**, `0.1.64-143-gb1772a0`, compiled in 74.32 seconds and passed strict signature verification. Native release review confirmed pasted URL navigation, path-space encoding, an IPv6 address result and fixed input placement across four, two and seven results. Saved user data remained byte-for-byte unchanged. Remaining checks stay consolidated in SIDEBAR-VERIFICATION.md.
