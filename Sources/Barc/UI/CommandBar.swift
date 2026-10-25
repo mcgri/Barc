@@ -61,6 +61,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     var searchEngineProvider: (() -> SearchEngine)?
 
     var resultsProvider: (@MainActor (String) async -> [CommandResult])?
+    var resultsEnricher: (@MainActor (String,SearchEngine?,[CommandResult]) async -> [CommandResult])?
+    var searchEnginesProvider: (() -> [SearchEngine])?
+    var ownerTokenProvider: (() -> String)?
+    private var openingOwner:String?
+    private(set) var siteSearchEngine:SearchEngine?
     var resultImageProvider: ((CommandResult) -> NSImage?)?
     var onClose: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -89,6 +94,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private let addressIcon = NSImageView()
     private let divider = NSBox()
     private let rowsStack = CommandResultsView()
+    private let resultsScroll = NSScrollView()
+    private var resultsHeight:NSLayoutConstraint!
+    private let siteLabel = NSTextField(labelWithString:"")
+    private var siteLabelWidth:NSLayoutConstraint!
+    private var needsRevealSelection = false
     private let resultsContainer = NSStackView()
     private var centeredConstraints: [NSLayoutConstraint] = []
     private var stableTop: NSLayoutConstraint!
@@ -126,8 +136,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     /// Everything the ranker returned, in order.
     private(set) var results: [CommandResult] = []
-    /// The rows actually built, which is `results` clipped to what fits the
-    /// window. See `maximumVisibleRows(inHeight:)`.
+    /// Rows retained in the scrollable list, including those below its viewport.
+    /// A window without room for a result temporarily hides the whole list.
     private(set) var visibleResults: [CommandResult] = []
     /// nil means the query line itself is selected: Return navigates to what
     /// was typed rather than to a row.
@@ -229,6 +239,18 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     private func buildFieldRow() {
+        siteLabel.font = .systemFont(ofSize:13,weight:.medium)
+        siteLabel.lineBreakMode = .byTruncatingTail
+        siteLabel.alignment = .center
+        siteLabel.wantsLayer = true;siteLabel.layer?.cornerRadius = 5
+        siteLabel.translatesAutoresizingMaskIntoConstraints = false
+        siteLabel.isHidden = true
+        fieldRow.addSubview(siteLabel)
+        siteLabelWidth = siteLabel.widthAnchor.constraint(equalToConstant:0)
+        NSLayoutConstraint.activate([siteLabelWidth,
+            siteLabel.leadingAnchor.constraint(equalTo:fieldRow.leadingAnchor,constant:52),
+            siteLabel.centerYAnchor.constraint(equalTo:fieldRow.centerYAnchor),
+            siteLabel.heightAnchor.constraint(equalToConstant:25)])
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -289,7 +311,21 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             bottom: CommandBarMetrics.listInset,
             right: CommandBarMetrics.listInset
         )
-        resultsContainer.setViews([divider, rowsStack], in: .top)
+        resultsScroll.drawsBackground = false
+        resultsScroll.borderType = .noBorder
+        resultsScroll.hasVerticalScroller = true
+        resultsScroll.autohidesScrollers = true
+        resultsScroll.scrollerStyle = .overlay
+        resultsScroll.verticalScrollElasticity = .none
+        resultsScroll.horizontalScrollElasticity = .none
+        resultsScroll.translatesAutoresizingMaskIntoConstraints = false
+        resultsScroll.documentView = rowsStack
+        resultsHeight = resultsScroll.heightAnchor.constraint(equalToConstant:0)
+        NSLayoutConstraint.activate([resultsHeight,
+            rowsStack.topAnchor.constraint(equalTo:resultsScroll.contentView.topAnchor),
+            rowsStack.leadingAnchor.constraint(equalTo:resultsScroll.contentView.leadingAnchor),
+            rowsStack.widthAnchor.constraint(equalTo:resultsScroll.contentView.widthAnchor)])
+        resultsContainer.setViews([divider, resultsScroll], in: .top)
         resultsContainer.translatesAutoresizingMaskIntoConstraints = false
         // Hidden, and therefore collapsed by the enclosing stack: with nothing
         // to show, the panel is exactly one row tall.
@@ -299,7 +335,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         dividerHeight = divider.heightAnchor.constraint(equalToConstant: CommandBarMetrics.dividerHeight)
         listWidths = [
             divider.widthAnchor.constraint(equalTo: resultsContainer.widthAnchor, constant: inset),
-            rowsStack.widthAnchor.constraint(equalTo: resultsContainer.widthAnchor, constant: inset)
+            resultsScroll.widthAnchor.constraint(equalTo: resultsContainer.widthAnchor, constant: inset)
         ]
         NSLayoutConstraint.activate([dividerHeight] + listWidths)
     }
@@ -448,6 +484,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func configurePresentation(address: Bool) {
         stableTop.isActive = false
         openingTop = nil
+        siteSearchEngine = nil;siteLabel.isHidden = true
         NSLayoutConstraint.deactivate(isAddressMode ? addressConstraints : centeredConstraints)
         isAddressMode = address
         addressIconLeading.constant = 16
@@ -501,6 +538,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         queryTask?.cancel()
         queryTask = nil
         openingID = UUID()
+        openingOwner = ownerTokenProvider?()
         isNewTabMode = openInNewTab
         if !isOpen {
             previousResponder = window?.firstResponder
@@ -534,6 +572,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         restoreTextSelection()
         isHidden = true
         field.stringValue = ""
+        openingOwner = nil;siteSearchEngine = nil;siteLabel.isHidden = true
         setResults([])
         if !committing { onCancel?() }
         restoreResponder()
@@ -598,46 +637,71 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         rebuildRows()
     }
 
-    private func rebuildRows() {
-        let fitting = maximumRows
-        visibleResults = Array(results.prefix(fitting))
-        let selectionWasClipped = selectedIndex.map { !visibleResults.indices.contains($0) } ?? false
-        if selectionWasClipped {
-            selectedIndex = visibleResults.isEmpty ? nil : visibleResults.count - 1
-        }
-
+    private func rebuildRows(resetScroll:Bool = true) {
+        visibleResults = maximumRows>0 ? results:[]
+        if let selectedIndex,!visibleResults.indices.contains(selectedIndex) { self.selectedIndex = nil }
         for view in rowsStack.arrangedSubviews {
-            if let row = view as? CommandRowView {
-                row.isSelected = false
-                row.onClick = nil
-                row.onHover = nil
-            }
-            rowsStack.removeArrangedSubview(view)
-            view.removeFromSuperview()
+            if let row = view as? CommandRowView { row.isSelected = false;row.onClick = nil;row.onHover = nil }
+            rowsStack.removeArrangedSubview(view);view.removeFromSuperview()
         }
-        for (index, result) in visibleResults.enumerated() {
-            let row = CommandRowView()
-            row.setAccessibilityIndex(index)
-            row.selectionColor = selectionColor
-            row.configure(result, image: resultImageProvider?(result), compact: isAddressMode,
-                          splitChoice: usesLauncherRows && !isLocationMode, locationChoice: isLocationMode)
-            row.onHover = { [weak self] in
-                guard let self,resultsAreCurrent else { return }
-                select(index)
-            }
-            row.onClick = { [weak self] in self?.run(at: index) }
-            rowsStack.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
+        for (index,result) in visibleResults.enumerated() { appendRow(result,at:index) }
+        updateResultsViewport()
+        if resetScroll {
+            resultsScroll.contentView.scroll(to:.zero)
+            resultsScroll.reflectScrolledClipView(resultsScroll.contentView)
         }
-        resultsContainer.isHidden = visibleResults.isEmpty
         applySelectionToRows()
-        if selectionWasClipped { previewSelection() }
+    }
+
+    private func appendRow(_ result:CommandResult,at index:Int) {
+        let row = CommandRowView()
+        row.setAccessibilityIndex(index);row.selectionColor = selectionColor
+        row.configure(result,image:resultImageProvider?(result),compact:isAddressMode,
+            splitChoice:usesLauncherRows && !isLocationMode,locationChoice:isLocationMode)
+        row.onHover = { [weak self] in
+            guard let self,resultsAreCurrent,validateOwner() else { return };select(index)
+        }
+        row.onClick = { [weak self] in self?.run(at:index) }
+        rowsStack.addArrangedSubview(row)
+        row.widthAnchor.constraint(equalTo:rowsStack.widthAnchor).isActive = true
+    }
+
+    private func updateResultsViewport() {
+        let count = min(maximumRows,visibleResults.count)
+        let rowHeight = usesLauncherRows || isAddressMode ? CommandBarMetrics.splitRowHeight:CommandBarMetrics.rowHeight
+        let spacing = usesLauncherRows || isAddressMode ? CommandBarMetrics.splitRowSpacing:CommandBarMetrics.rowSpacing
+        let height = CGFloat(count)*rowHeight+CGFloat(max(0,count-1))*spacing
+        if resultsHeight.constant != height { resultsHeight.constant = height;needsRevealSelection = true }
+        resultsContainer.isHidden = count == 0
+    }
+
+    /// An arriving prediction must not replace a row already selected by the
+    /// keyboard, move its preview, or rebuild unchanged rows under the pointer.
+    private func applyEnrichment(_ enriched:[CommandResult]) {
+        guard enriched != results else { return }
+        let selectedID = selectedIndex.flatMap { visibleResults.indices.contains($0) ? visibleResults[$0].id:nil }
+        let previous = visibleResults
+        results = enriched
+        selectedIndex = selectedID.flatMap { id in enriched.firstIndex { $0.id == id } }
+        let expanded = maximumRows>0 ? enriched:[]
+        if expanded.starts(with:previous) {
+            visibleResults = expanded
+            for index in previous.count..<expanded.count { appendRow(expanded[index],at:index) }
+            updateResultsViewport();applySelectionToRows()
+        } else { rebuildRows(resetScroll:false) }
+    }
+
+    private func revealSelection() {
+        guard let selectedIndex,rowsStack.arrangedSubviews.indices.contains(selectedIndex) else { return }
+        rowsStack.layoutSubtreeIfNeeded()
+        let row = rowsStack.arrangedSubviews[selectedIndex]
+        row.scrollToVisible(row.bounds)
+        needsRevealSelection = false
     }
 
     /// How many rows fit inside the centered panel's vertical margins.
-    /// A launcher whose list runs off the screen is worse than a
-    /// shorter list, and this is cheaper and steadier than a scroll view for a
-    /// list that is capped at eight rows anyway.
+    /// Extra matches stay in the scrollable document. Only its viewport is
+    /// limited by the space beneath the fixed input.
     static func maximumVisibleRows(inHeight height: CGFloat, rowHeight: CGFloat = CommandBarMetrics.rowHeight,
                                    fieldHeight: CGFloat = CommandBarMetrics.fieldHeight,
                                    rowSpacing: CGFloat = CommandBarMetrics.rowSpacing) -> Int {
@@ -659,8 +723,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         updateSplitPosition()
         updateAddressPosition()
         updateFixedTop()
-        let expected = min(maximumRows, results.count)
+        let expected = maximumRows>0 ? results.count:0
         if expected != visibleResults.count { rebuildRows() }
+        else { updateResultsViewport() }
+        updateSiteLabel()
+        if needsRevealSelection { revealSelection() }
     }
 
     override func setFrameSize(_ newSize:NSSize) {
@@ -668,6 +735,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         // Apply the resize correction before the next layout pass. Otherwise
         // the next result update would appear to move the field by this amount.
         updateFixedTop()
+        if resultsHeight != nil { updateResultsViewport() }
     }
 
     private func updateFixedTop() {
@@ -751,7 +819,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// Arc wraps from either end of the list. Keyboard navigation previews
     /// the destination without submitting it or fetching a new result list.
     func moveSelection(by delta: Int) {
-        guard resultsAreCurrent,!visibleResults.isEmpty else { return }
+        guard resultsAreCurrent,validateOwner(),!visibleResults.isEmpty else { return }
         let count = visibleResults.count
         let start = selectedIndex ?? (delta > 0 ? -1 : 0)
         select(((start + delta) % count + count) % count)
@@ -799,6 +867,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         guard visibleResults.indices.contains(index) else { return }
         selectedIndex = index
         applySelectionToRows()
+        needsRevealSelection = true
+        revealSelection()
     }
 
     private func applySelectionToRows() {
@@ -815,7 +885,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     // MARK: - Running
 
     private func run(at index: Int, forceNewTab:Bool = false) {
-        guard resultsAreCurrent,visibleResults.indices.contains(index) else { return }
+        guard resultsAreCurrent,validateOwner(),visibleResults.indices.contains(index) else { return }
         let action = visibleResults[index].action
         let openInNewTab = isNewTabMode || forceNewTab
         let query = typedQuery
@@ -827,14 +897,16 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// same way the omnibox resolves it, so "barc" searches and "barc.dev"
     /// navigates without the two needing different keystrokes.
     func submit() {
-        guard (field.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
+        guard validateOwner(),(field.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
         if let selectedIndex,resultsAreCurrent {
             run(at: selectedIndex,forceNewTab:NSEvent.modifierFlags.contains(.command))
             return
         }
         let text = resultsAreCurrent ? field.stringValue : typedQuery
+        guard !text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { return }
         let engine = searchEngineProvider?() ?? Settings.shared.searchEngine
-        guard let url = URLResolver.resolve(text, using: engine, engines: Settings.shared.searchEngines) else { return }
+        let resolved = siteSearchEngine?.url(for:text) ?? URLResolver.resolve(text,using:engine,engines:searchEnginesProvider?() ?? Settings.shared.searchEngines)
+        guard let url = resolved else { return }
         if NSEvent.modifierFlags.contains(.command) {
             isNewTabMode = true
         }
@@ -845,28 +917,74 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     // MARK: - Querying
 
-    private func scheduleQuery(for text: String) {
+    @discardableResult
+    func validateOwner() -> Bool {
+        guard isOpen else { return true }
+        guard openingOwner == ownerTokenProvider?() else { close();return false }
+        return true
+    }
+
+    private func isCurrentQuery(_ query:String,opening:UUID,site:SearchEngine?) -> Bool {
+        !Task.isCancelled && isOpen && openingID == opening && siteSearchEngine == site
+            && (field.currentEditor() as? NSTextView)?.hasMarkedText() != true
+            && typedQuery.trimmingCharacters(in:.whitespacesAndNewlines) == query && validateOwner()
+    }
+
+    private func scheduleQuery(for text:String) {
         queryTask?.cancel()
-        let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let opening = openingID
-        guard !query.isEmpty, let resultsProvider else {
-            setResults([])
-            return
-        }
+        let query = text.trimmingCharacters(in:.whitespacesAndNewlines),opening = openingID,site = siteSearchEngine
+        guard !query.isEmpty else { setResults([]);return }
+        guard site != nil || resultsProvider != nil else { setResults([]);return }
         queryTask = Task { [weak self] in
-            try? await Task.sleep(for: CommandBarMetrics.typingDelay)
-            guard !Task.isCancelled, let self else { return }
-            let found = await resultsProvider(query)
-            // The text can have moved on while the database was read; showing
-            // rows for a query that is no longer on screen is worse than none.
-            guard !Task.isCancelled,self.isOpen,self.openingID == opening,
-                  (self.field.currentEditor() as? NSTextView)?.hasMarkedText() != true,
-                  self.typedQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
-            else { return }
-            self.setResults(found)
-            self.select(0)
-            self.previewSelection(automatically:true)
+            do { try await Task.sleep(for:CommandBarMetrics.typingDelay) } catch { return }
+            guard let self,isCurrentQuery(query,opening:opening,site:site) else { return }
+            let found:[CommandResult]
+            if let site { found = CommandSearch.row(query:query,engine:site).map { [$0] } ?? [] }
+            else { found = await resultsProvider?(query) ?? [] }
+            guard isCurrentQuery(query,opening:opening,site:site) else { return }
+            setResults(found);select(0);previewSelection(automatically:true)
+            if let resultsEnricher {
+                let expanded = await resultsEnricher(query,site,found)
+                guard isCurrentQuery(query,opening:opening,site:site),results == found else { return }
+                applyEnrichment(expanded)
+            }
         }
+    }
+
+    private func enterSiteSearch(_ engine:SearchEngine) {
+        queryTask?.cancel();queryTask = nil
+        siteSearchEngine = engine
+        field.stringValue = "";typedQuery = "";hasEditedQuery = true
+        (field.currentEditor() as? NSTextView)?.string = ""
+        setResults([]);updateSiteLabel()
+        field.currentEditor()?.moveToEndOfLine(nil)
+    }
+
+    private func updateSiteLabel() {
+        guard let siteSearchEngine else { return }
+        siteLabel.isHidden = false;siteLabel.stringValue = siteSearchEngine.name
+        siteLabel.toolTip = siteSearchEngine.name
+        siteLabel.textColor = Style.Colors.primaryText
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            siteLabel.layer?.backgroundColor = selectionColor.withAlphaComponent(0.18).cgColor
+        }
+        let desired = (siteSearchEngine.name as NSString).size(withAttributes:[.font:siteLabel.font!]).width+18
+        siteLabelWidth.constant = min(desired,max(40,min(180,shadowHost.bounds.width/3)))
+        fieldLeading.constant = 52+siteLabelWidth.constant+10
+        field.placeholderString = "Search \(siteSearchEngine.name)"
+        field.setAccessibilityLabel("Search \(siteSearchEngine.name)")
+    }
+
+    private func leaveEmptySiteSearch() {
+        siteSearchEngine = nil;siteLabel.isHidden = true
+        fieldLeading.constant = usesLauncherRows || isAddressMode ? 52:CommandBarMetrics.fieldInset
+        field.placeholderString = "Search or Enter URL…"
+        field.setAccessibilityLabel(isAddressMode ? "Edit Address":"Search or Enter URL…")
+        if isSplitMode { setResults(initialSplitResults) }
+        else if isLocationMode { setResults(initialLocationResults) }
+        else if isAddressMode { setResults(initialAddressResults) }
+        else { setResults(initialNewTabResults) }
+        select(0)
     }
 
     // MARK: - Appearance
@@ -874,6 +992,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyShadowColor()
+        updateSiteLabel()
     }
 
     /// A `CGColor` does not follow the appearance, so the one colour in this
@@ -933,12 +1052,16 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     func controlTextDidChange(_ obj: Notification) {
+        guard validateOwner() else { return }
         typedQuery = field.stringValue
         hasEditedQuery = true
         if (field.currentEditor() as? NSTextView)?.hasMarkedText() == true {
             resultsAreCurrent = false;self.selectedIndex = nil;applySelectionToRows()
             queryTask?.cancel();queryTask = nil
             return
+        }
+        if siteSearchEngine != nil,typedQuery.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty {
+            queryTask?.cancel();queryTask = nil;setResults([]);return
         }
         if usesLauncherRows, !isSplitMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryTask?.cancel()
@@ -965,10 +1088,6 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         resultsAreCurrent = false
         selectedIndex = nil
         applySelectionToRows()
-        if (field.currentEditor() as? NSTextView)?.hasMarkedText() == true {
-            queryTask?.cancel();queryTask = nil
-            return
-        }
         scheduleQuery(for: field.stringValue)
     }
 
@@ -979,6 +1098,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// keeps focus throughout: the user is always typing, even while walking
     /// the list, and one more keystroke can narrow it again.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        guard validateOwner() else { return true }
         if textView.hasMarkedText() { return false }
         switch selector {
         case #selector(NSResponder.moveDown(_:)):
@@ -987,7 +1107,14 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         case #selector(NSResponder.moveUp(_:)):
             moveSelection(by: -1)
             return true
+        case #selector(NSResponder.deleteBackward(_:)):
+            if siteSearchEngine != nil,typedQuery.isEmpty { leaveEmptySiteSearch();return true }
+            return false
         case #selector(NSResponder.insertTab(_:)):
+            let keyword = typedQuery.trimmingCharacters(in:.whitespacesAndNewlines)
+            if siteSearchEngine == nil,let engine = (searchEnginesProvider?() ?? Settings.shared.searchEngines).first(where:{ $0.keyword?.caseInsensitiveCompare(keyword) == .orderedSame }) {
+                enterSiteSearch(engine);return true
+            }
             if let selectedIndex, visibleResults.indices.contains(selectedIndex) {
                 let item = visibleResults[selectedIndex]
                 let fillText: String

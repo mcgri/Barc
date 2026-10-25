@@ -37,3 +37,17 @@ Workflow: scan once, implement this batch without intermediate builds or tests, 
 - [x] T3. Compile one final findings list with completed fixes and concrete remaining differences. Do not claim exact parity from unit tests alone.
 
 Combined automated checks passed: 2,315 tests in 364 suites, 90.521 seconds. The isolated app review is complete. Remaining source-comparison and account-dependent checks are recorded in SIDEBAR-VERIFICATION.md.
+
+## Search follow-up batch
+
+The preceding batch is verified in build 228. This batch closes remaining search differences using the saved Arc captures and [Arc's site-search instructions](https://resources.arc.net/hc/en-us/articles/20855018192791-Site-Search-Directly-Search-any-Website). Arc's windows remain untouched.
+
+- [x] Q1. Keep the fixed input while retaining a scrollable full result list, with keyboard and accessibility access to matches below the viewport.
+- [x] Q2. Show more local matches rather than cutting the candidate list at eight.
+- [x] Q3. Fetch predictions from the selected supported engine after local results appear; preserve selection and discard cancelled, composed, closed or foreign-Space results.
+- [x] Q4. Enter a configured site's search mode with keyword + Tab; show the active site, search that site on Return, and leave the mode with Backspace from an empty field.
+- [x] Q5. Route typed keyword quick searches through their configured engine even when a suggestion is selected.
+- [x] Q6. Close every command-bar mode when its owning Space/profile changes.
+- [ ] Q7. Run one combined verification phase after implementation, including actual native marked-text composition, scrolling, delayed predictions, site mode and ownership; then inspect a built app and update the remaining list.
+
+Search follow-up combined suite passed: 2,328 tests in 366 suites, 91.347 seconds. Live anonymous endpoint checks passed for DuckDuckGo, Google and Bing; Google's declared Latin-1 responses are decoded correctly. Native release review remains pending.

@@ -80,6 +80,7 @@ final class BrowserSession {
     }
     private let sessionStore: SessionStore
     private let settings: Settings
+    let searchSuggestions:SearchSuggestions?
     private var tabSubscriptions: [Tab.ID: AnyCancellable] = [:]
     private struct SplitUndoState: Sendable {
         let spaceID: Space.ID
@@ -94,8 +95,9 @@ final class BrowserSession {
     private static let saveDelay = Duration.seconds(1)
 
     init(database: BrowserDatabase?, sessionStore: SessionStore = SessionStore(), settings: Settings = .shared,
-         routing: SpaceRoutingService = SpaceRoutingService()) {
+         routing: SpaceRoutingService = SpaceRoutingService(),searchSuggestions:SearchSuggestions? = .shared) {
         self.mainDatabase = database
+        self.searchSuggestions = searchSuggestions
         self.sessionStore = sessionStore
         self.settings = settings
         self.routing = routing

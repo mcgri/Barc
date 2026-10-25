@@ -1216,6 +1216,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// performs one.
     private func wireCommandBar() {
         commandBar.install(in: root.view, centeredIn: content.view)
+        commandBar.ownerTokenProvider = { [weak self] in
+            guard let self else { return "" }
+            return "\(session.activeSpace.id):\(session.activeSpace.profile.id)"
+        }
+        commandBar.searchEnginesProvider = { Settings.shared.searchEngines }
         commandBar.onClose = { [weak self] in
             self?.locationContext = nil
             self?.updateCompactSidebarForCommandBar()
@@ -1245,7 +1250,10 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             let space = self.session.activeSpace, profile = self.session.activeSpace.profile
             let settings = Settings.shared
             let sources = settings.suggestionSources
-            let history = sources.history ? await self.session.historySuggestions(matching: query, limit: 12) : []
+            if let quick = URLResolver.quickSearch(query,engines:settings.searchEngines) {
+                return sources.searchEngine ? CommandSearch.row(query:quick.query,engine:quick.engine,completion:query).map { [$0] } ?? []:[]
+            }
+            let history = sources.history ? await self.session.historySuggestions(matching: query, limit: CommandRanker.defaultLimit) : []
             guard self.session.activeSpace === space, space.profile === profile else { return [] }
             let activeID = self.session.activeTab?.id
             let engine = self.session.searchEngine(for: self.session.activeSpace)
@@ -1313,6 +1321,22 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 ),
                 preferredFolderID: self.session.preferredFolderCommand(for:query,profile:profile)
             )
+        }
+
+        commandBar.resultsEnricher = { [weak self] query,site,local in
+            guard let self,let client = session.searchSuggestions else { return local }
+            let space = session.activeSpace,profile = space.profile
+            guard !space.isPrivate,Settings.shared.suggestionSources.searchEngine else { return local }
+            let defaultEngine = session.searchEngine(for:space)
+            let quick = site == nil ? URLResolver.quickSearch(query,engines:Settings.shared.searchEngines):nil
+            let engine = site ?? quick?.engine ?? defaultEngine
+            let term = quick?.query ?? query
+            let predictions = await client.suggestions(for:term,engine:engine)
+            guard !Task.isCancelled,session.activeSpace === space,space.profile === profile,
+                  Settings.shared.suggestionSources.searchEngine,
+                  session.searchEngine(for:space) == defaultEngine else { return local }
+            let prefix = quick.flatMap { $0.engine.keyword }.map { $0+" " } ?? ""
+            return CommandSearch.adding(predictions,query:term,engine:engine,completionPrefix:prefix,to:local)
         }
 
         commandBar.onRun = { [weak self] action, openInNewTab, query in
@@ -1390,6 +1414,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         session.changes
             .sink { [weak self] change in
                 guard let self else { return }
+                self.commandBar.validateOwner()
                 if let context = self.locationContext,
                    self.session.activeSpace !== context.space || self.session.activeTab !== context.tab {
                     self.commandBar.close()
@@ -2432,6 +2457,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             window?.toggleFullScreen(nil)
         case "downloads":
             DownloadManager.shared.showList()
+        case "site-search":
+            (NSApp.delegate as? AppDelegate)?.showSettings(nil,on:.search)
         case "settings":
             (NSApp.delegate as? AppDelegate)?.showSettings(nil)
         case "show-enterprise-policies":

@@ -444,7 +444,7 @@ struct CommandBarViewTests {
         #expect(bar.selectedIndex == nil)
     }
 
-    @Test("The list is clipped to what fits the window, and grows when it can")
+    @Test("The viewport fits the window while its scrollable document retains every match")
     func rowCountFollowsTheWindowHeight() {
         let tall = CommandBar.maximumVisibleRows(inHeight: 900)
         let short = CommandBar.maximumVisibleRows(inHeight: 300)
@@ -455,7 +455,9 @@ struct CommandBarViewTests {
 
         let bar = bar(height: 460)
         bar.setResults(results(8))
-        #expect(bar.visibleResults.count == min(8, CommandBar.maximumVisibleRows(inHeight: 460)))
+        #expect(bar.visibleResults.count == 8)
+        let scroll = UITestSupport.descendants(of:bar).compactMap { $0 as? NSScrollView }.first
+        #expect(scroll != nil && scroll!.frame.height < CGFloat(8)*CommandBarMetrics.rowHeight)
     }
 
     @Test("A window too short for even one row still shows the query field")

@@ -6,6 +6,7 @@ import AppKit
 @MainActor
 final class CommandResultsView: NSStackView {
     var onSelect: ((Int?) -> Void)?
+    override var isFlipped:Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame:frameRect)
@@ -19,7 +20,9 @@ final class CommandResultsView: NSStackView {
 
     override func accessibilityChildren() -> [Any]? { arrangedSubviews }
     override func accessibilityRows() -> [Any]? { arrangedSubviews }
-    override func accessibilityVisibleRows() -> [Any]? { arrangedSubviews }
+    override func accessibilityVisibleRows() -> [Any]? {
+        arrangedSubviews.filter { !$0.isHidden && !$0.visibleRect.isEmpty }
+    }
     override func accessibilityRowCount() -> Int { arrangedSubviews.count }
     override func accessibilitySelectedRows() -> [Any]? {
         arrangedSubviews.compactMap { $0 as? CommandRowView }.filter(\.isSelected)

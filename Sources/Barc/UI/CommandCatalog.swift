@@ -520,6 +520,13 @@ enum CommandCatalog {
             keywords: ["downloads", "files", "downloaded"]
         ),
         CommandCandidate(
+            id: "site-search",
+            title: "Site Search",
+            subtitle: "Manage search engines and site shortcuts",
+            symbolName: "magnifyingglass",
+            keywords: ["site search", "search engines", "keyword", "manage"]
+        ),
+        CommandCandidate(
             id: "settings",
             title: "Settings",
             subtitle: "Open Barc preferences",

@@ -47,7 +47,7 @@ final class SearchSettingsViewController: NSViewController {
         manage.bezelStyle = .rounded
         form.addRow("Custom search engines", manage)
         form.addNote("Barc can make any site with a search box into a search engine. Give it a keyword, then type "
-            + "the keyword, a space and your search in the command bar.")
+            + "the keyword and press Tab, or type the keyword, a space and your search in the command bar.")
 
         // One source to a row, under a heading, rather than five switches in
         // a stack with the text trailing off after them.
@@ -57,7 +57,7 @@ final class SearchSettingsViewController: NSViewController {
             box.action = #selector(sourcesChanged)
             form.addRow("", box)
         }
-        form.addNote("What the command bar offers as you type.")
+        form.addNote("Search engine suggestions use the selected engine as you type. Private Browsing keeps suggestions local.")
     }
 
     /// The pop-ups list every engine, the user's own after the built-in ones.

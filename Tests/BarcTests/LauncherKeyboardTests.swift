@@ -201,7 +201,7 @@ struct LauncherKeyboardTests {
         #expect(action == .openURL(search.url) && !bar.isOpen)
     }
 
-    @Test("Shrinking the list keeps its selected address, visible row and Return destination together")
+    @Test("Shrinking the viewport preserves its selected destination and scrolls that row into view")
     func resizedSelection() throws {
         let window = window();defer { window.close() }
         let root = try #require(window.contentView)
@@ -216,7 +216,9 @@ struct LauncherKeyboardTests {
         window.setContentSize(NSSize(width:1400,height:300))
         root.layoutSubtreeIfNeeded();bar.layoutSubtreeIfNeeded()
         let selected = try #require(bar.selectedIndex)
-        #expect(selected < 5 && bar.visibleResults.indices.contains(selected))
+        #expect(selected == 5 && bar.visibleResults.indices.contains(selected))
+        let row = try #require(UITestSupport.descendants(of:bar).compactMap { $0 as? CommandRowView }.first { $0.isSelected })
+        #expect(!row.visibleRect.isEmpty)
         #expect(bar.queryText == bar.visibleResults[selected].completionText)
         let expected = bar.visibleResults[selected].action
         var action:CommandAction?

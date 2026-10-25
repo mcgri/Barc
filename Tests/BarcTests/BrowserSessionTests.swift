@@ -13,7 +13,7 @@ enum TestSession {
         let store = SessionStore(fileURL: FileManager.default.temporaryDirectory
             .appending(path: "barc-test-\(UUID().uuidString).json"))
         let defaults = UserDefaults(suiteName: "barc.tests.\(UUID().uuidString)")!
-        return (BrowserSession(database: nil, sessionStore: store, settings: Settings(defaults: defaults)), store)
+        return (BrowserSession(database: nil, sessionStore: store, settings: Settings(defaults: defaults),searchSuggestions:nil), store)
     }
 }
 

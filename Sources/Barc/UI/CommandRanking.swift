@@ -135,9 +135,9 @@ struct CommandResult: Equatable, Sendable, Identifiable {
 /// part that has to be arguable in a test rather than observable only by
 /// squinting at a running browser.
 enum CommandRanker {
-    /// Eight is what `BrowserSession.historySuggestions` already defaults to,
-    /// and about as many rows as can be scanned without reading.
-    static let defaultLimit = 8
+    /// Saved Arc query captures expose fifteen matches. The view scrolls the
+    /// complete set instead of discarding the part below the viewport.
+    static let defaultLimit = 15
 
     /// Match quality, coarse and ordered. Deliberately a small ladder of named
     /// tiers rather than a fuzzy score: a user who can predict why one row is

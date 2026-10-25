@@ -14,6 +14,8 @@ enum SidebarReview {
         settings.restoresSession = false
         let session = BrowserSession(database:nil,settings:settings)
         let page = AppPaths.supportDirectory.appending(path:"review.html")
+        settings.customSearchEngines = [.init(id:"custom:review",name:"Review Search",
+            queryTemplate:page.absoluteString+"?q={query}",homeURL:page,keyword:"rs")]
         let html = """
         <!doctype html><meta charset="utf-8"><title>Sidebar review</title>
         <style>body{font:22px Georgia;background:#fafafa;color:#202020;margin:40px}h1{font-size:36px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:32px}article{padding:28px;border-top:5px solid #333;background:white}p{line-height:1.5}small{font:14px system-ui;color:#666}</style>
