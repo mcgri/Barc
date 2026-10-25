@@ -1,4 +1,4 @@
-// Modified for Barc: configurable Space icons with pointer magnification, 2026-10-23.
+// Modified for Barc: configurable Space icons, native artwork and pointer magnification, 2026-10-25.
 import AppKit
 
 struct SpaceDockItem {
@@ -269,7 +269,7 @@ final class SpaceDockButton: NSButton {
         imagePosition = .noImage
         target = self
         action = #selector(selectSpace)
-        glyph.imageScaling = .scaleProportionallyDown
+        glyph.imageScaling = .scaleProportionallyUpOrDown
         glyph.setAccessibilityElement(false)
         addSubview(glyph)
         setAccessibilityCustomActions([
@@ -319,8 +319,11 @@ final class SpaceDockButton: NSButton {
             // draw can use the app's previous appearance instead of this dock.
             let color = item.color.usingColorSpace(.extendedSRGB) ?? item.color
             let resolved = SpaceDockItem(id:item.id,name:item.name,icon:item.icon,color:color)
-            coloredImage = item.icon == .automatic ? Self.initialImage(resolved)
-                : item.icon.image(color:color,title:item.name,side:60)
+            switch item.icon {
+            case .automatic: coloredImage = Self.initialImage(resolved)
+            case .emoji(let text) where !text.isEmpty: coloredImage = SpaceDockArtwork.emoji(text,title:item.name)
+            default: coloredImage = item.icon.image(color:color,title:item.name,side:60)
+            }
             mutedImage = coloredImage.map(SpaceDockArtwork.monochrome)
             applyArtworkState()
         }
@@ -330,8 +333,13 @@ final class SpaceDockButton: NSButton {
         let image = isSelectedSpace ? coloredImage : mutedImage
         if glyph.image !== image { glyph.image = image }
         let inactiveOpacity: CGFloat = {
-            guard let item, case .symbol = item.icon else { return 0.35 }
-            return 0.175
+            guard let item else { return 0.35 }
+            let dark = effectiveAppearance.bestMatch(from:[.aqua,.darkAqua]) == .darkAqua
+            switch item.icon {
+            case .symbol: return dark ? 0.175 : 0.25
+            case .emoji(let text) where !text.isEmpty: return dark ? 0.35 : 0.5
+            default: return 0.35
+            }
         }()
         glyph.alphaValue = (isSelectedSpace ? 1 : inactiveOpacity) * (isEnabled ? 1 : 0.5)
     }

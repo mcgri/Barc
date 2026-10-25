@@ -1,10 +1,26 @@
-// Modified for Barc: inactive Space artwork retains its shape with a neutral palette, 2026-10-24.
+// Modified for Barc: native-size Space emoji and neutral inactive artwork, 2026-10-25.
 import AppKit
 
 @MainActor
 enum SpaceDockArtwork {
+    /// Draw at the resting well's native size, retaining small-glyph hinting.
+    /// The ink offset aligns emoji with the frozen footer reference, while
+    /// the button's well and pointer target remain fixed.
+    static func emoji(_ text: String, title: String) -> NSImage {
+        let image = NSImage(size:NSSize(width:18,height:18),flipped:false) { rect in
+            let attributes:[NSAttributedString.Key:Any] = [.font:NSFont.systemFont(ofSize:12)]
+            let value = text as NSString, size = value.size(withAttributes:attributes)
+            value.draw(at:NSPoint(x:rect.midX-size.width/2+0.25,y:rect.midY-size.height/2+1),withAttributes:attributes)
+            return true
+        }
+        image.accessibilityDescription = title
+        return image
+    }
+
     static func monochrome(_ image: NSImage) -> NSImage {
-        let side = 120
+        let extent = max(image.size.width,image.size.height)
+        guard extent.isFinite, extent>0 else { return image }
+        let side = max(1,Int(ceil(min(60,extent)*2)))
         guard let rgb = CGContext(data:nil,width:side,height:side,bitsPerComponent:8,bytesPerRow:side*4,
             space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue),
             let context = CGContext(data:nil,width:side,height:side,bitsPerComponent:8,bytesPerRow:side*2,

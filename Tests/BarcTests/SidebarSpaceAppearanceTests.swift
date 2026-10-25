@@ -199,7 +199,7 @@ struct SidebarSpaceAppearanceTests {
         let muted = try #require(face.image),gray = try opaqueColor(muted)
         #expect(abs(gray.redComponent-gray.greenComponent)<0.01 && abs(gray.greenComponent-gray.blueComponent)<0.01)
         button.apply(frame:button.frame,iconSize:22)
-        #expect(face.image === muted && face.alphaValue == 0.175)
+        #expect(face.image === muted && face.alphaValue == 0.25)
         button.configure(item,selected:true)
         button.apply(frame:button.frame,iconSize:18)
         let colored = try opaqueColor(try #require(face.image))
