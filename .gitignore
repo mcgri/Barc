@@ -32,3 +32,31 @@ final/
 outreach/
 
 .workbuddy-ai/
+
+# Private browser exports and local credentials.
+.env.*
+!.env.example
+!.env.template
+*.har
+*.keychain-db
+passwords.csv
+cookies.txt
+logins.json
+key4.db
+places.sqlite
+cookies.sqlite
+Login Data
+Web Data
+Local State
+StorableSidebar.json
+StorableWindows.json
+History
+History-journal
+Cookies
+Cookies-journal
+Login Data-journal
+Web Data-journal
+session.json
+sessionstore*.json*
+logins-backup.json
+passwords*.csv
