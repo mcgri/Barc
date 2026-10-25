@@ -1,4 +1,5 @@
 // Modified for Barc: sidebar address editing and themed launcher presentation, 2026-10-24.
+// Modified for Barc: wait 200 ms after the latest edit before searching, 2026-10-25.
 import AppKit
 
 /// Sizes shared by the centered launcher and the compact sidebar URL popup.
@@ -42,10 +43,8 @@ enum CommandBarMetrics {
     static let splitRowSpacing: CGFloat = 4
     static let dividerHeight: CGFloat = 1
 
-    /// Long enough that holding a key down does not queue a query per
-    /// keystroke, short enough to still feel like search-as-you-type. Same
-    /// reasoning, and the same figure, as `FindController.typingDelay`.
-    static let typingDelay = Duration.milliseconds(90)
+    /// Restarted on every edit, so searches run 200 ms after typing stops.
+    static let typingDelay = Duration.milliseconds(200)
 }
 
 /// One URL editor with two placements: an anchored sidebar popup for an existing

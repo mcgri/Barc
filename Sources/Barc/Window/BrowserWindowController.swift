@@ -1,3 +1,4 @@
+// Modified for Barc: launcher suggestions and destinations stay in the current workspace, 2026-10-25.
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import AppKit
 import Combine
@@ -10,6 +11,7 @@ import WebKit
 @MainActor
 final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     private(set) var session: BrowserSession
+    private let commandSettings: Settings
     private let splitViewController = BarcSplitViewController()
     /// The split view plus the rim over it.
     private let root = BarcRootViewController()
@@ -109,7 +111,8 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     var isTabOverviewOpen: Bool { tabOverviewController?.isOpen ?? false }
     private var cancellables: Set<AnyCancellable> = []
 
-    init(session: BrowserSession) {
+    init(session: BrowserSession, commandSettings: Settings = .shared) {
+        self.commandSettings = commandSettings
         self.session = session
         self.sidebar = SidebarViewController(session: session)
         self.content = WebContentViewController(session: session)
@@ -1205,11 +1208,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         (NSApp.delegate as? AppDelegate)?.showSettings(nil, on: .extensions)
     }
 
-    /// Ordinary launchers can switch to another Space's existing page. A
-    /// private Space keeps its suggestions within its own ephemeral session.
-    private var commandSpaces: [Space] {
-        session.activeSpace.isPrivate ? [session.activeSpace] : session.spaces.filter { !$0.isPrivate }
-    }
+    /// URL suggestions belong to the current workspace. History and bookmarks
+    /// come from its profile's database; tabs and folders never switch Spaces.
+    private var commandSpaces: [Space] { [session.activeSpace] }
 
     /// The command bar is Barc's omnibox, moved off the sidebar. It never sees
     /// the session: it is given a provider that ranks values and a handler that
@@ -1236,7 +1237,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             guard let self else { return "" }
             return "\(session.activeSpace.id):\(session.activeSpace.profile.id)"
         }
-        commandBar.searchEnginesProvider = { Settings.shared.searchEngines }
+        commandBar.searchEnginesProvider = { [commandSettings] in commandSettings.searchEngines }
         commandBar.onClose = { [weak self] in
             self?.locationContext = nil
             self?.updateCompactSidebarForCommandBar()
@@ -1246,7 +1247,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             guard let self,result.kind != .search else { return nil }
             switch result.action {
             case .switchToTab(let id):
-                guard let tab = self.session.spaces.lazy.flatMap(\.tabs).first(where: { $0.id == id }) else { return nil }
+                guard let tab = self.commandSpaces.lazy.flatMap(\.tabs).first(where: { $0.id == id }) else { return nil }
                 return self.commandImage(tab.restoredFavicon, for: tab.displayURL)
                     ?? FaviconService.shared.cachedImage(for: tab.displayURL)
             case .openURL(let url):
@@ -1264,7 +1265,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         commandBar.resultsProvider = { [weak self] query in
             guard let self else { return [] }
             let space = self.session.activeSpace, profile = self.session.activeSpace.profile
-            let settings = Settings.shared
+            let settings = self.commandSettings
             let sources = settings.suggestionSources
             if let quick = URLResolver.quickSearch(query,engines:settings.searchEngines) {
                 return sources.searchEngine ? CommandSearch.row(query:quick.query,engine:quick.engine,completion:query).map { [$0] } ?? []:[]
@@ -1276,9 +1277,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             let search = engine.url(for: query.trimmingCharacters(in: .whitespacesAndNewlines))
                 .map { SearchCandidate(engineName: engine.name, url: $0) }
 
-            // Arc's empty launcher recents span profiles. Typed tab matches
-            // follow the active profile, including its other Spaces.
-            let allTabs: [TabCandidate] = self.commandSpaces.filter { $0.profile === profile }.flatMap { space in
+            let allTabs: [TabCandidate] = self.commandSpaces.flatMap { space in
                 space.tabs.map { tab in
                     TabCandidate(
                         id: tab.id,
@@ -1342,17 +1341,17 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         commandBar.resultsEnricher = { [weak self] query,site,local in
             guard let self,let client = session.searchSuggestions else { return local }
             let space = session.activeSpace,profile = space.profile
-            guard !space.isPrivate,Settings.shared.suggestionSources.searchEngine else { return local }
+            guard !space.isPrivate,self.commandSettings.suggestionSources.searchEngine else { return local }
             let defaultEngine = session.searchEngine(for:space)
-            let quick = site == nil ? URLResolver.quickSearch(query,engines:Settings.shared.searchEngines):nil
+            let quick = site == nil ? URLResolver.quickSearch(query,engines:self.commandSettings.searchEngines):nil
             let engine = site ?? quick?.engine ?? defaultEngine
             let term = quick?.query ?? query
             let predictions = await client.results(for:term,engine:engine,explicitSearch:site != nil || quick != nil)
             guard !Task.isCancelled,session.activeSpace === space,space.profile === profile,
-                  Settings.shared.suggestionSources.searchEngine,
+                  self.commandSettings.suggestionSources.searchEngine,
                   session.searchEngine(for:space) == defaultEngine else { return local }
             let prefix = quick.flatMap { $0.engine.keyword }.map { $0+" " } ?? ""
-            let openTabs = Dictionary(session.spaces.filter { $0.profile === profile }.flatMap(\.tabs).map { ($0.id,$0.displayURL) },uniquingKeysWith:{ first,_ in first })
+            let openTabs = Dictionary(self.commandSpaces.flatMap(\.tabs).map { ($0.id,$0.displayURL) },uniquingKeysWith:{ first,_ in first })
             return CommandSearch.addingResults(predictions,query:term,engine:engine,completionPrefix:prefix,openTabs:openTabs,to:local)
         }
 
@@ -1380,15 +1379,15 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             }
             switch action {
             case .switchToTab(let id):
-                // A tab in another space needs that space selected first;
-                // `selectTab` only looks inside the active one.
-                guard let space = self.session.spaces.first(where: { space in
+                // Revalidate the destination at submission as well as when
+                // collecting suggestions, so stale rows cannot cross Spaces.
+                guard let space = self.commandSpaces.first(where: { space in
                     space.tabs.contains { $0.id == id }
                 }), let tab = space.tabs.first(where: { $0.id == id }) else { return }
                 self.session.selectSpace(space)
                 self.session.selectTab(tab)
             case .switchToSpace(let id):
-                guard let space = self.session.spaces.first(where: { $0.id == id }) else { return }
+                guard let space = self.commandSpaces.first(where: { $0.id == id }) else { return }
                 self.session.selectSpace(space)
             case .openFolder(let spaceID, let folderID):
                 guard let space = self.commandSpaces.first(where: { $0.id == spaceID }),
@@ -1404,11 +1403,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
                 if GlanceInvocation.isGlanceChord(NSEvent.modifierFlags) {
                     self.content.openGlance(url)
                 } else if openInNewTab {
-                    self.session.newTab(url: url)
+                    self.session.newTab(url: url, origin: .commandBar)
                 } else if let tab = self.session.activeTab {
                     tab.load(url)
                 } else {
-                    self.session.newTab(url: url)
+                    self.session.newTab(url: url, origin: .commandBar)
                 }
             }
         }
@@ -1570,7 +1569,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         } else {
             let space = session.activeSpace, tab = session.activeTab
             locationContext = (space, tab)
-            let sources = Settings.shared.suggestionSources
+            let sources = commandSettings.suggestionSources
             let current: [CommandResult] = sources.openTabs ? tab.flatMap { tab in
                 tab.showsStartPage ? nil : CommandResult(id: "tab:\(tab.id)", kind: .openTab,
                     title: tab.displayTitle, subtitle: "", symbolName: "globe", action: .switchToTab(tab.id),
@@ -2042,7 +2041,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
         if Settings.shared.openCommandBarOnNewTab {
             var seen = Set<UUID>()
-            let recent = Settings.shared.suggestionSources.openTabs ? commandSpaces.flatMap(\.tabs)
+            let recent = commandSettings.suggestionSources.openTabs ? commandSpaces.flatMap(\.tabs)
                 .filter { seen.insert($0.id).inserted }
                 .filter { $0 !== session.activeTab && !$0.isSidebarPlaceholder && !$0.showsStartPage }
                 .sorted {

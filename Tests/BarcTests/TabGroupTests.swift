@@ -21,8 +21,8 @@ struct TabGroupTests {
     func groupingKeepsOrder() {
         let session = TestSession.make().0
         let a = session.activeSpace.tabs[0]
-        let b = session.newTab(url: url("https://b.example"))
-        let c = session.newTab(url: url("https://c.example"))
+        let b = TestSession.appendTab(in:session,url: url("https://b.example"))
+        let c = TestSession.appendTab(in:session,url: url("https://c.example"))
 
         let group = session.createGroup(named: "Research", emoji: "🔬", containing: [a, c])
 

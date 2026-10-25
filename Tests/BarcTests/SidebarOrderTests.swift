@@ -11,6 +11,40 @@ struct SidebarOrderTests {
         }
     }
 
+    @Test("Fresh tabs lead Today after manual ordering and session restoration")
+    func freshTabsLeadToday() throws {
+        let (session, store) = TestSession.make()
+        defer { try? FileManager.default.removeItem(at: store.fileURL) }
+        session.closeTab(try #require(session.activeTab))
+        let a = session.newTab(url: URL(string: "https://a.invalid/")!)
+        let b = session.newTab(url: URL(string: "https://b.invalid/")!)
+        let retained = session.newTab(url: URL(string: "https://retained.invalid/")!)
+        retained.setKeepsInSidebar(true)
+        let folder = TabGroup(name: "Work")
+        session.activeSpace.addGroup(folder)
+        session.positionSidebarItem(.tab(a), before: .tab(b))
+        let before = ids(session)
+        let selected = session.activeTab
+
+        let background = session.newTab(url: URL(string: "https://background.invalid/")!, select: false)
+        #expect(session.activeTab === selected)
+        #expect(ids(session) == Array(before.prefix(2)) + [background.id] + Array(before.dropFirst(2)))
+        let newest = session.newTab(url: URL(string: "https://newest.invalid/")!)
+        #expect(ids(session) == Array(before.prefix(2)) + [newest.id, background.id] + Array(before.dropFirst(2)))
+        #expect(session.activeTab === newest)
+        #expect(session.activeSpace.workspaceTabs.first === newest)
+
+        session.saveNow()
+        let restored = BrowserSession(database: nil, sessionStore: store, settings: Settings(defaults: UserDefaults(suiteName: "barc.tests.\(UUID().uuidString)")!), searchSuggestions: nil)
+        func labels(_ session: BrowserSession) -> [String] {
+            SidebarOrder.items(groups: session.activeSpace.groups, tabs: session.activeSpace.listedTabs).map {
+                switch $0 { case .folder(let folder): "folder:" + folder.name; case .tab(let tab): tab.url.absoluteString }
+            }
+        }
+        #expect(labels(restored) == labels(session))
+        #expect(restored.activeTab?.url == newest.url)
+    }
+
     @Test("Folders and retained tabs keep mixed order after saving and reopening")
     func roundTrip() throws {
         let file = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".json")
@@ -23,8 +57,10 @@ struct SidebarOrderTests {
         let b = TabGroup(name: "Last", sidebarPosition: 2)
         session.activeSpace.addGroup(a)
         session.activeSpace.addGroup(b)
-        let retained = session.newTab(url: URL(string: "https://retained.invalid/")!, select: false)
+        let retained = TestSession.appendTab(in:session,url: URL(string: "https://retained.invalid/")!, select: false)
         retained.setKeepsInSidebar(true)
+        a.sidebarPosition = 0
+        b.sidebarPosition = 2
         retained.sidebarPosition = 1
         // Even a stale rank cannot move an ordinary tab above the divider.
         ordinary.sidebarPosition = -10
@@ -43,8 +79,8 @@ struct SidebarOrderTests {
         let ordinary = try #require(session.activeTab)
         let folder = TabGroup(name: "Work")
         session.activeSpace.addGroup(folder)
-        let a = session.newTab(url: URL(string: "https://a.invalid/")!, select: false)
-        let b = session.newTab(url: URL(string: "https://b.invalid/")!, select: false)
+        let a = TestSession.appendTab(in:session,url: URL(string: "https://a.invalid/")!, select: false)
+        let b = TestSession.appendTab(in:session,url: URL(string: "https://b.invalid/")!, select: false)
         a.setKeepsInSidebar(true)
         b.setKeepsInSidebar(true)
         session.positionSidebarItem(.folder(folder), before: .tab(b))

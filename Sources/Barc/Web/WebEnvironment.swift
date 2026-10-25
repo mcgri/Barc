@@ -110,6 +110,7 @@ final class WebEnvironment {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = dataStore(for: identity)
         configuration.suppressesIncrementalRendering = false
+        configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
 
         // The Browsing pane's per-web-view preferences.
         let settings = Settings.shared
@@ -172,6 +173,9 @@ final class WebEnvironment {
     func makeWebView(frame: NSRect = .zero, configuration: WKWebViewConfiguration) -> WKWebView {
         // Subclassed only to add "Open Link in Glance" to the page's context
         // menu: WebKit exposes no delegate hook for it on macOS.
+        if configuration.applicationNameForUserAgent == nil {
+            configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
+        }
         let webView = GlanceWebView(frame: frame, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true

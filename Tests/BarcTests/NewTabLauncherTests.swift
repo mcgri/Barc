@@ -93,17 +93,17 @@ struct NewTabLauncherTests {
         #expect(command.isOpen && command.selectedIndex == 0)
         #expect(command.results.contains { $0.action == .switchToTab(a.id) })
         #expect(!command.results.contains { $0.action == .switchToTab(b.id) })
-        #expect(command.results.contains { $0.action == .switchToTab(other.id) })
+        #expect(!command.results.contains { $0.action == .switchToTab(other.id) })
         command.cancelOperation(nil)
         #expect(session.allTabs.map(\.id) == before && session.activeTab === b && session.activeSplit == layout)
         controller.newTab(nil)
-        command.select(try #require(command.visibleResults.firstIndex { $0.action == .switchToTab(other.id) }))
+        command.select(try #require(command.visibleResults.firstIndex { $0.action == .switchToTab(a.id) }))
         command.submit()
-        #expect(session.activeTab === other && session.allTabs.map(\.id) == before && session.activeSplit == layout)
+        #expect(session.activeSpace === originalSpace && session.activeTab === a && session.allTabs.map(\.id) == before && session.activeSplit == layout)
         sources.openTabs = false; Settings.shared.suggestionSources = sources
         controller.newTab(nil)
         #expect(command.results.isEmpty && command.selectedIndex == nil)
         command.cancelOperation(nil)
-        #expect(session.activeTab === other && session.allTabs.map(\.id) == before)
+        #expect(session.activeSpace === originalSpace && session.activeTab === a && session.allTabs.map(\.id) == before)
     }
 }

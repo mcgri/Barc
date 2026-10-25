@@ -10,7 +10,7 @@ struct SidebarBulkTransitionTests {
     @Test("An expanded nested folder duplicate arrives with its split already assembled")
     func folderDuplicate() throws {
         let session = TestSession.make().0, space = session.activeSpace
-        let pages = (0..<4).map { session.newTab(url:URL(string:"https://folder-transition.invalid/\($0)")!) }
+        let pages = (0..<4).map { TestSession.appendTab(in:session,url:URL(string:"https://folder-transition.invalid/\($0)")!) }
         let rootFolder = session.createGroup(named:"Project")
         let child = session.createGroup(named:"Research",parent:rootFolder)
         for page in pages { session.move(page,to:child) }
@@ -41,8 +41,8 @@ struct SidebarBulkTransitionTests {
     @Test("Close Tabs Below removes the complete suffix with one list update")
     func closeBelow() throws {
         let session = TestSession.make().0, space = session.activeSpace
-        let keep = session.newTab(url:URL(string:"https://below-transition.invalid/keep")!)
-        let pages = (0..<4).map { session.newTab(url:URL(string:"https://below-transition.invalid/\($0)")!) }
+        let keep = TestSession.appendTab(in:session,url:URL(string:"https://below-transition.invalid/keep")!)
+        let pages = (0..<4).map { TestSession.appendTab(in:session,url:URL(string:"https://below-transition.invalid/\($0)")!) }
         session.splitTabs(pages,grid:.grid)
         let sidebar = SidebarViewController(session:session)
         let root = UITestSupport.host(sidebar.view,width:228,height:760)
@@ -67,7 +67,7 @@ struct SidebarBulkTransitionTests {
     @Test("Duplicate cleanup keeps the selected copy and never exposes a partially removed group")
     func duplicateCleanup() throws {
         let session = TestSession.make().0, space = session.activeSpace
-        let pages = (0..<4).map { _ in session.newTab(url:URL(string:"https://duplicates-transition.invalid/same")!) }
+        let pages = (0..<4).map { _ in TestSession.appendTab(in:session,url:URL(string:"https://duplicates-transition.invalid/same")!) }
         session.splitTabs(pages,grid:.grid);session.selectTab(pages[2])
         let sidebar = SidebarViewController(session:session)
         _ = UITestSupport.host(sidebar.view,width:228,height:760)

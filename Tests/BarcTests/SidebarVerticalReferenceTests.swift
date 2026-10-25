@@ -19,19 +19,19 @@ struct SidebarVerticalReferenceTests {
         space.look.customColorHex = "#e39778"
         space.look.appearance = .light
         for index in 0..<3 {
-            session.pin(session.newTab(url:URL(string:"https://rhythm.invalid/favorite-\(index)")!))
+            session.pin(TestSession.appendTab(in:session,url:URL(string:"https://rhythm.invalid/favorite-\(index)")!))
         }
         let folder = session.createGroup(named:"Pull Requests")
         folder.isCollapsed = true
         for name in ["Messaging Terms","Example Dashboard"] {
-            let tab = session.newTab(url:URL(string:"https://rhythm.invalid/\(name.addingPercentEncoding(withAllowedCharacters:.urlPathAllowed)!)")!)
+            let tab = TestSession.appendTab(in:session,url:URL(string:"https://rhythm.invalid/\(name.addingPercentEncoding(withAllowedCharacters:.urlPathAllowed)!)")!)
             session.rename(tab,to:name); tab.setKeepsInSidebar(true)
         }
-        let a = session.newTab(url:URL(string:"https://rhythm.invalid/barc")!)
+        let a = TestSession.appendTab(in:session,url:URL(string:"https://rhythm.invalid/barc")!)
         session.rename(a,to:"mocky/Browser: This is a sample browser")
-        let site = session.newTab(url:URL(string:"https://rhythm.invalid/site")!)
+        let site = TestSession.appendTab(in:session,url:URL(string:"https://rhythm.invalid/site")!)
         session.rename(site,to:"Lightweight Mac browser — Kylmora")
-        let b = session.newTab(url:URL(string:"https://rhythm.invalid/repository")!)
+        let b = TestSession.appendTab(in:session,url:URL(string:"https://rhythm.invalid/repository")!)
         // A frozen loading caption, supplied as fixture content, not a rule
         // for deriving production titles from hostnames.
         session.rename(b,to:"github.com")

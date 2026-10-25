@@ -1,3 +1,4 @@
+// Modified for Barc: command-bar navigation respects the current workspace, 2026-10-25.
 import Foundation
 
 /// Owns the routing rules and answers the one question the browser asks of
@@ -13,7 +14,7 @@ final class SpaceRoutingService {
     /// them: a restored session must land exactly where it was saved, and a tab
     /// the user explicitly opened next to another one is a placement they chose.
     enum Context: Equatable {
-        /// A URL opened from the command bar, a link, or a bookmark.
+        /// A fresh URL; command-bar origins stay local even when rules match.
         case newTab(SpaceRouter.Origin)
         /// A tab being rebuilt from the session file.
         case restore

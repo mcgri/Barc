@@ -1,11 +1,12 @@
+// Modified for Barc: profile-scoped account suggestions for two-step sign-in, 2026-10-25.
 // Modified for Barc: responsive password lookup without blocking sidebar input, 2026-10-24.
 import AppKit
 import WebKit
 import LocalAuthentication
 
 /// Fills saved logins into pages and offers to save new ones, backed by the
-/// macOS Keychain. A small script in each page watches a login form's
-/// fields and, when the user interacts with one, asks native for a credential; on
+/// macOS Keychain. An isolated script watches login fields, including the
+/// username-only first step, and asks native to offer saved accounts; on
 /// submit it hands the typed login back to be saved.
 ///
 /// The site a request is for is read from the frame's real URL, never from the
@@ -14,22 +15,41 @@ import LocalAuthentication
 @MainActor
 final class PasswordAutofill: NSObject {
     static let shared = PasswordAutofill()
-    typealias CredentialReader = @Sendable (String, Space.Identity, String, Int) -> [PasswordCredential]
+    typealias CredentialReader = @Sendable (String, Space.Identity, String, Int) throws -> [PasswordCredential]
+    typealias CredentialChooser = @MainActor ([PasswordCredential], WKWebView, NSRect) -> PasswordCredential?
+    static let contentWorld = WKContentWorld.world(name: "BarcPasswordAutofill")
+    typealias IdentityProvider = @MainActor (WKWebsiteDataStore) -> Space.Identity?
+    private let identityProvider: IdentityProvider
+    private let chooseCredential: CredentialChooser
+    private struct LoginScope: Hashable {
+        let identity: Space.Identity
+        let host: String
+        let scheme: String
+        let port: Int
+    }
+    private var selectedUsernames: [LoginScope: String] = [:]
     private let settings: Settings
     private let readCredentials: CredentialReader
     private static let messageName = "barcPasswords"
 
     init(settings: Settings = .shared, readCredentials: @escaping CredentialReader = {
-        KeychainPasswordStore.credentials(host: $0, identity: $1, scheme: $2, port: $3)
-    }) {
+        // Keep a blocked Keychain approval off the window thread, including retries.
+        KeychainPasswordStore.prepareForAccess()
+        return try KeychainPasswordStore.lookupCredentials(host: $0, identity: $1, scheme: $2, port: $3)
+    }, chooseCredential: CredentialChooser? = nil,
+       identityProvider: @escaping IdentityProvider = { WebEnvironment.shared.identity(for: $0) }) {
         self.settings = settings
         self.readCredentials = readCredentials
+        self.identityProvider = identityProvider
+        self.chooseCredential = chooseCredential ?? { credentials, webView, rect in
+            PasswordSuggestionMenu.choose(credentials, in: webView, field: rect)
+        }
         super.init()
     }
 
     func attach(_ controller: WKUserContentController) {
-        controller.addScriptMessageHandler(self, contentWorld: .page, name: Self.messageName)
-        controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        controller.addScriptMessageHandler(self, contentWorld: Self.contentWorld, name: Self.messageName)
+        controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: Self.contentWorld))
     }
 
     // MARK: - Backing the script
@@ -37,16 +57,32 @@ final class PasswordAutofill: NSObject {
     func credential(for host: String, identity: Space.Identity, scheme: String, port: Int) async -> PasswordCredential? {
         guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill,
               !identity.isPrivate, !host.isEmpty else { return nil }
-        let found = await credentials(host: host, identity: identity, scheme: scheme, port: port)
+        guard let found = try? await credentials(host: host, identity: identity, scheme: scheme, port: port) else { return nil }
         // A system approval may take time. Respect a preference changed while
         // waiting instead of filling after the user switched the feature off.
         guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill else { return nil }
         return found.first
     }
 
-    private func credentials(host: String, identity: Space.Identity, scheme: String, port: Int) async -> [PasswordCredential] {
+    private func credentials(host: String, identity: Space.Identity, scheme: String, port: Int) async throws -> [PasswordCredential] {
         let read = readCredentials
-        return await Task.detached(priority: .userInitiated) { read(host, identity, scheme, port) }.value
+        return try await Task.detached(priority: .userInitiated) { try read(host, identity, scheme, port) }.value
+    }
+
+    func selectedCredential(for host: String, identity: Space.Identity, scheme: String, port: Int,
+                            in webView: WKWebView, field: NSRect, validatesContext: () -> Bool = { true }) async throws -> PasswordCredential? {
+        guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill,
+              !identity.isPrivate, !host.isEmpty else { return nil }
+        let found = try await credentials(host: host, identity: identity, scheme: scheme, port: port)
+        guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill, validatesContext() else { return nil }
+        let selected = chooseCredential(found, webView, field)
+        guard let selected, found.contains(selected) else { return nil }
+        return selected
+    }
+
+    static func reply(for credential: PasswordCredential, usernameOnly: Bool, submit: Bool) -> [String: Any] {
+        if usernameOnly { return ["username": credential.username] }
+        return ["username": credential.username, "password": credential.password, "submit": submit]
     }
 
     /// Touch ID (or the login password) before a saved password is revealed to a
@@ -67,7 +103,7 @@ final class PasswordAutofill: NSObject {
 
     private func offerToSave(host: String, username: String, password: String, identity: Space.Identity, scheme: String, port: Int) async {
         guard settings.passwordProvider == .keychain, settings.passwordOfferSave, !identity.isPrivate, !host.isEmpty, !password.isEmpty else { return }
-        let existing = await credentials(host: host, identity: identity, scheme: scheme, port: port)
+        guard let existing = try? await credentials(host: host, identity: identity, scheme: scheme, port: port) else { return }
         guard settings.passwordProvider == .keychain, settings.passwordOfferSave else { return }
         // Nothing to do if this exact login is already stored.
         if existing.contains(where: { $0.username == username && $0.password == password }) { return }
@@ -93,24 +129,40 @@ extension PasswordAutofill: WKScriptMessageHandlerWithReply {
         didReceive message: WKScriptMessage
     ) async -> (Any?, String?) {
         guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return (nil, nil) }
-        guard let webView = message.webView,
-              let identity = WebEnvironment.shared.identity(for: webView.configuration.websiteDataStore), !identity.isPrivate,
+        guard message.frameInfo.isMainFrame, let webView = message.webView,
+              let identity = identityProvider(webView.configuration.websiteDataStore), !identity.isPrivate,
               let frameURL = message.frameInfo.request.url ?? webView.url,
               let host = frameURL.host(), let scheme = frameURL.scheme, ["http", "https"].contains(scheme) else { return (nil, nil) }
         let port = KeychainPasswordStore.port(for: frameURL)
         switch action {
         case "lookup":
-            guard let credential = await credential(for: host, identity: identity, scheme: scheme, port: port), await authorize(),
-                  settings.passwordProvider == .keychain, settings.passwordOfferAutofill else { return (nil, nil) }
-            return ([
-                "username": credential.username,
-                "password": credential.password,
-                "submit": settings.passwordSubmitAutomatically
-            ], nil)
+            guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill,
+                  let rect = PasswordSuggestionMenu.fieldRect(body["rect"]) else { return (nil, nil) }
+            let usernameOnly = body["field"] as? String == "username"
+            let scope = LoginScope(identity: identity, host: host, scheme: scheme, port: port)
+            do {
+                guard let credential = try await selectedCredential(for: host, identity: identity, scheme: scheme, port: port,
+                        in: webView, field: rect, validatesContext: {
+                            webView.url == frameURL && identityProvider(webView.configuration.websiteDataStore) == identity
+                        }) else { return (nil, nil) }
+                if !usernameOnly, !(await authorize()) { return (nil, nil) }
+                guard webView.url == frameURL,
+                      identityProvider(webView.configuration.websiteDataStore) == identity,
+                      settings.passwordProvider == .keychain, settings.passwordOfferAutofill else { return (nil, nil) }
+                selectedUsernames[scope] = credential.username
+                return (Self.reply(for: credential, usernameOnly: usernameOnly, submit: settings.passwordSubmitAutomatically), nil)
+            } catch {
+                if webView.url == frameURL {
+                    PasswordSuggestionMenu.showUnavailable(in: webView, field: rect)
+                }
+                return (nil, nil)
+            }
         case "save":
             // Show the prompt on the next tick rather than blocking the reply
             // handler with a modal while the page is navigating away on submit.
-            let username = body["username"] as? String ?? ""
+            let suppliedUsername = body["username"] as? String ?? ""
+            let scope = LoginScope(identity: identity, host: host, scheme: scheme, port: port)
+            let username = suppliedUsername.isEmpty ? (selectedUsernames[scope] ?? "") : suppliedUsername
             let password = body["password"] as? String ?? ""
             Task { await self.offerToSave(host: host, username: username, password: password, identity: identity, scheme: scheme, port: port) }
             return (nil, nil)
@@ -121,15 +173,14 @@ extension PasswordAutofill: WKScriptMessageHandlerWithReply {
 }
 
 private extension PasswordAutofill {
-    /// Runs in the page: wires a login form's fields so a click fills the saved
-    /// login, and reports the typed login on submit so it can be saved. It asks
+    /// Watches login fields in an isolated world so a click offers saved
+    /// accounts, and reports typed logins on submit so they can be saved. It asks
     /// native only during an actual user interaction. Page scripts routinely
     /// focus login fields on load; that must not start a keychain approval.
     static let script = """
     (function() {
       const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.barcPasswords;
       if (!handler) return;
-      let filled = false;
       let filling = false;
 
       function setValue(el, value) {
@@ -151,36 +202,52 @@ private extension PasswordAutofill {
         return null;
       }
 
-      async function fillInto(pw) {
-        if (filled || filling) return;
+      function loginField(el) {
+        if (!(el instanceof HTMLInputElement) || el.disabled || el.readOnly || !el.getClientRects().length) return null;
+        const type = (el.type || 'text').toLowerCase();
+        const autocomplete = (el.autocomplete || '').toLowerCase().split(/\\s+/);
+        if (autocomplete.includes('new-password') || autocomplete.includes('one-time-code')) return null;
+        if (type === 'password') return 'password';
+        if (type === 'email' || autocomplete.includes('username')) return 'username';
+        if (type === 'text' || type === 'tel') {
+          const hint = [el.id, el.name].join(' ').toLowerCase();
+          if (/user|login|email|identifier/.test(hint)) return 'username';
+          const pw = (el.form || document).querySelector('input[type="password"]');
+          if (pw && usernameNear(pw, el.form) === el) return 'username';
+        }
+        return null;
+      }
+
+      async function fillInto(field, kind) {
+        if (filling) return;
         filling = true;
+        const originalURL = location.href;
         try {
-          const creds = await handler.postMessage({ action: 'lookup' });
-          if (!creds) return;
-          filled = true;
-          const user = usernameNear(pw);
+          const rect = field.getBoundingClientRect();
+          const creds = await handler.postMessage({ action: 'lookup', field: kind,
+            rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
+          if (!creds || !field.isConnected || location.href !== originalURL) return;
+          if (kind === 'username') {
+            if (creds.username) setValue(field, creds.username);
+            return;
+          }
+          const user = usernameNear(field, field.form);
           if (user && creds.username) setValue(user, creds.username);
-          if (creds.password) setValue(pw, creds.password);
-          if (creds.submit && pw.form && pw.form.requestSubmit) pw.form.requestSubmit();
+          if (creds.password) setValue(field, creds.password);
+          if (creds.submit && field.form && field.form.requestSubmit) field.form.requestSubmit();
         } catch (e) {} finally { filling = false; }
       }
 
-      function wire() {
-        const pw = document.querySelector('input[type="password"]');
-        if (!pw || pw.dataset.barcWired) return;
-        pw.dataset.barcWired = '1';
-        const trigger = function(event) {
-          if (!event.isTrusted || !navigator.userActivation || !navigator.userActivation.isActive) return;
-          fillInto(pw);
-        };
-        pw.addEventListener('focus', trigger);
-        pw.addEventListener('click', trigger);
-        const user = usernameNear(pw);
-        if (user) {
-          user.addEventListener('focus', trigger);
-          user.addEventListener('click', trigger);
-        }
+      function trigger(event) {
+        if (!event.isTrusted || !navigator.userActivation || !navigator.userActivation.isActive) return;
+        if (event.type === 'keydown' && event.key !== 'ArrowDown') return;
+        const field = event.target;
+        const kind = loginField(field);
+        if (kind) fillInto(field, kind);
       }
+      document.addEventListener('focusin', trigger, true);
+      document.addEventListener('click', trigger, true);
+      document.addEventListener('keydown', trigger, true);
 
       document.addEventListener('submit', function(e) {
         const form = e.target;
@@ -191,8 +258,6 @@ private extension PasswordAutofill {
         handler.postMessage({ action: 'save', username: user ? user.value : '', password: pw.value });
       }, true);
 
-      wire();
-      new MutationObserver(function() { wire(); }).observe(document.documentElement, { childList: true, subtree: true });
     })();
     """
 }

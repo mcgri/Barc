@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct SplitArchiveTests {
     private func tab(_ name:String, in session:BrowserSession) -> Tab {
-        let page = session.newTab(url:URL(string:"https://split-archive.invalid/\(name)")!)
+        let page = TestSession.appendTab(in:session,url:URL(string:"https://split-archive.invalid/\(name)")!)
         session.rename(page,to:name)
         return page
     }

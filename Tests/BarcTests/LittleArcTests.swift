@@ -243,7 +243,7 @@ struct LittleArcSessionTests {
         )
 
         #expect(tab.currentWebView === webView)
-        #expect(space.tabs.last === tab)
+        #expect(space.tabs.first === tab)
         #expect(session.activeTab === tab)
     }
 
@@ -266,7 +266,7 @@ struct LittleArcSessionTests {
         #expect(tab.currentWebView !== webView)
         #expect(tab.url == url("https://example.com/read"))
         #expect(tab.identity == destination.identity)
-        #expect(destination.tabs.last === tab)
+        #expect(destination.tabs.first === tab)
     }
 
     @Test("Keeping a page shows the user where it went")

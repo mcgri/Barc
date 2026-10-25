@@ -7,6 +7,14 @@ import Testing
 /// this touches WebKit.
 @MainActor
 enum TestSession {
+    /// Arrange fixtures with an explicit bottom placement when their subject is
+    /// dragging, grouping or navigation rather than the default new-tab order.
+    static func appendTab(in session: BrowserSession, url: URL, select: Bool = true) -> Tab {
+        let tab = session.newTab(url: url, select: select)
+        _ = session.moveSidebarTab(tab, to: session.activeSpace.tabs.count, group: nil, before: nil, retained: false)
+        return tab
+    }
+
     /// A session with no database and a throwaway session file, so tests never
     /// touch the user's real history or restore a real saved session.
     static func make() -> (BrowserSession, SessionStore) {
@@ -31,12 +39,12 @@ struct BrowserSessionTests {
         #expect(session.activeTab?.isLoaded == false)
     }
 
-    @Test("New tabs append and become active")
-    func newTabAppendsAndSelects() {
+    @Test("New tabs open at the top and become active")
+    func newTabPrependsAndSelects() {
         let session = TestSession.make().0
         let tab = session.newTab(url: url("https://example.com"))
         #expect(session.activeSpace.tabs.count == 2)
-        #expect(session.activeSpace.tabs.last === tab)
+        #expect(session.activeSpace.tabs.first === tab)
         #expect(session.activeTab === tab)
     }
 
@@ -44,7 +52,8 @@ struct BrowserSessionTests {
     func backgroundTabDoesNotSelect() {
         let session = TestSession.make().0
         let first = session.activeTab
-        session.newTab(url: url("https://example.com"), select: false)
+        let background = session.newTab(url: url("https://example.com"), select: false)
+        #expect(session.activeSpace.tabs.first === background)
         #expect(session.activeTab === first)
     }
 
@@ -57,7 +66,7 @@ struct BrowserSessionTests {
 
         session.selectTab(b)
         session.closeTab(b)
-        #expect(session.activeSpace.tabs.map(\.id) == [a.id, c.id])
+        #expect(session.activeSpace.tabs.map(\.id) == [c.id, a.id])
         #expect(session.activeTab === c)
     }
 
@@ -87,11 +96,11 @@ struct BrowserSessionTests {
         let c = session.newTab(url: url("https://c.example"))
 
         session.selectTab(number: 1)
-        #expect(session.activeTab === a)
+        #expect(session.activeTab === c)
         session.selectTab(number: 2)
         #expect(session.activeTab === b)
         session.selectTab(number: 9)
-        #expect(session.activeTab === c)
+        #expect(session.activeTab === a)
         #expect(session.activeSpace.tabs.contains { $0 === placeholder }, "The hidden empty page is preserved in the model")
     }
 
@@ -115,6 +124,7 @@ struct BrowserSessionTests {
         let b = session.newTab(url: url("https://b.example"))
         let c = session.newTab(url: url("https://c.example"))
 
+        _ = session.activeSpace.replaceTabs(with: [a, b, c])
         session.moveTab(from: 0, to: 3)
         #expect(session.activeSpace.tabs.map(\.id) == [b.id, c.id, a.id])
     }
@@ -126,6 +136,7 @@ struct BrowserSessionTests {
         let b = session.newTab(url: url("https://b.example"))
         let c = session.newTab(url: url("https://c.example"))
 
+        _ = session.activeSpace.replaceTabs(with: [a, b, c])
         session.moveTab(from: 2, to: 0)
         #expect(session.activeSpace.tabs.map(\.id) == [c.id, a.id, b.id])
     }
@@ -351,9 +362,9 @@ struct TabMenuOperationTests {
         let c = session.newTab(url: url("https://c.example"))
 
         session.closeTabs(below: b)
-        #expect(session.activeSpace.tabs.contains { $0 === a })
+        #expect(session.activeSpace.tabs.contains { $0 === c })
         #expect(session.activeSpace.tabs.contains { $0 === b })
-        #expect(!session.activeSpace.tabs.contains { $0 === c })
+        #expect(!session.activeSpace.tabs.contains { $0 === a })
 
         session.closeOtherTabs(than: b)
         #expect(session.activeSpace.tabs.count == 1)

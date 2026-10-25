@@ -15,6 +15,7 @@ final class PasswordsSettingsViewController: NSViewController {
     private let submitAutomatically = NSButton(checkboxWithTitle: "Submit form automatically", target: nil, action: nil)
     private let useTouchID = NSButton(checkboxWithTitle: "Use Touch ID", target: nil, action: nil)
     private var manager: PasswordsManagerWindowController?
+    private var macImport: MacPasswordImportWindowController?
     private let identityAutofill = NSButton(checkboxWithTitle: "AutoFill names, addresses and contact details", target: nil, action: nil)
     private let cardAutofill = NSButton(checkboxWithTitle: "AutoFill payment cards", target: nil, action: nil)
     private var autofillManager: AutofillManagerWindowController?
@@ -73,6 +74,12 @@ final class PasswordsSettingsViewController: NSViewController {
             let row = index == 0 ? form.addRow("Install a manager", button) : form.addContinuation(button)
             linkRows.append(row)
         }
+
+        form.addSection("Import passwords")
+        let importMac = NSButton(title: "Import passwords from macOS…", target: self, action: #selector(importMacPasswords))
+        importMac.bezelStyle = .rounded
+        form.addRow("Apple Passwords", importMac)
+        form.addNote("Make a one-time copy from Apple Passwords into the current profile. Existing logins are kept; this does not enable iCloud syncing.")
 
         form.addSection("Identities and cards")
         for box in [identityAutofill, cardAutofill] {
@@ -138,6 +145,21 @@ final class PasswordsSettingsViewController: NSViewController {
             : AutofillManagerWindowController(store: .forIdentity(identity))
         autofillManager = controller
         autofillManagerIdentity = identity
+        controller.showWindow(self)
+        controller.window?.makeKeyAndOrderFront(self)
+    }
+
+    @objc private func importMacPasswords() {
+        guard !session.activeSpace.identity.isPrivate else { return }
+        // Capture the destination now, so switching Spaces during export cannot
+        // redirect the import into another profile.
+        if let controller = macImport, controller.window?.isVisible == true {
+            controller.window?.makeKeyAndOrderFront(self)
+            return
+        }
+        let controller = MacPasswordImportWindowController(
+            identity: session.activeSpace.identity, spaceName: session.activeSpace.name)
+        macImport = controller
         controller.showWindow(self)
         controller.window?.makeKeyAndOrderFront(self)
     }

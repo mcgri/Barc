@@ -121,6 +121,32 @@ struct SearchFollowupTests {
                 action:.openURL(URL(string:"https://page\(index).invalid/")!),score:0,completionText:"page\(index).invalid")
         }
     }
+    @Test("Typing waits 200 ms from the latest edit and searches only the final query", .timeLimit(.minutes(1)))
+    func typingDebounce() async throws {
+        let window = window(); defer { window.close() }
+        let bar = CommandBar(); bar.install(in: try #require(window.contentView))
+        let clock = ContinuousClock()
+        let (events, continuation) = AsyncStream<(String, ContinuousClock.Instant)>.makeStream()
+        defer { continuation.finish() }
+        var iterator = events.makeAsyncIterator()
+        var calls: [String] = []
+        bar.resultsProvider = { query in
+            calls.append(query)
+            continuation.yield((query, clock.now))
+            return []
+        }
+        bar.openNewTab(recentResults: [])
+        let editor = try #require(window.firstResponder as? NSTextView)
+        try edit("ca", bar: bar, editor: editor)
+        let lastEdit = clock.now
+        try edit("cat", bar: bar, editor: editor)
+        #expect(calls.isEmpty)
+        let (query, started) = try #require(await iterator.next())
+        #expect(query == "cat" && calls == ["cat"])
+        #expect(lastEdit.duration(to: started) >= .milliseconds(200))
+        bar.close()
+    }
+
     @Test("Every result remains keyboard-accessible below the viewport without moving the input",arguments:[false,true])
     func scrollable(compact:Bool) throws {
         let window = window(height:500);defer { window.close() }

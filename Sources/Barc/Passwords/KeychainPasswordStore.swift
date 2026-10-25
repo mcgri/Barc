@@ -1,3 +1,4 @@
+// Modified for Barc: report autofill vault failures without exposing credentials, 2026-10-25.
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import Foundation
 import Security
@@ -221,6 +222,25 @@ enum KeychainPasswordStore {
     }
     static func prepareForAccess() { vault.retryAccess() }
 
+    /// Import only the selected profile, preserving both current and accessible
+    /// legacy logins. The whole batch is committed atomically or not at all.
+    static func importMacPasswords(_ parsed: MacPasswordImporter.Parsed, identity: Space.Identity) throws -> MacPasswordImporter.Summary {
+        guard !identity.isPrivate else { throw MacPasswordImporter.Failure.privateProfile }
+        vault.retryAccess()
+        let legacy = LegacyKeychainPasswordStore.all(identity: identity, allowInteraction: false)
+        let scope = ProfileDataPaths.key(for: identity)
+        var summary = MacPasswordImporter.Summary()
+        try vault.mutate { entries in
+            let known = Set(entries.filter { $0.scope == scope }.map { $0.credential.id })
+            let retained = legacy.filter { !known.contains($0.id) }
+            entries += retained.map { .init(scope: scope, credential: $0) }
+            summary = try MacPasswordImporter.merge(parsed, identity: identity, into: &entries)
+            return summary.imported > 0 || !retained.isEmpty
+        }
+        return summary
+    }
+
+
     static func all(identity: Space.Identity = .standard) -> [PasswordCredential] {
         guard !identity.isPrivate else { return [] }
         let scope = ProfileDataPaths.key(for: identity)
@@ -235,7 +255,13 @@ enum KeychainPasswordStore {
     }
 
     static func credentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0) -> [PasswordCredential] {
-        guard !identity.isPrivate, let entries = try? vault.entries() else { return [] }
+        (try? lookupCredentials(host: host, identity: identity, scheme: scheme, port: port)) ?? []
+    }
+
+    /// Interactive autofill distinguishes a locked vault from an empty site.
+    static func lookupCredentials(host: String, identity: Space.Identity = .standard, scheme: String? = nil, port: Int = 0) throws -> [PasswordCredential] {
+        guard !identity.isPrivate else { return [] }
+        let entries = try vault.entries()
         let scope = ProfileDataPaths.key(for: identity)
         let matching = entries.filter {
             $0.scope == scope && $0.credential.host == host && $0.credential.port == port

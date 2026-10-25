@@ -28,6 +28,15 @@ struct RoutingTests {
         #expect(decision == .route(to: work))
     }
 
+    @Test("A command-bar URL stays in its workspace despite a matching rule")
+    func commandBarStaysLocal() {
+        #expect(SpaceRouter.decision(
+            for: url("https://work.example/console"),
+            rules: rules([SpaceRoutingRules.rule(forHost: "work.example", destination: .space(work))]),
+            origin: .commandBar, currentSpaceID: personal, knownSpaceIDs: knownSpaces
+        ) == .stay)
+    }
+
     @Test("No rule matches, so the tab opens where the user is")
     func missStays() {
         let decision = SpaceRouter.decision(

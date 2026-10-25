@@ -97,7 +97,7 @@ struct LauncherKeyboardTests {
         try publishEdit(bar,editor:editor)
         #expect(bar.queryText == "portalapp" && bar.visibleResults == rows && bar.selectedIndex == nil)
         bar.close()
-        try await Task.sleep(for:.milliseconds(120))
+        try await Task.sleep(for:CommandBarMetrics.typingDelay + .milliseconds(30))
         #expect(calls == ["portal"], "Closing cancels the pending request for the new text")
     }
 
@@ -226,7 +226,7 @@ struct LauncherKeyboardTests {
         #expect(action == expected)
     }
 
-    @Test("Global recents switch to another profile's existing tab without leaking private tabs")
+    @Test("Launcher recents and typed matches stay in the current workspace")
     func globalRecentsAndPrivacy() async throws {
         let oldSetting = Settings.shared.openCommandBarOnNewTab
         let oldSources = Settings.shared.suggestionSources
@@ -237,6 +237,7 @@ struct LauncherKeyboardTests {
         let session = TestSession.make().0
         let personal = session.activeSpace
         let personalTab = session.newTab(url:URL(string:"https://recents.invalid/personal")!)
+        let personalOther = session.newTab(url:URL(string:"https://recents.invalid/personal-other")!,select:false)
         let sibling = session.addSpace(named:"Same profile",profile:personal.profile)
         let siblingTab = session.newTab(url:URL(string:"https://recents.invalid/sibling")!)
         let work = session.addSpace(named:"Other profile")
@@ -251,17 +252,22 @@ struct LauncherKeyboardTests {
         let root = try #require(controller.window?.contentView)
         let bar = try #require(UITestSupport.descendants(of:root).compactMap { $0 as? CommandBar }.first)
         controller.newTab(nil)
-        #expect(bar.visibleResults.count == 4)
-        #expect(bar.results.allSatisfy { row in workTabs.contains { row.action == .switchToTab($0.id) } })
+        #expect(bar.results.map(\.action) == [.switchToTab(personalOther.id)])
         #expect(!bar.results.contains { $0.action == .switchToTab(secretTab.id) || $0.action == .switchToTab(privateOther.id) })
         let provider = try #require(bar.resultsProvider)
         let ordinaryResults = await provider("recents.invalid")
-        #expect(ordinaryResults.contains { $0.action == .switchToTab(siblingTab.id) })
+        #expect(ordinaryResults.contains { $0.action == .switchToTab(personalOther.id) })
+        #expect(!ordinaryResults.contains { $0.action == .switchToTab(siblingTab.id) })
         #expect(!ordinaryResults.contains { row in workTabs.contains { row.action == .switchToTab($0.id) } })
         #expect(!ordinaryResults.contains { $0.action == .switchToTab(secretTab.id) || $0.action == .switchToTab(privateOther.id) })
+        bar.onRun?(.switchToTab(workTabs[0].id), false, "recents")
+        bar.onRun?(.switchToTab(siblingTab.id), false, "recents")
+        bar.onRun?(.switchToSpace(work.id), false, "Other profile")
+        #expect(session.activeSpace === personal && session.activeTab === personalTab)
         bar.submit()
-        #expect(session.activeSpace === work && workTabs.contains { $0 === session.activeTab })
-        #expect(session.allTabs.count == count && personal.activeTab === personalTab && sibling.activeTab === siblingTab)
+        #expect(session.activeSpace === personal && session.activeTab === personalOther)
+        #expect(session.allTabs.count == count && sibling.activeTab === siblingTab)
+        session.selectSpace(work)
         let workResults = await provider("recents.invalid")
         #expect(!workResults.contains { $0.action == .switchToTab(personalTab.id) || $0.action == .switchToTab(siblingTab.id) })
         #expect(workResults.contains { row in workTabs.contains { $0 !== session.activeTab && row.action == .switchToTab($0.id) } })

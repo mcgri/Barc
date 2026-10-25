@@ -43,7 +43,7 @@ struct FolderCommandTests {
         #expect(CommandRanker.rank(query:"unrelated",tabs:[],folders:folders,history:[],preferredFolderID:b).isEmpty)
     }
 
-    @Test("The original query is saved to the originating profile before a cross-profile folder choice is restored")
+    @Test("Folder suggestions and stale folder actions stay in the active workspace")
     func originatingProfileChoice() async throws {
         let session = TestSession.make().0
         let origin = session.activeSpace
@@ -58,10 +58,13 @@ struct FolderCommandTests {
         let provider = try #require(bar.resultsProvider)
         let rows = await provider("research")
         let action = CommandAction.openFolder(spaceID:work.id,folderID:remote.id)
+        #expect(!rows.contains { $0.action == action })
+        bar.onRun?(action, false, "research")
+        #expect(session.activeSpace === origin)
         bar.open(text:"research");bar.setResults(rows)
-        bar.select(try #require(rows.firstIndex { $0.action == action }));bar.submit()
-        #expect(bar.queryText.isEmpty && session.activeSpace === work)
-        #expect(session.preferredFolderCommand(for:"RESEARCH",profile:origin.profile) == remote.id)
+        bar.select(try #require(rows.firstIndex { $0.action == .openFolder(spaceID:origin.id,folderID:local.id) }));bar.submit()
+        #expect(bar.queryText.isEmpty && session.activeSpace === origin)
+        #expect(session.preferredFolderCommand(for:"RESEARCH",profile:origin.profile) == local.id)
         #expect(session.preferredFolderCommand(for:"research",profile:work.profile) == nil)
         #expect(session.preferredFolderCommand(for:"another query",profile:origin.profile) == nil)
         session.selectSpace(origin)
@@ -136,7 +139,7 @@ struct FolderCommandTests {
         #expect(!session.openFolder(child,in:work) && session.activeSpace === personal)
     }
 
-    @Test("The launcher opens a global folder in its own Space and rejects foreign private or stale destinations")
+    @Test("The launcher opens a local folder and rejects other workspace, private or stale destinations")
     func providerAndNavigation() async throws {
         let old = Settings.shared.openCommandBarOnNewTab
         Settings.shared.openCommandBarOnNewTab = true
@@ -161,10 +164,15 @@ struct FolderCommandTests {
         let provider = try #require(bar.resultsProvider)
         let rows = await provider("Research")
         let action = CommandAction.openFolder(spaceID:work.id,folderID:child.id)
-        #expect(rows.contains { $0.action == action && $0.title == "Open Work / Project / Research" })
+        #expect(!rows.contains { $0.action == action })
         #expect(!rows.contains { $0.action == .openFolder(spaceID:secret.id,folderID:hidden.id) })
+        bar.onRun?(action,true,"Research")
+        #expect(session.activeSpace === personal && root.isCollapsed && child.isCollapsed)
+        session.selectSpace(work)
+        let localRows = await provider("Research")
+        #expect(localRows.contains { $0.action == action && $0.title == "Open Work / Project / Research" })
         controller.newTab(nil)
-        bar.setResults(rows);bar.select(try #require(rows.firstIndex { $0.action == action }));bar.submit()
+        bar.setResults(localRows);bar.select(try #require(localRows.firstIndex { $0.action == action }));bar.submit()
         #expect(!bar.isOpen && session.activeSpace === work && work.activeTab === workPage)
         #expect(personal.activeTab === personalPage && session.allTabs.count == count)
         #expect(!root.isCollapsed && !child.isCollapsed && hidden.isCollapsed)

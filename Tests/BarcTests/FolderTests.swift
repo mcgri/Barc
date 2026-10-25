@@ -687,10 +687,10 @@ struct TabDropPlanTests {
     /// loose1, loose2, New Tab.
     private func session() -> (BrowserSession, TabGroup, [Tab]) {
         let session = TestSession.make().0
-        let a = session.newTab(url: url("https://a.example"))
-        let b = session.newTab(url: url("https://b.example"))
-        let loose1 = session.newTab(url: url("https://c.example"))
-        let loose2 = session.newTab(url: url("https://d.example"))
+        let a = TestSession.appendTab(in:session,url: url("https://a.example"))
+        let b = TestSession.appendTab(in:session,url: url("https://b.example"))
+        let loose1 = TestSession.appendTab(in:session,url: url("https://c.example"))
+        let loose2 = TestSession.appendTab(in:session,url: url("https://d.example"))
         session.closeTab(session.activeSpace.tabs[0])
         let folder = session.createGroup(named: "Work", containing: [a, b])
         return (session, folder, [a, b, loose1, loose2])

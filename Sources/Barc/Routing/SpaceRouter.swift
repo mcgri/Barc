@@ -1,3 +1,4 @@
+// Modified for Barc: command-bar URLs keep their workspace and profile, 2026-10-25.
 import Foundation
 
 /// Decides which space a URL belongs to.
@@ -21,6 +22,8 @@ enum SpaceRouter {
     enum Origin: Equatable {
         case inBrowser
         case external
+        /// A manually entered or suggested URL stays in its current workspace.
+        case commandBar
     }
 
     /// The single entry point.
@@ -36,6 +39,7 @@ enum SpaceRouter {
         currentSpaceID: UUID,
         knownSpaceIDs: Set<UUID>
     ) -> Decision {
+        guard origin != .commandBar else { return .stay }
         let matched = rules.routes.first { matches($0, url: url) }?.destination
         let destination = matched ?? (origin == .external ? rules.externalDefault : .mostRecentSpace)
 

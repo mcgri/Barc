@@ -76,10 +76,10 @@ final class WebsitePasswordVault: @unchecked Sendable {
     }
 
     @discardableResult
-    func mutate(_ change: (inout [Entry]) -> Bool) throws -> Bool {
+    func mutate(_ change: (inout [Entry]) throws -> Bool) throws -> Bool {
         try transaction {
             var entries = try readEntries()
-            guard change(&entries) else { return false }
+            guard try change(&entries) else { return false }
             let key = try encryptionKey(create: !FileManager.default.fileExists(atPath: file.path))
             let plain = try JSONEncoder().encode(entries)
             let box = try AES.GCM.seal(plain, using: key, authenticating: Self.header)

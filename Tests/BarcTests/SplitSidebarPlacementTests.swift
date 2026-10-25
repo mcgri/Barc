@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct SplitSidebarPlacementTests {
     private func page(_ name:String, in session:BrowserSession) -> Tab {
-        let tab = session.newTab(url:URL(string:"https://split-position.invalid/\(name)")!)
+        let tab = TestSession.appendTab(in:session,url:URL(string:"https://split-position.invalid/\(name)")!)
         session.rename(tab,to:name)
         return tab
     }

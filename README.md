@@ -11,10 +11,10 @@ Barc started with Kylmora's source code and full Git history, preserving the ori
 
 ## Download and install
 
-Download [Barc 0.0.1](https://github.com/mcgri/Barc/releases/tag/v0.0.1) for **Apple Silicon or Intel Macs running macOS 14 or later**.
+Download [Barc 0.0.2](https://github.com/mcgri/Barc/releases/tag/v0.0.2) for **Apple Silicon or Intel Macs running macOS 14 or later**.
 
 - Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
-- Version 0.0.1 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Version 0.0.2 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
 - Browser profiles and migration data are not included. Import your own data after opening Barc.
 
 ## Build and run
@@ -35,7 +35,7 @@ make test
 Local builds are ad-hoc signed. To create universal `.dmg` and `.pkg` installers locally:
 
 ```sh
-Tools/package-unsigned-release.sh 0.0.1
+Tools/package-unsigned-release.sh 0.0.2
 ```
 
 The output is in `build/release/`, with checksums and release notes. Version tags trigger the release workflow. It uses signed/notarized packaging when Barc's signing credentials are configured; otherwise it publishes installers explicitly marked as unnotarized.
@@ -59,6 +59,14 @@ Review the result before relying on imported website sessions. The report lists 
 Some websites require signing in again. Partitioned cookies and partitioned local storage are skipped to preserve their isolation. Cookies without a name cannot be represented by WebKit's public cookie API and are reported as unavailable. Cookie lifetimes are kept, including session-only cookies, which may end when the browser quits. WebKit can reject storage that exceeds its quota. IndexedDB databases, tab-scoped session storage, passkeys, extensions, generic form suggestions and Arc's back/forward stacks, scroll positions and in-page form state remain in Arc. Search shortcuts use Barc's shared engine list; history, passwords, addresses and website data use the matching profile identity.
 
 The [implementation plan](docs/arc-import-plan.md) describes the supported formats and verification requirements.
+
+## Import from Apple Passwords
+
+Open Settings → Passwords → **Import passwords from macOS…**. The dialog opens Apple Passwords and explains how to export all or selected passwords. Choose the exported CSV in Barc to import it into the profile shown in the dialog. Existing logins are kept, and repeated imports skip accounts already stored for the same website and profile.
+
+Imported passwords use Barc's encrypted local vault. This is a one-time copy, with no iCloud synchronization. The exported CSV is unencrypted; delete it after importing. Passkeys and verification codes are not imported. The current local build does not have Apple's browser permission for iCloud passkeys or the iCloud Passwords extension.
+
+Saved-account suggestions work on email-first and password login steps. Click the login field, or press the down arrow while it is focused, to choose an account. Suggestions use only the current profile.
 
 ## Barc identity
 

@@ -32,7 +32,7 @@ private final class SidebarDragInfoFixture: NSObject, NSDraggingInfo {
 @MainActor
 struct SidebarDragOperationTests {
     private func page(_ name:String, in session:BrowserSession) -> Tab {
-        let page = session.newTab(url:URL(string:"https://sidebar-drag.invalid/\(name)")!)
+        let page = TestSession.appendTab(in:session,url:URL(string:"https://sidebar-drag.invalid/\(name)")!)
         session.rename(page,to:name)
         return page
     }

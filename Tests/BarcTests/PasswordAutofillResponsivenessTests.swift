@@ -28,14 +28,15 @@ struct PasswordAutofillResponsivenessTests {
         #expect(actual == expected)
     }
 
-    @Test("A page focusing its own login field cannot start a password lookup")
-    func programmaticFocus() async throws {
+    @Test("A login field needs user interaction, including username-only sign-in pages", arguments: [false, true])
+    func programmaticFocus(usernameOnly: Bool) async throws {
         let controller = WKUserContentController()
         let autofill = PasswordAutofill()
         autofill.attach(controller)
-        controller.removeScriptMessageHandler(forName: "barcPasswords", contentWorld: .page)
+        controller.removeScriptMessageHandler(forName: "barcPasswords", contentWorld: PasswordAutofill.contentWorld)
         let probe = AutofillMessageProbe()
         controller.addScriptMessageHandler(probe, contentWorld: .page, name: "barcPasswords")
+        controller.addScriptMessageHandler(probe, contentWorld: PasswordAutofill.contentWorld, name: "barcPasswords")
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController = controller
@@ -48,7 +49,7 @@ struct PasswordAutofillResponsivenessTests {
         defer { window.close() }
         let load = AutofillFixtureLoader()
         web.navigationDelegate = load
-        try await load.load(web)
+        try await load.load(web, usernameOnly: usernameOnly)
         // WebKit treats callAsyncJavaScript as a user gesture. Let the page's
         // own load handler focus the field, as a real login page does.
         for _ in 0..<100 where !probe.actions.contains("probe") {
@@ -125,11 +126,11 @@ private final class AutofillMessageProbe: NSObject, WKScriptMessageHandlerWithRe
 @MainActor
 private final class AutofillFixtureLoader: NSObject, WKNavigationDelegate {
     private var continuation: CheckedContinuation<Void, Error>?
-    func load(_ web: WKWebView) async throws {
+    func load(_ web: WKWebView, usernameOnly: Bool = false) async throws {
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             web.loadHTMLString("""
-                <input id='username' type='email'><input type='password'>
+                <input id='username' type='email'>\(usernameOnly ? "" : "<input type='password'>")
                 <script>
                 window.addEventListener('load', () => setTimeout(() => {
                   const user = document.getElementById('username');

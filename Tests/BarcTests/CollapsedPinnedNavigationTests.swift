@@ -12,7 +12,7 @@ struct CollapsedPinnedNavigationTests {
         return session
     }
     private func page(_ name:String,in session:BrowserSession) -> Tab {
-        session.newTab(url:URL(string:"https://collapsed-navigation.invalid/\(name)")!)
+        TestSession.appendTab(in:session,url:URL(string:"https://collapsed-navigation.invalid/\(name)")!)
     }
 
     @Test("Next and previous wrap through Today while root pins and folder pages stay skipped")

@@ -44,7 +44,7 @@ Barc $version
 Requires macOS 14 or later. Supports Apple Silicon and Intel Macs.
 Drag Barc.app onto Applications, then open Barc from Applications.
 
-This initial release is ad-hoc signed, not Developer ID signed or notarized
+This release is ad-hoc signed, not Developer ID signed or notarized
 by Apple. macOS may prevent first launch. See Apple's guidance:
 https://support.apple.com/en-us/102445
 
@@ -59,7 +59,9 @@ hdiutil verify "$out/$stem.dmg"
 cat > "$out/RELEASE-NOTES.md" <<NOTES
 # Barc $version
 
-The first Barc installer release. Barc is a personal fork of [Kylmora](https://github.com/kylmora/kylmora), focused on Arc-style sidebar navigation, Spaces and Arc import.
+Barc is a personal fork of [Kylmora](https://github.com/kylmora/kylmora), focused on Arc-style sidebar navigation, Spaces and Arc import.
+
+$(if [[ -f "docs/releases/$version.md" ]]; then cat "docs/releases/$version.md"; fi)
 
 ## Download and install
 
@@ -71,7 +73,7 @@ Both installers support **Apple Silicon and Intel Macs**, with **macOS 14 or lat
 
 ## Signing
 
-This initial release is **ad-hoc signed and not notarized by Apple**. The installer package is unsigned. macOS may prevent first launch; read [Apple's guidance](https://support.apple.com/en-us/102445) before deciding whether to open it. No security settings are changed by the installer.
+This release is **ad-hoc signed and not notarized by Apple**. The installer package is unsigned. macOS may prevent first launch; read [Apple's guidance](https://support.apple.com/en-us/102445) before deciding whether to open it. No security settings are changed by the installer.
 
 ## Included
 

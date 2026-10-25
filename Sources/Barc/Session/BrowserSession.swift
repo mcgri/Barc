@@ -1,6 +1,7 @@
 // Modified for Barc: Arc import, session restoration and profile isolation, 2026-10-23.
 // Modified for Barc: nested folder duplication and promotion with profile preservation, 2026-10-24.
 // Modified for Barc: complete split archives and restoration, 2026-10-25.
+// Modified for Barc: new tabs open at the top of Today, 2026-10-25.
 import AppKit
 import Combine
 import WebKit
@@ -667,7 +668,7 @@ final class BrowserSession {
         let target = url ?? settings.newTabURL(isPrivate: activeSpace.isPrivate)
         let space = routedSpace(for: target, origin: origin) ?? activeSpace
         let tab = Tab(url: target, identity: space.identity)
-        insert(tab, into: space, at: space.tabs.count, select: select)
+        insertNewTab(tab, into: space, select: select)
 
         guard space.id != activeSpaceID else { return tab }
         // A routed tab the user asked to see takes them to it; one opened in
@@ -690,7 +691,7 @@ final class BrowserSession {
             let previous = Tab(url: tab.url, identity: owner.identity)
             // Domain routing is for newly requested destinations. This page
             // already belongs to the pin's profile and must remain there.
-            insert(previous, into: owner, at: owner.tabs.count, select: false)
+            insertNewTab(previous, into: owner, select: false)
         }
         selectSpace(owner)
         selectTab(tab)
@@ -734,14 +735,12 @@ final class BrowserSession {
         }
     }
 
-    /// Adopts a web view WebKit created for `window.open`, placing it next to
-    /// the tab that opened it.
+    /// Adopts a web view WebKit created for `window.open` at the top of Today.
     func adoptChildTab(of parent: Tab, configuration: WKWebViewConfiguration) -> Tab {
         let space = space(containing: parent) ?? activeSpace
         let webView = WebEnvironment.shared.makeWebView(configuration: configuration)
         let tab = Tab(adopting: webView, identity: space.identity)
-        let index = space.index(of: parent).map { $0 + 1 } ?? space.tabs.count
-        insert(tab, into: space, at: index, select: space.id == activeSpaceID)
+        insertNewTab(tab, into: space, select: space.id == activeSpaceID)
         return tab
     }
 
@@ -754,8 +753,7 @@ final class BrowserSession {
     func adoptGlancedTab(_ webView: WKWebView, after parent: Tab?) -> Tab {
         let space = parent.flatMap { self.space(containing: $0) } ?? activeSpace
         let tab = Tab(adopting: webView, identity: space.identity)
-        let index = parent.flatMap { space.index(of: $0) }.map { $0 + 1 } ?? space.tabs.count
-        insert(tab, into: space, at: index, select: space.id == activeSpaceID)
+        insertNewTab(tab, into: space, select: space.id == activeSpaceID)
         return tab
     }
 
@@ -779,7 +777,7 @@ final class BrowserSession {
         let tab = space.identity == identity
             ? Tab(adopting: webView, identity: identity)
             : Tab(url: url, identity: space.identity)
-        insert(tab, into: space, at: space.tabs.count, select: true)
+        insertNewTab(tab, into: space, select: true)
         // Kept means the page is in the sidebar now, so the user is shown it:
         // the little window is gone and this is where the page went.
         if space.id != activeSpaceID { selectSpace(space) }
@@ -1065,9 +1063,11 @@ final class BrowserSession {
         space.remove(tab)
 
         if wasActive {
-            let neighbour = space.tabs.indices.contains(index) ? space.tabs[index]
-                : space.tabs.indices.contains(index - 1) ? space.tabs[index - 1]
-                : nil
+            // The hidden start-page owner is only a fallback when no real
+            // pages remain, including when newer tabs were inserted above it.
+            let neighbour = space.tabs.dropFirst(index).first { !$0.isSidebarPlaceholder }
+                ?? space.tabs.prefix(index).last { !$0.isSidebarPlaceholder }
+                ?? space.tabs.first
             if let neighbour, neighbour.wasAutoPictureInPicture, neighbour.isInPictureInPicture {
                 neighbour.exitPictureInPicture()
             }
@@ -3782,6 +3782,17 @@ final class BrowserSession {
 
 
     // MARK: - Bookkeeping
+
+    /// Fresh pages lead Today even when older tabs have saved sidebar ranks.
+    /// Explicit drops, duplicates and restored sessions keep their own placement.
+    private func insertNewTab(_ tab: Tab, into space: Space, select: Bool) {
+        changes.batch {
+            let siblings = SidebarOrder.items(groups: space.groups, tabs: space.listedTabs)
+            let firstToday = siblings.first { !$0.isRetained }
+            insert(tab, into: space, at: 0, select: select)
+            SidebarOrder.place(.tab(tab), before: firstToday, in: siblings)
+        }
+    }
 
     private func insert(_ tab: Tab, into space: Space, at index: Int, select: Bool) {
         adopt(tab)
