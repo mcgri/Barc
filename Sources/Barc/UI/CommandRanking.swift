@@ -443,24 +443,19 @@ enum CommandRanker {
         return words.allSatisfy(candidateWords.contains) ? 15 : nil
     }
 
-    /// Keep deliberate action abbreviations separate from page and name search.
-    private static func scoreCommandText(query: String, in text: String) -> Int? {
-        if let score = scoreText(query: query, in: text) { return score }
-        return matchesFuzzy(normalise(query), in: normalise(text)) ? 15 : nil
-    }
-
-    /// Subsequence / fuzzy matching for quick typing: characters in `query` appear
-    /// in order within `text`.
-    static func matchesFuzzy(_ query: String, in text: String) -> Bool {
-        guard !query.isEmpty else { return false }
-        var queryIdx = query.startIndex
-        for ch in text {
-            if ch == query[queryIdx] {
-                queryIdx = query.index(after: queryIdx)
-                if queryIdx == query.endIndex { return true }
-            }
+    /// Actions require a word or phrase prefix. Scattered letters in a long
+    /// description must not turn an ordinary web query into a browser action.
+    /// Deliberate aliases remain explicit in each command's keyword list.
+    private static func scoreCommandText(query:String,in text:String) -> Int? {
+        let query = normalise(query),text = normalise(text)
+        guard !query.isEmpty,!text.isEmpty else { return nil }
+        if text == query { return Tier.exactHost }
+        if text.hasPrefix(query) { return Tier.titlePrefix }
+        for index in text.indices where index != text.startIndex {
+            let previous = text[text.index(before:index)]
+            if !previous.isLetter && !previous.isNumber,text[index...].hasPrefix(query) { return Tier.wordPrefix }
         }
-        return false
+        return nil
     }
 
     // MARK: - Normalisation

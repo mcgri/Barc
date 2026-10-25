@@ -28,7 +28,7 @@ enum CommandCatalog {
             subtitle: "Open a new tab in current space",
             symbolName: "plus",
             shortcut: "⌘T",
-            keywords: ["new", "tab", "open", "create"]
+            keywords: ["new", "tab", "open", "create", "ntb"]
         ),
         CommandCandidate(
             id: "close-tab",

@@ -57,9 +57,9 @@ struct URLPopupMatchingTests {
         }
     }
 
-    @Test("Intentional command abbreviations keep their action and keyboard shortcut")
-    func commandAbbreviationsRemainSeparate() {
-        let command = CommandCandidate(id:"new-tab",title:"New Tab",symbolName:"plus",shortcut:"⌘T")
+    @Test("Explicit command abbreviations keep their action and keyboard shortcut")
+    @MainActor func commandAbbreviationsRemainSeparate() {
+        let command = CommandCatalog.all.first { $0.id == "new-tab" }!
         let rows = CommandRanker.rank(query:"ntb",tabs:[],commands:[command],history:[])
         #expect(rows.first?.action == .runCommand("new-tab") && rows.first?.shortcut == "⌘T")
     }

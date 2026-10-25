@@ -277,6 +277,21 @@ struct SearchFollowupTests {
         #expect(!bar.isOpen)
         started.finish()
     }
+    @Test("Ordinary web queries cannot select unrelated browser actions through scattered letters")
+    func literalSearchPrecedesUnrelatedActions() {
+        let session = TestSession.make().0
+        let commands = CommandCatalog.available(in:session)
+        for query in ["weather","weather forecast","eat","mountain trails","coffee beans","splt"] {
+            let search = SearchCandidate(engineName:"Fixture",url:SearchEngine.duckDuckGo.url(for:query)!)
+            let rows = CommandRanker.rank(query:query,tabs:[],commands:commands,history:[],search:search)
+            #expect(rows.first?.kind == .search,"Query \(query): \(rows.map(\.title))")
+            #expect(!rows.contains { $0.kind == .command },"Query \(query) must not invoke an unrelated action")
+        }
+        let reload = CommandRanker.rank(query:"reload",tabs:[],commands:commands,history:[])
+        #expect(reload.contains { $0.kind == .command && $0.title == "Reload Page" })
+        #expect(CommandRanker.rank(query:"site search",tabs:[],commands:commands,history:[]).first?.action == .runCommand("site-search"))
+    }
+
     @Test("Private Spaces cannot send predictions through the real window integration")
     func privatePredictions() async throws {
         let configuration = URLSessionConfiguration.ephemeral
