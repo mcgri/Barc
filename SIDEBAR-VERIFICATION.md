@@ -1,6 +1,6 @@
 # Sidebar batch findings
 
-2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `3fefe81`, including sidebar destination changes in `e187198`. Current release: **build 237**. Full Arc parity remains unproven.
+2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `d5aa8bf`, including Favorite drag and transfer support. Current release: **build 239**. Full Arc parity remains unproven.
 
 ## Completed fixes
 
@@ -81,6 +81,22 @@ Native review found that menu traversal worked while modified arrows did not act
 
 Both owned review copies are closed. Saved session, preferences, boosts and live-folder files still match their pre-batch hashes exactly. Arc's windows were untouched. No social/sharing features, remote push or hosted environment changes were made.
 
+## Favorite drag and transfer: build 239
+
+- Favorite tiles now start native drags using a stable Favorite identifier and owning Space. Pointer clicks activate on release; crossing the drag threshold starts a drag. A drag holds the compact sidebar open.
+- A Favorite can move into Pinned, Today, a folder or a compatible split. Complete split units retain their name, icon, layout and remembered pane. Moving removes the shared Favorite; copying keeps it and creates independent workspace pages.
+- Cross-profile transfers recreate pages in the destination profile and clear opaque page state. Unopened Favorites can transfer from their saved metadata without loading their pages. Stale identifiers, protected destinations, invalid selections and self-split targets are rejected before mutation.
+- The Favorites strip accepts complete multi-row selections, expands split units, validates capacity before changing anything and supports native tile reordering. Space icons accept complete Favorite/workspace drops; the dock currently switches Spaces after a 300 ms drag hover. Exact Arc hover timing and default drop placement remain unverified.
+- The interaction follows Arc's documented [Favorite drag-out behavior](https://resources.arc.net/hc/en-us/articles/19230755904151-Favorites-Top-Tabs-Across-Every-Space) and [Option-drag duplication](https://resources.arc.net/hc/en-us/articles/19231060187159-Pinned-Tabs-Tabs-you-want-to-stick-around). Favorite tiles use a dedicated native payload; legacy ordinary-tab payloads still refuse Favorite pages.
+
+Combined suite: **2,360 tests in 370 suites passed**, 93.478 seconds. Verification corrected a reorder boundary error and a fixture that assumed invalid legacy records stayed Favorites; existing normalization preserves those records as workspace pages. A final preflight guard prevents dropping a Favorite into its own pane from removing its tile. All **17 Favorite drag regression tests passed** afterward in 0.344 seconds. The broader suite was not rerun after that final guard; the focused suite covers the changed path.
+
+Final release: **build 239**, `0.1.64-141-gd5aa8bf`, compiled in 75.12 seconds. Strict signature verification passed. The bundle is `build/Barc.app`.
+
+Native pointer review confirmed tile reordering, ordinary tile activation, a single Favorite dragged into Pinned, a complete named split dragged into Today, two selected workspace units dropped into Favorites, and a Favorite moved through a Space icon into a separate profile. These checks used local sample pages in a separately identified review copy. The tool rejected a modifier-only hold, and a concurrent Option-key chord did not establish a copy. **Physical Option-drag is unverified**; copy masks, source preservation and complete-unit copying passed the native delegate tests.
+
+The review process is closed. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No sharing/social features, remote push or hosted environment changes were made.
+
 ## Remaining to-do list
 
 These are remaining differences or verification gaps within the requested areas. They are not claims of completed parity.
@@ -96,8 +112,9 @@ These are remaining differences or verification gaps within the requested areas.
 ### Names, menus and transfers
 
 - [ ] Compare a named split's precise typography, icon spacing, hover controls and menu ordering against a saved Arc reference. The available reference does not establish every named-unit detail.
-- [ ] Complete a physical Option-drag and drag-out comparison for Favorites. Moving a shared Favorite across Spaces through the new workspace-transfer path is deliberately refused; workspace split transfers and copies are supported.
-- [ ] Check all modifier-drag combinations and cross-window gestures with the pointer. Model/native drop checks cover ownership and complete-unit behavior, but not every physical gesture.
+- [ ] Complete a physical Option-drag comparison for Favorites, including source cursor, drag image and motion. Native pointer review now covers Favorite drag-out moves, and native delegate tests cover copy behavior and profile isolation.
+- [ ] Check remaining modifier-drag combinations and cross-window gestures with the pointer. Common Favorite moves, complete multi-row drops and a cross-profile Space-icon drop are verified; every modifier/window combination is not.
+- [ ] Compare the source's Space-icon hover delay and default drop placement from saved evidence. Barc currently switches after 300 ms and places a dock transfer in Today; exact source equivalence is unverified.
 - [ ] Compare the remaining per-shortcut Favorite-inclusion and ninth-item options against the source. The documented default inclusion, visual-order cycle, named-unit numbering and actual modified-arrow dispatch are implemented and verified.
 - [ ] Verify the source's Space-arrow defaults from a saved reference. Barc uses horizontal Space traversal to keep the documented vertical tab pair distinct; exact source-default equivalence for the horizontal pair is not yet established.
 

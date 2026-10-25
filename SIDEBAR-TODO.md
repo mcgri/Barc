@@ -80,8 +80,10 @@ Sidebar destination verification: the combined suite passed 2,344 tests in 369 s
 
 Scan complete. Arc documents dragging a Favorite into Pinned/Today to unfavorite it, and Option-drag duplication. Current tile sources do not start native drags; sidebar moves reject Favorites and the strip only reads the first selected tab. Implement this batch before verification.
 
-- [ ] F1. Add stable, owner-scoped native Favorite tile drag sources with click/drag separation and normal copy/move masks.
-- [ ] F2. Accept Favorite drops into Pinned, Today, folders and compatible split rows, preserving complete units and their name/icon/layout.
-- [ ] F3. Convert shared Favorites to workspace pages for a move; preserve the Favorite for a copy and maintain profile boundaries when crossing profiles.
-- [ ] F4. Handle Favorite reorder and complete multi-row drops into the Favorites strip, respecting source masks and validating the entire payload before mutation.
-- [ ] F5. Run combined model/native delegate checks and release pointer review, audit saved data and consolidate the remaining differences. Do not claim a physical Option-drag unless the tool can actually hold that modifier during a drag.
+- [x] F1. Add stable, owner-scoped native Favorite tile drag sources with click/drag separation and normal copy/move masks.
+- [x] F2. Accept Favorite drops into Pinned, Today, folders and compatible split rows, preserving complete units and their name/icon/layout.
+- [x] F3. Convert shared Favorites to workspace pages for a move; preserve the Favorite for a copy and maintain profile boundaries when crossing profiles.
+- [x] F4. Handle Favorite reorder and complete multi-row drops into the Favorites strip, respecting source masks and validating the entire payload before mutation.
+- [x] F5. Run combined model/native delegate checks and release pointer review, audit saved data and consolidate the remaining differences. Do not claim a physical Option-drag unless the tool can actually hold that modifier during a drag.
+
+Favorite transfer verification: **2,360 tests in 370 suites passed**, 93.478 seconds. After a final self-split preflight guard, all **17 Favorite drag regression tests passed**, 0.344 seconds; the broader suite was not rerun after that guard. Build **239**, `0.1.64-141-gd5aa8bf`, compiled in 75.12 seconds and passed strict signature verification. Native pointer review confirmed tile reordering, click activation, single Favorite → Pinned, complete split → Today, complete multi-row → Favorites, and a cross-profile Space-icon move. Physical Option-drag remains unverified; native delegate checks cover copy semantics. Saved user data remained byte-for-byte unchanged. Remaining checks are consolidated in SIDEBAR-VERIFICATION.md.
