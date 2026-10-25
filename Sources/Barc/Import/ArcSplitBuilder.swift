@@ -77,6 +77,6 @@ enum ArcSplitBuilder {
               layout.tabIDs.allSatisfy({ indices[$0] != nil }) else { return nil }
         let focused = focusedIndex(root:root,items:items,children:children,tabIndices:tabIndices) ?? indices[layout.tabIDs[0]]!
         return Built(record:.init(layout:layout,tabIndices:layout.tabIDs.map { indices[$0]! },
-            stickyTabIndex:nil,id:ArcImportID.uuid(prefix+"/split/"+root),focusedTabIndex:focused),focusedIndex:focused)
+            stickyTabIndex:nil,id:ArcImportID.uuid(prefix+"/split/"+root),focusedTabIndex:focused,customName:SplitCollection.normalizedName(items[root]?.customName)),focusedIndex:focused)
     }
 }

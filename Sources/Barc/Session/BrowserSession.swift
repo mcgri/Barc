@@ -2302,8 +2302,9 @@ final class BrowserSession {
                         saved.interactionState = nil
                         return .init(id:page.id,page:saved)
                     },layout:layout,focusedMemberID:space.splits.preferredTab(containing:tab.id),
-                    stickyMemberID:layout.tabIDs.first(where:space.splits.stickyTabIDs.contains))
-                let site = PinnedSite(url:members[0].url,title:members.map(\.displayTitle).joined(separator:" / "),split:destination,
+                    stickyMemberID:layout.tabIDs.first(where:space.splits.stickyTabIDs.contains),
+                    customName:space.splits.name(containing:tab.id))
+                let site = PinnedSite(url:members[0].url,title:destination.customName ?? members.map(\.displayTitle).joined(separator:" / "),split:destination,
                     icon:space.splits.icon(containing:tab.id))
                 space.addPinnedSite(site)
                 for page in members {

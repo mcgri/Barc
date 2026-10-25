@@ -11,6 +11,7 @@ struct FavoriteSplit: Codable, Equatable, Sendable {
     var layout: SplitLayout
     var focusedMemberID: UUID?
     var stickyMemberID: UUID?
+    var customName: String? = nil
 
     var isValid: Bool {
         (2...SplitLayout.maximumPanes).contains(members.count) && layout.isValid
@@ -22,6 +23,6 @@ struct FavoriteSplit: Codable, Equatable, Sendable {
         let positions = Dictionary(members.enumerated().map { ($0.element.id,$0.offset) },uniquingKeysWith:{ first,_ in first })
         return .init(layout:layout,tabIndices:layout.tabIDs.compactMap { positions[$0] },
             stickyTabIndex:stickyMemberID.flatMap { positions[$0] },id:id,
-            focusedTabIndex:focusedMemberID.flatMap { positions[$0] })
+            focusedTabIndex:focusedMemberID.flatMap { positions[$0] },customName:customName)
     }
 }

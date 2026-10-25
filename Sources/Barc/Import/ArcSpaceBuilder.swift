@@ -99,12 +99,12 @@ enum ArcSpaceBuilder {
                     let focusedMember = zip(built.record.layout.tabIDs,built.record.tabIndices)
                         .first { $0.1 == built.focusedIndex }?.0
                     let destination = FavoriteSplit(id:groupID,members:members,layout:built.record.layout,
-                        focusedMemberID:focusedMember,stickyMemberID:nil)
+                        focusedMemberID:focusedMember,stickyMemberID:nil,customName:built.record.customName)
                     let oldIDs = Set(built.record.tabIndices.compactMap { tabs[$0].pinnedSiteID })
                     let position = pins.firstIndex { oldIDs.contains($0.id) } ?? pins.count
                     pins.removeAll { oldIDs.contains($0.id) }
                     pins.insert(.init(id:pinID,url:members[0].page.url,
-                        title:members.map { $0.page.customName ?? $0.page.title ?? $0.page.url.host() ?? "Tab" }.joined(separator:" / "),
+                        title:destination.customName ?? members.map { $0.page.customName ?? $0.page.title ?? $0.page.url.host() ?? "Tab" }.joined(separator:" / "),
                         split:destination),at:min(position,pins.count))
                     for (member,index) in zip(built.record.layout.tabIDs,built.record.tabIndices) {
                         tabs[index].pinnedSiteID = pinID;tabs[index].pinnedMemberID = member

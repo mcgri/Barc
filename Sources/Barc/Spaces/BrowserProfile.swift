@@ -151,8 +151,14 @@ final class BrowserProfile: Identifiable {
             saved.layout = layout
             saved.focusedMemberID = new.focusedTabIndex.flatMap { saved.members.indices.contains($0) ? saved.members[$0].id:nil }
             saved.stickyMemberID = new.stickyTabIndex.flatMap { saved.members.indices.contains($0) ? saved.members[$0].id:nil }
+            if old.customName != new.customName {
+                saved.customName = SplitCollection.normalizedName(new.customName)
+                pinnedSites[index].title = saved.customName ?? saved.members.map {
+                    $0.page.customName ?? $0.page.title ?? $0.page.url.host() ?? "Tab"
+                }.joined(separator:" / ")
+            }
             pinnedSites[index].split = saved
-            pinnedSites[index].icon = new.icon ?? .automatic
+            if old.icon != new.icon { pinnedSites[index].icon = new.icon ?? .automatic }
         }
     }
 }

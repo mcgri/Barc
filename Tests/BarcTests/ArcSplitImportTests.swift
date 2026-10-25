@@ -7,12 +7,14 @@ import Testing
 @MainActor
 struct ArcSplitImportTests {
     func source(axis:String = "horizontal",weights:Any = [Any](),nested:Bool = false,
-                        favorite:Bool = false,pinned:Bool = false) throws -> ArcSourceSnapshot {
+                        favorite:Bool = false,pinned:Bool = false,name:String? = nil) throws -> ArcSourceSnapshot {
         let root = try ArcImportBench.directory()
         let leaves = nested ? ["a","b","c","d"]:["a","b"]
         func split(_ id:String,_ children:[String],_ axis:String,_ weights:Any,_ focus:String) -> [String:Any] {
-            ["id":id,"childrenIds":children,"data":["splitView":["layoutOrientation":axis,
+            var item:[String:Any] = ["id":id,"childrenIds":children,"data":["splitView":["layoutOrientation":axis,
                 "itemWidthFactors":weights,"focusItemID":focus,"customInfo":NSNull()]]]
+            if id == "unit",let name { item["title"] = name }
+            return item
         }
         var items:[[String:Any]] = [
             ["id":"today","childrenIds":favorite ? []:["unit"],"data":[:]],

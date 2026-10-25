@@ -65,6 +65,7 @@ struct SessionSnapshot: Codable, Equatable {
         var id: UUID? = nil
         var focusedTabIndex: Int? = nil
         var icon: SpaceIcon? = nil
+        var customName: String? = nil
     }
 
     struct Space: Codable, Equatable {

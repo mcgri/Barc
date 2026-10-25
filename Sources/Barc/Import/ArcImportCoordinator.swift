@@ -240,7 +240,7 @@ final class ArcImportCoordinator {
                 result.counts["Split layouts"] = .init(source:sourceSplits.count,
                     imported:verified.subtracting(beforeSplits).count,existing:verified.intersection(beforeSplits).count,
                     skipped:sourceSplits.count-verified.count,verified:verified.count)
-                result.notes.append("Split-wide names and custom unit icons are not imported. Unsupported layouts keep their readable pages separately.")
+                result.notes.append("Split-wide names are retained for supported layouts; workspace split rows still show pane titles. Custom unit icons are not imported. Unsupported layouts keep their readable pages separately.")
                 if !expected.isSubset(of:actual) {
                     result.notes.append("Existing local organization was kept instead of regrouping some pages.")
                 }
