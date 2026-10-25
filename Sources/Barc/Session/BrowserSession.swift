@@ -50,7 +50,7 @@ final class BrowserSession {
     /// Keeps live folders' contents up to date. Owned here because the sidebar
     /// draws its state and the application services its requests, and both need
     /// the same instance.
-    let liveFolders = LiveFolderManager()
+    let liveFolders:LiveFolderManager
 
     private(set) var spaces: [Space] = []
     private(set) var profiles: [BrowserProfile] = []
@@ -99,6 +99,9 @@ final class BrowserSession {
         self.sessionStore = sessionStore
         self.settings = settings
         self.routing = routing
+        let liveStore:LiveFolderStore = sessionStore.fileURL.standardizedFileURL == AppPaths.sessionFile.standardizedFileURL
+            ? .shared : LiveFolderStore(fileURL:sessionStore.fileURL.deletingPathExtension().appendingPathExtension("live-folders.json"))
+        self.liveFolders = LiveFolderManager(store:liveStore)
 
         let restored = settings.restoresSession ? sessionStore.load() : nil
 
@@ -135,6 +138,13 @@ final class BrowserSession {
         profiles = Self.profileList(from: restored, spaces: self.spaces)
         for profile in profiles { for tab in profile.favoriteTabs { adopt(tab) } }
         liveFolders.delegate = self
+        liveFolders.profileGitHubFetch = { [weak self] folderID,configuration in
+            guard let self,let owner = spaces.first(where:{ $0.group(withID:folderID)?.isLive == true }),!owner.isPrivate else { return .blocked(.authenticationRequired) }
+            let profile = owner.profile
+            let outcome = await GitHubProfileFetcher.fetch(configuration,identity:profile.identity)
+            guard spaces.contains(where:{ $0 === owner }),owner.profile === profile,owner.group(withID:folderID)?.isLive == true else { return .blocked(.authenticationRequired) }
+            return outcome
+        }
         loadBookmarks()
 
         NetworkConfigManager.shared.spaceProxyResolver = { [weak self] identity in
@@ -1097,7 +1107,8 @@ final class BrowserSession {
         transferTabs([tab],from:source,to:target,clearingGroups:true)
     }
 
-    private func transferTabs(_ tabs: [Tab], from source: Space, to target: Space, clearingGroups: Bool) {
+    @discardableResult
+    private func transferTabs(_ tabs: [Tab], from source: Space, to target: Space, clearingGroups: Bool) -> [Tab] {
         changes.batch {
             let originalSplits = source.splits
             let requestedIDs = Set(tabs.map(\.id))
@@ -1140,10 +1151,40 @@ final class BrowserSession {
                     source.splits.dissolve(containing:first)
                 }
             }
-            guard !bindings.isEmpty else { return }
+            guard !bindings.isEmpty else { return [] }
             changes.send(.structure)
             changes.send(.activeTab)
             scheduleSave()
+            return tabs.compactMap { original in bindings[original.id].flatMap { id in target.tabs.first { $0.id == id } } }
+        }
+    }
+
+    @discardableResult
+    func receiveSidebarTabs(_ requested:[Tab],from source:Space,into target:Space,copy:Bool) -> [Tab] {
+        guard source !== target,spaces.contains(where:{ $0 === source }),spaces.contains(where:{ $0 === target }),
+              requested.allSatisfy({ page in source.tabs.contains { $0 === page } }) else { return [] }
+        var seen:Set<UUID> = []
+        let members = requested.flatMap { source.splits.layout(containing:$0.id)?.tabIDs ?? [$0.id] }
+            .filter { seen.insert($0).inserted }.compactMap { id in source.tabs.first { $0.id == id } }
+        guard !members.isEmpty,copy || members.allSatisfy({ $0.pinnedSiteID == nil }) else { return [] }
+        if !copy,source.profile === target.profile {
+            for page in members where page.pinnedSiteID != nil {
+                guard target.splits.layout(containing:page.id) == nil else { return [] }
+            }
+        }
+        return changes.batch {
+            if !copy { return transferTabs(members,from:source,to:target,clearingGroups:true) }
+            let splits = source.splits
+            var bindings:[UUID:UUID] = [:],copies:[Tab] = []
+            for page in members {
+                var saved = page.snapshot();saved.groupID = nil;saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.importedSourceID = nil
+                if source.profile !== target.profile { saved.interactionState = nil }
+                let copied = Tab(restoring:saved,identity:target.identity)
+                insert(copied,into:target,at:target.workspaceTabs.count,select:false)
+                bindings[page.id] = copied.id;copies.append(copied)
+            }
+            target.splits.copyCompleteGroups(from:splits,mapping:bindings)
+            changes.send(.structure);scheduleSave();return copies
         }
     }
 
@@ -1915,8 +1956,8 @@ final class BrowserSession {
     /// the user can see; a pinned site's tab is not listed and not counted.
     /// Past the end, nine and above mean the last tab.
     func selectTab(number: Int) {
-        let tabs = activeSpace.sidebarVisibleTabs
-        guard !tabs.isEmpty else { return }
+        let tabs = activeSpace.sidebarNavigationTabs
+        guard !tabs.isEmpty,number>0 else { return }
         let index = tabs.indices.contains(number - 1) ? number - 1
             : number >= 9 ? tabs.count - 1
             : -1
@@ -2113,6 +2154,18 @@ final class BrowserSession {
         changes.send(.structure)
         scheduleSave()
         return group
+    }
+
+    @discardableResult
+    func enableGitHubLiveFolder(_ group:TabGroup,in owner:Space) -> Bool {
+        guard spaces.contains(where:{ $0 === owner }),!owner.isPrivate,owner.group(withID:group.id) === group,
+              liveFolders.record(for:group.id) == nil else { return false }
+        group.isLive = true
+        let scope:GitHubLiveFolderProvider.Scope = group.name.lowercased().contains("issue") ? .issues:.pullRequests
+        let configuration = GitHubLiveFolderProvider.Configuration(login:"",useProfileSession:true,scope:scope,
+            authorMe:true,assignedMe:true,reviewRequested:scope == .pullRequests)
+        liveFolders.add(folderID:group.id,source:.github(configuration))
+        changes.send(.structure);scheduleSave();return true
     }
 
     @discardableResult
@@ -2343,6 +2396,49 @@ final class BrowserSession {
             changes.send(.structure);scheduleSave()
             return true
         }
+    }
+
+    @discardableResult
+    func setFavoriteName(_ name:String?,for id:UUID,in profile:BrowserProfile) -> Bool {
+        guard profiles.contains(where:{ $0 === profile }) else { return false }
+        return changes.batch {
+            guard profile.pinnedSites.contains(where:{ $0.id == id }) else { return false }
+            var changed = profile.setFavoriteName(name,for:id)
+            let members = profile.favoriteTabs.filter { $0.pinnedSiteID == id }
+            if let first = members.first {
+                if profile.pinnedSites.first(where:{ $0.id == id })?.split == nil {
+                    let outcome = TabNameStore.shared.rename(first.id,to:name ?? "")
+                    if outcome != .unchanged { changed = true;first.didChange.send() }
+                } else {
+                    for space in spaces where space.profile === profile {
+                        if let layout = space.splits.layout(containing:first.id),Set(layout.tabIDs) == Set(members.map(\.id)) {
+                            if space.splits.setName(name,containing:first.id) { changed = true }
+                        }
+                    }
+                }
+            }
+            guard changed else { return false }
+            changes.send(.structure);scheduleSave();return true
+        }
+    }
+
+    @discardableResult
+    func renameSplit(containing id:UUID,in owner:Space,to name:String?) -> Bool {
+        guard spaces.contains(where:{ $0 === owner }),let layout = owner.splits.layout(containing:id) else { return false }
+        if let pin = owner.tabs.first(where:{ $0.id == id })?.pinnedSiteID {
+            return setFavoriteName(name,for:pin,in:owner.profile)
+        }
+        guard owner.splits.setName(name,containing:id) else { return false }
+        _ = layout
+        changes.send(.structure);scheduleSave();return true
+    }
+
+    @discardableResult
+    func setSplitIcon(_ icon:SpaceIcon,containing id:UUID,in owner:Space) -> Bool {
+        guard spaces.contains(where:{ $0 === owner }),owner.splits.layout(containing:id) != nil else { return false }
+        if let pin = owner.tabs.first(where:{ $0.id == id })?.pinnedSiteID { return setFavoriteIcon(icon,for:pin,in:owner.profile) }
+        guard owner.splits.setIcon(icon,containing:id) else { return false }
+        changes.send(.structure);scheduleSave();return true
     }
 
     private func favoriteUnit(for tab:Tab) -> [Tab]? {
@@ -2669,6 +2765,19 @@ final class BrowserSession {
             changes.send(.structure)
             changes.send(.activeTab)
             scheduleSave()
+        }
+    }
+
+    @discardableResult
+    func detachSplitPane(_ page:Tab,in owner:Space) -> Bool {
+        guard spaces.contains(where:{ $0 === owner }),owner.tabs.contains(where:{ $0 === page }),
+              let layout = owner.splits.layout(containing:page.id),
+              layout.tabIDs.allSatisfy({ id in owner.tabs.first(where:{ $0.id == id })?.pinnedSiteID == nil }) else { return false }
+        return changes.batch {
+            selectSpace(owner);recordSplitUndoState()
+            normalizeSplitSidebar(layout,primary:page,previous:layout)
+            owner.splits.remove(page.id)
+            changes.send(.structure);changes.send(.activeTab);scheduleSave();return true
         }
     }
 
@@ -3458,6 +3567,12 @@ final class BrowserSession {
             mergeArcSplits(stored,into:space)
         }
         reconcileProfiles()
+        for stored in incoming {
+            guard let owner = spaces.first(where:{ $0.id == stored.id }) else { continue }
+            for original in stored.groups ?? [] where original.isLive == true && original.symbolName == "arc.github.folder" {
+                if let group = owner.group(withID:original.id) { _ = enableGitHubLiveFolder(group,in:owner) }
+            }
+        }
         changes.send(.spaces)
         changes.send(.tabs)
         changes.send(.structure)
@@ -3636,6 +3751,7 @@ extension BrowserSession: LiveFolderManagerDelegate {
         // Restored rather than made from the URL alone, so the row carries the
         // item's title before the page has loaded -- or without it ever
         // loading, since a background tab builds no web view.
+        if let existing = space.tabs.first(where:{ $0.groupID == folderID && $0.url == item.url }) { return existing.id }
         let snapshot = SessionSnapshot.Tab(url: item.url, title: item.title, groupID: folderID)
         let tab = Tab(restoring: snapshot, identity: space.identity)
         insert(tab, into: space, at: space.tabs.count, select: false)

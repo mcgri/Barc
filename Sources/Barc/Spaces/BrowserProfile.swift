@@ -47,6 +47,22 @@ final class BrowserProfile: Identifiable {
         return true
     }
 
+    @discardableResult
+    func setFavoriteName(_ value:String?,for id:UUID) -> Bool {
+        guard let index = pinnedSites.firstIndex(where:{ $0.id == id }) else { return false }
+        let name = SplitCollection.normalizedName(value)
+        var site = pinnedSites[index]
+        if var split = site.split {
+            split.customName = name;site.split = split
+            site.title = name ?? split.members.map { $0.page.customName ?? $0.page.title ?? $0.page.url.host() ?? "Tab" }.joined(separator:" / ")
+        } else {
+            site.title = name ?? favoriteTabs.first(where:{ $0.pinnedSiteID == id })?.pageTitle ?? site.url.host() ?? "Tab"
+        }
+        guard site != pinnedSites[index] else { return false }
+        pinnedSites[index] = site
+        return true
+    }
+
     /// Used only to recognize the generated single-tile aliases in older imports.
     func tab(forPinnedAlias id:UUID) -> Tab? {
         guard let canonical = pinAliases[id] else { return nil }

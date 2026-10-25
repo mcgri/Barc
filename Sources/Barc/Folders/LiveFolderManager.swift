@@ -49,6 +49,7 @@ protocol LiveFolderManagerDelegate: AnyObject {
 @MainActor
 final class LiveFolderManager {
     weak var delegate: LiveFolderManagerDelegate?
+    var profileGitHubFetch:((UUID,GitHubLiveFolderProvider.Configuration) async -> LiveFolderFetch)?
 
     private var records: [TabGroup.ID: LiveFolderRecord] = [:]
     private var tasks: [TabGroup.ID: Task<Void, Never>] = [:]
@@ -68,7 +69,7 @@ final class LiveFolderManager {
     /// Reads the folders back and starts their timers.
     func start() async {
         let stored = await store.load()
-        for record in stored { records[record.id] = record }
+        for record in stored where records[record.id] == nil { records[record.id] = record }
         observeWake()
         for id in records.keys { schedule(id) }
     }
@@ -166,10 +167,14 @@ final class LiveFolderManager {
         }
 
         let provider = record.makeProvider()
-        let outcome = await provider.fetchItems(using: fetcher)
+        let outcome:LiveFolderFetch
+        if case .github(let configuration) = record.source,configuration.useProfileSession == true {
+            outcome = await profileGitHubFetch?(folderID,configuration) ?? .blocked(.authenticationRequired)
+        } else { outcome = await provider.fetchItems(using:fetcher) }
 
         // The folder may have been deleted while the request was in flight.
-        guard var current = records[folderID] else { return }
+        guard var current = records[folderID],current.source == record.source,
+              current.state.paused != true || record.state.paused == true else { return }
 
         switch outcome {
         case .blocked(let issue):
@@ -218,6 +223,7 @@ final class LiveFolderManager {
         guard let record = records[folderID] else { return [] }
         var items: [LiveFolderOption] = [
             .action(key: LiveFolderOptionChange.refreshKey, title: "Refresh Now"),
+            .toggle(key:LiveFolderOptionChange.pauseKey,title:"Pause Automatic Refresh",isOn:record.state.paused == true),
             .choice(
                 key: LiveFolderOptionChange.intervalKey,
                 title: "Refresh",
@@ -239,6 +245,12 @@ final class LiveFolderManager {
         guard var record = records[folderID] else { return }
 
         switch (change.key, change.value) {
+        case (LiveFolderOptionChange.pauseKey,.bool(let paused)):
+            record.state.paused = paused ? true:nil
+            records[folderID] = record;tasks[folderID]?.cancel();persist()
+            delegate?.liveFolderManager(self,didChange:folderID)
+            if !paused { schedule(folderID) }
+            return
         case (LiveFolderOptionChange.refreshKey, _):
             Task { await self.refresh(folderID: folderID) }
             return
@@ -282,7 +294,7 @@ final class LiveFolderManager {
     /// failure all work by the same mechanism: cancel, reschedule, ask again.
     private func schedule(_ folderID: TabGroup.ID) {
         tasks[folderID]?.cancel()
-        guard records[folderID] != nil else { return }
+        guard let record = records[folderID],record.state.paused != true else { return }
         tasks[folderID] = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self, let record = self.records[folderID] else { return }

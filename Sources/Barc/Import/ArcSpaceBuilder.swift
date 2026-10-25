@@ -46,7 +46,7 @@ enum ArcSpaceBuilder {
                     let groupID = ArcImportID.uuid(prefix + "/group/" + space.id + "/" + id)
                     groups.append(.init(id: groupID, name: item.title ?? "Folder", emoji: item.folderEmoji, tint: space.color ?? "#007aff",
                                         appearance: nil, isCollapsed: item.isCollapsed ?? false, parentID: group,
-                                        symbolName: item.folderBadge == "github" ? "arc.github.folder" : "folder", isLive: nil,
+                                        symbolName: item.folderBadge == "github" ? "arc.github.folder" : "folder", isLive: item.liveGitHub,
                                         sidebarPosition: position))
                     parent = groupID
                 }

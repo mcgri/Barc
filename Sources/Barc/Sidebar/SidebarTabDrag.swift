@@ -2,6 +2,7 @@
 import AppKit
 
 enum SidebarTabDrag {
+    static let ownerType = NSPasteboard.PasteboardType("io.github.mcgri.Barc.sidebarSpaceID")
     static let type = NSPasteboard.PasteboardType("io.github.mcgri.Barc.sidebarTabID")
 
     static func id(in pasteboard: NSPasteboard) -> UUID? {

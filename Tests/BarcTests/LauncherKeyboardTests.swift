@@ -95,7 +95,7 @@ struct LauncherKeyboardTests {
         #expect(calls == ["portal"] && bar.visibleResults == rows)
         editor.insertText("app",replacementRange:NSRange(location:NSNotFound,length:0))
         try publishEdit(bar,editor:editor)
-        #expect(bar.queryText == "portalapp" && bar.visibleResults.isEmpty && bar.selectedIndex == nil)
+        #expect(bar.queryText == "portalapp" && bar.visibleResults == rows && bar.selectedIndex == nil)
         bar.close()
         try await Task.sleep(for:.milliseconds(120))
         #expect(calls == ["portal"], "Closing cancels the pending request for the new text")
@@ -135,7 +135,7 @@ struct LauncherKeyboardTests {
         bar.moveSelection(by:1)
         #expect(bar.queryText == query && calls == [query])
         editor.insertText(" updated",replacementRange:NSRange(location:NSNotFound,length:0));try publishEdit(bar,editor:editor)
-        #expect(bar.queryText == "Project Notes updated" && bar.selectedIndex == nil && bar.visibleResults.isEmpty)
+        #expect(bar.queryText == "Project Notes updated" && bar.selectedIndex == nil && !bar.visibleResults.isEmpty)
         bar.close()
     }
 

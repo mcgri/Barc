@@ -80,6 +80,7 @@ enum ArcSidebarReader {
                 customName: object["title"] as? String,
                 isCollapsed: payload["list"] != nil ? expandedFolders.map { !$0.contains(key) } : nil,
                 folderEmoji: folderEmoji, folderBadge: folderIcon?["icon"] as? String,
+                liveGitHub:((folder?["automaticLiveFolderData"] as? [String:Any])?["dataSource"] as? [String:Any])?["github"] != nil ? true:nil,
                 split: (payload["splitView"] as? [String:Any]).map(readSplit)
             )
             orderedIDs.append(key)

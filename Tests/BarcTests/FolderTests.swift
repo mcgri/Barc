@@ -645,7 +645,7 @@ struct FolderPresentationTests {
         #expect(item.searchText.contains("/world/story"))
     }
 
-    @Test("The options menu is the manager's two items plus the provider's own")
+    @Test("The options menu is the manager's refresh, pause and interval items plus the provider's own")
     func optionsMenu() {
         let manager = LiveFolderManager(store: LiveFolderStore(fileURL: FileManager.default
             .temporaryDirectory.appending(path: "barc-live-\(UUID().uuidString).json")))
@@ -660,7 +660,7 @@ struct FolderPresentationTests {
             case .submenu, .separator: return nil
             }
         }
-        #expect(keys.prefix(2) == ["refresh", "interval"])
+        #expect(keys.prefix(3) == ["refresh", "pause", "interval"])
         #expect(keys.contains("maxItems"))
         manager.remove(folderID: folderID)
         manager.stop()

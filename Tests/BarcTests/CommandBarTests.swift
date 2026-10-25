@@ -261,20 +261,19 @@ struct CommandBarViewTests {
         #expect(bar.selectedIndex == nil)
     }
 
-    @Test("The panel stays centered with suggestions and after resizing")
+    @Test("Changing result counts keeps the input fixed and clamps the panel after resizing")
     func panelIsCentered() throws {
-        let host = NSView(frame: NSRect(x: 0, y: 0, width: 1_200, height: 800))
-        let bar = CommandBar()
-        bar.install(in: host)
-        bar.open(openInNewTab: true)
-        for size in [NSSize(width: 1_200, height: 800), NSSize(width: 720, height: 460)] {
-            host.setFrameSize(size)
-            for count in [0, 8] {
-                bar.setResults(results(count))
-                host.layoutSubtreeIfNeeded()
+        let host = NSView(frame:NSRect(x:0,y:0,width:1_200,height:800))
+        let bar = CommandBar();bar.install(in:host);bar.open(openInNewTab:true)
+        for size in [NSSize(width:1_200,height:800),NSSize(width:720,height:460)] {
+            host.setFrameSize(size);host.layoutSubtreeIfNeeded()
+            let field = try #require(UITestSupport.descendants(of:bar).compactMap { $0 as? NSTextField }.first { $0.isEditable })
+            let original = field.convert(field.bounds,to:host)
+            for count in [0,8,1,4,0] {
+                bar.setResults(results(count));host.layoutSubtreeIfNeeded()
                 let panel = try #require(bar.subviews.first)
-                #expect(abs(panel.frame.midX - bar.bounds.midX) < 1)
-                #expect(abs(panel.frame.midY - bar.bounds.midY) < 1)
+                #expect(abs(panel.frame.midX-bar.bounds.midX)<1)
+                #expect(abs(field.convert(field.bounds,to:host).midY-original.midY)<1)
                 #expect(bar.bounds.contains(panel.frame))
             }
         }

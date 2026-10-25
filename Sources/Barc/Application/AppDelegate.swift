@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The browser deliberately owns a single main window. Spaces and tabs are
     /// switched inside it rather than by spawning new windows.
     private var session: BrowserSession?
+    private var sidebarReviewMenu:SidebarReviewMenuDelegate?
     private var syncCoordinator: SyncCoordinator?
     private var mainWindowController: BrowserWindowController?
     private var settingsWindowController: SettingsWindowController?
@@ -47,6 +48,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if SidebarReview.requested {
+            AppPaths.ensureSupportDirectory()
+            let session = SidebarReview.makeSession();self.session = session
+            let menus = SidebarReviewMenuDelegate();sidebarReviewMenu = menus
+            NSApp.mainMenu = MainMenu.build(bookmarks:menus,history:menus,tabs:menus,pinnedSites:menus,spaces:menus)
+            let controller = BrowserWindowController(session:session);mainWindowController = controller
+            controller.window?.title = "Barc Review"
+            controller.showWindow(nil);NSApp.activate(ignoringOtherApps:true)
+            return
+        }
         Metrics.reportLaunchIfRequested(stage: "did-finish-launching")
         AppPaths.ensureSupportDirectory()
         // Before any window exists, so the first one is never drawn in the
@@ -229,6 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// The debounced save would be lost on quit, so write synchronously here.
     func applicationWillTerminate(_ notification: Notification) {
+        if SidebarReview.requested { session?.saveNow();return }
         CrashReporter.markCleanExit()
         session?.saveNow()
         // A native messaging host is a program Barc started; quitting the

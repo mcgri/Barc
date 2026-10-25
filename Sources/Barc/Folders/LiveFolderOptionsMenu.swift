@@ -32,14 +32,14 @@ enum LiveFolderOptionsMenu {
             case .action(let key, let title):
                 let item = NSMenuItem(title: title, action: #selector(OptionTarget.trigger(_:)), keyEquivalent: "")
                 item.target = target
-                item.representedObject = LiveFolderOptionChange(key: key, value: .triggered)
+                item.representedObject = OptionInvocation(.init(key:key,value:.triggered),target:target)
                 menu.addItem(item)
 
             case .toggle(let key, let title, let isOn):
                 let item = NSMenuItem(title: title, action: #selector(OptionTarget.trigger(_:)), keyEquivalent: "")
                 item.target = target
                 item.state = isOn ? .on : .off
-                item.representedObject = LiveFolderOptionChange(key: key, value: .bool(!isOn))
+                item.representedObject = OptionInvocation(.init(key:key,value:.bool(!isOn)),target:target)
                 menu.addItem(item)
 
             case .choice(let key, let title, let values, let selected):
@@ -53,7 +53,7 @@ enum LiveFolderOptionsMenu {
                     )
                     item.target = target
                     item.state = value.value == selected ? .on : .off
-                    item.representedObject = LiveFolderOptionChange(key: key, value: .string(value.value))
+                    item.representedObject = OptionInvocation(.init(key:key,value:.string(value.value)),target:target)
                     submenu.addItem(item)
                 }
                 parent.submenu = submenu
@@ -80,7 +80,14 @@ private final class OptionTarget: NSObject, NSMenuDelegate {
     }
 
     @objc func trigger(_ sender: NSMenuItem) {
-        guard let change = sender.representedObject as? LiveFolderOptionChange else { return }
-        handler(change)
+        guard let invocation = sender.representedObject as? OptionInvocation else { return }
+        handler(invocation.change)
     }
+}
+
+@MainActor
+private final class OptionInvocation {
+    let change:LiveFolderOptionChange
+    let target:OptionTarget
+    init(_ change:LiveFolderOptionChange,target:OptionTarget) { self.change = change;self.target = target }
 }

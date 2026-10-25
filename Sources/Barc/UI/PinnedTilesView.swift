@@ -44,6 +44,7 @@ final class PinnedTilesView: NSView {
     /// A tile asked to be unpinned, identified by `PinnedTile.id`.
     var onRemove: ((String) -> Void)?
     var onChangeIcon: ((String,NSView) -> Void)?
+    var onRename: ((String,NSView) -> Void)?
 
     private var tileViews: [PinnedTileView] = []
     private let emptyHint = EmptyFavoritesHint()
@@ -83,6 +84,9 @@ final class PinnedTilesView: NSView {
             let view = PinnedTileView(tile: tile, isPrivate: isPrivate)
             view.onClick = { [weak self] in self?.onSelect?(tile.id) }
             view.onRemove = { [weak self] in self?.onRemove?(tile.id) }
+            view.onRename = { [weak self,weak view] in
+                guard let view else { return };self?.onRename?(tile.id,view)
+            }
             view.onChangeIcon = { [weak self,weak view] in
                 guard let view else { return }
                 self?.onChangeIcon?(tile.id,view)
@@ -259,6 +263,7 @@ private final class PinnedTileView: NSView {
     /// A right-click on the tile asks to unpin it.
     var onRemove: (() -> Void)?
     var onChangeIcon: (() -> Void)?
+    var onRename: (() -> Void)?
 
     /// The same view the sidebar rows use, which is the whole point: a pinned
     /// site has no web view to ask for its declared icons, and that is a case
@@ -448,6 +453,8 @@ private final class PinnedTileView: NSView {
         if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
         let change = NSMenuItem(title:"Change Icon…",action:#selector(changeIconFromMenu),keyEquivalent:"")
         change.target = self;menu.addItem(change)
+        let rename = NSMenuItem(title:"Rename…",action:#selector(renameFromMenu),keyEquivalent:"")
+        rename.target = self;menu.addItem(rename)
         menu.addItem(.separator())
         let unpin = NSMenuItem(title: "Unpin", action: #selector(removeFromMenu), keyEquivalent: "")
         unpin.target = self
@@ -458,6 +465,7 @@ private final class PinnedTileView: NSView {
 
     @objc private func removeFromMenu() { onRemove?() }
     @objc private func changeIconFromMenu() { onChangeIcon?() }
+    @objc private func renameFromMenu() { onRename?() }
 }
 
 /// A full-width, dismissible explanation instead of an empty Favorite tile.

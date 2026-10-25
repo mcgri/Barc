@@ -191,8 +191,10 @@ enum CommandRanker {
         var results: [CommandResult] = []
         var claimed: Set<String> = []
 
+        // Shared Favorites can appear in several Spaces with one page ID.
+        var seenTabs:Set<UUID> = []
         // 1. Open tabs
-        for tab in tabs where !tab.isActive && sources.openTabs {
+        for tab in tabs where !tab.isActive && seenTabs.insert(tab.id).inserted && sources.openTabs {
             guard let score = score(query: normalisedQuery, title: tab.title, address: tab.address) else {
                 continue
             }
@@ -313,12 +315,23 @@ enum CommandRanker {
         // tabs are candidates too, so a tab already on the site stays the
         // answer -- switching still beats reloading.
         if sources.topHits {
-            let prefixed = results.enumerated().filter { matchKey($0.element.subtitle).hasPrefix(normalisedQuery) }
+            let addresses = Dictionary(tabs.map { ($0.id,$0.address) },uniquingKeysWith:{ first,_ in first })
+            func address(_ result:CommandResult) -> String? {
+                switch result.action {
+                case .switchToTab(let id): addresses[id]
+                case .openURL(let url): AddressFormatter.display(url)
+                default: nil
+                }
+            }
+            let prefixed = results.enumerated().filter {
+                address($0.element).map { matchKey($0).hasPrefix(normalisedQuery) } == true
+            }
             // Ties broken the same way the final order is, so the choice
             // never depends on the order candidates were gathered in.
             if let top = prefixed.min(by: {
-                if $0.element.subtitle.count != $1.element.subtitle.count { return $0.element.subtitle.count < $1.element.subtitle.count }
-                if $0.element.subtitle != $1.element.subtitle { return $0.element.subtitle < $1.element.subtitle }
+                let left = address($0.element) ?? "",right = address($1.element) ?? ""
+                if left.count != right.count { return left.count < right.count }
+                if left != right { return left < right }
                 return $0.element.id < $1.element.id
             }) {
                 let row = top.element

@@ -3,6 +3,21 @@ import Foundation
 
 @MainActor
 extension Space {
+    /// One destination per visible sidebar row. Split rows keep their
+    /// remembered pane, and collapsed folders follow the renderer's escape rule.
+    var sidebarNavigationTabs:[Tab] {
+        let kept = sidebarVisibleTabs.filter { $0.groupID == nil && $0.keepsInSidebar }
+        let remaining = sidebarVisibleTabs.filter { $0.groupID != nil || !$0.keepsInSidebar }
+        let active = splits.layout(containing:activeTabID)?.tabIDs.first ?? activeTabID
+        var units:Set<UUID> = []
+        return FolderRowPlan.rows(groups:groups,tabs:kept+remaining,activeTabID:active).compactMap { row in
+            guard case .tab(let page,_,_) = row,!isInCollapsedPinnedSection(page) else { return nil }
+            guard let unit = splits.identifier(containing:page.id) else { return page }
+            guard units.insert(unit).inserted else { return nil }
+            return splits.preferredTab(containing:page.id).flatMap { id in tabs.first { $0.id == id } } ?? page
+        }
+    }
+
     /// Favorite tiles remain visible when the Space's Pinned list is closed.
     func isInCollapsedPinnedSection(_ tab:Tab) -> Bool {
         look.pinnedSectionCollapsed && tab.pinnedSiteID == nil && tab.isSidebarRetained

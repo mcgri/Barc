@@ -5,6 +5,14 @@ import AppKit
 final class SplitRowView: NSTableCellView {
     static let reuseIdentifier = NSUserInterfaceItemIdentifier("SplitRow")
     var onSelectMember: ((Int) -> Void)?
+    var onRename: (() -> Void)?
+    var onCloseUnit: (() -> Void)?
+    private let unitName = SidebarLabel(labelWithString:"")
+    private let unitIcon = NSImageView()
+    private let unitClose = NSButton(image:NSImage(systemSymbolName:"xmark",accessibilityDescription:"Close Split View")!,target:nil,action:nil)
+    private(set) var isNamed = false
+    private var unitArtwork:SpaceIcon = .automatic
+    var isEditingName = false { didSet { refreshNameVisibility() } }
     var onCloseMember: ((Int) -> Void)?
     var onResetMember: ((Int, Bool) -> Bool)?
     var isSelected = false { didSet { updateAppearance() } }
@@ -24,6 +32,13 @@ final class SplitRowView: NSTableCellView {
         wantsLayer = true
         clipsToBounds = false
         if let layer { highlight = RowHighlight(in:layer) }
+        unitName.font = Style.Fonts.tabTitle;unitName.textColor = Style.Colors.sidebarPrimaryText
+        unitName.lineBreakMode = .byTruncatingTail;unitName.setAccessibilityElement(false)
+        unitIcon.imageScaling = .scaleProportionallyDown;unitIcon.setAccessibilityElement(false)
+        unitClose.isBordered = false;unitClose.bezelStyle = .inline
+        unitClose.target = self;unitClose.action = #selector(closeUnit)
+        unitClose.setAccessibilityLabel("Close Split View")
+        for item in [unitIcon,unitName,unitClose] { addSubview(item);item.isHidden = true }
     }
     required init?(coder:NSCoder) { fatalError("SplitRowView is created in code only") }
 
@@ -39,7 +54,11 @@ final class SplitRowView: NSTableCellView {
             height:height)
     }
 
-    func configure(_ contents:[TabRowContent], focusedIndex:Int?) {
+    func configure(_ contents:[TabRowContent], focusedIndex:Int?,name:String? = nil,icon:SpaceIcon = .automatic) {
+        isNamed = SplitCollection.normalizedName(name) != nil || icon.isCustomized
+        unitName.stringValue = SplitCollection.normalizedName(name) ?? contents.map(\.title).joined(separator:" / ")
+        unitArtwork = icon
+        refreshUnitIcon()
         self.contents = contents
         self.focusedIndex = focusedIndex
         while members.count > contents.count { members.removeLast().removeFromSuperview() }
@@ -54,19 +73,22 @@ final class SplitRowView: NSTableCellView {
             member.onActivate = { [weak self] in self?.onSelectMember?(index) }
             member.onClose = { [weak self] in self?.onCloseMember?(index) }
         }
-        setAccessibilityLabel("Split View: " + contents.map(\.title).joined(separator:", "))
+        setAccessibilityLabel(isNamed ? unitName.stringValue : "Split View: " + contents.map(\.title).joined(separator:", "))
+        toolTip = isNamed ? unitName.stringValue : contents.map(\.title).joined(separator:" / ")
+        refreshNameVisibility()
         needsLayout = true
         updateAppearance()
     }
 
     func memberIndex(at point:NSPoint) -> Int? {
-        members.firstIndex { $0.frame.contains(point) }
+        if isNamed { return pillRect.contains(point) && !members.isEmpty ? max(0,min(focusedIndex ?? 0,members.count-1)):nil }
+        return members.firstIndex { $0.frame.contains(point) }
     }
     @discardableResult
     func activate(at point:NSPoint, keepingCurrentPage:Bool = false) -> Bool {
         guard let index = memberIndex(at:point) else { return false }
         let member = members[index]
-        if contents[index].canResetPinnedPage,
+        if !isNamed,contents[index].canResetPinnedPage,
            member.favicon.frame.contains(member.convert(point,from:self)),
            onResetMember?(index,keepingCurrentPage) == true { return true }
         onSelectMember?(index)
@@ -84,11 +106,42 @@ final class SplitRowView: NSTableCellView {
         for (index,member) in members.enumerated() {
             member.frame = NSRect(x:inner.minX+CGFloat(index)*(width+gap),y:inner.minY,width:width,height:inner.height)
         }
+        unitIcon.frame = NSRect(x:rect.minX+12,y:rect.midY-8,width:16,height:16)
+        unitName.frame = NSRect(x:rect.minX+38,y:rect.midY-8.5,width:max(0,rect.width-62),height:18)
+        unitClose.frame = NSRect(x:rect.maxX-22,y:rect.midY-7,width:14,height:14)
+        refreshNameVisibility()
         if hovered && !isPointerInside { hovered = false }
         if isFresh { isFresh = false; updateAppearance(animated:false) }
     }
 
+    func nameEditorFrame(in view:NSView) -> NSRect {
+        let rect = NSRect(x:pillRect.minX+38,y:pillRect.midY-8.5,width:max(0,pillRect.width-62),height:18)
+        return convert(rect,to:view)
+    }
+    private func refreshUnitIcon() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            unitIcon.image = unitArtwork.isCustomized ? unitArtwork.image(color:Style.Colors.sidebarPrimaryText,title:unitName.stringValue,side:16)
+                : NSImage(systemSymbolName:"rectangle.split.2x1",accessibilityDescription:nil)
+            unitIcon.contentTintColor = Style.Colors.sidebarPrimaryText
+        }
+    }
+    private func refreshNameVisibility() {
+        for member in members { member.isHidden = isNamed;member.alphaValue = isEditingName ? 0:1 }
+        unitIcon.isHidden = !isNamed
+        unitName.isHidden = !isNamed;unitName.alphaValue = isEditingName ? 0:1
+        unitClose.isHidden = !isNamed || !hovered || contents.contains(where:{ $0.isLocked })
+    }
+    @objc private func closeUnit() { onCloseUnit?() }
+    override func mouseDown(with event:NSEvent) {
+        if event.type == .leftMouseDown,event.clickCount == 2,
+           event.modifierFlags.intersection([.command,.shift,.control,.option]).isEmpty,
+           pillRect.contains(convert(event.locationInWindow,from:nil)),let onRename {
+            onRename();return
+        }
+        super.mouseDown(with:event)
+    }
     private func updateAppearance(animated:Bool = true) {
+        refreshNameVisibility()
         highlight?.apply(isSelected ? .selected : (hovered ? .hover : .rest),appearance:effectiveAppearance,animated:animated && !isFresh)
         for (index,member) in members.enumerated() {
             member.focused = isSelected && index == focusedIndex
@@ -97,6 +150,7 @@ final class SplitRowView: NSTableCellView {
     }
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        refreshUnitIcon()
         highlight?.refresh(appearance:effectiveAppearance)
         updateAppearance()
     }
@@ -111,6 +165,7 @@ final class SplitRowView: NSTableCellView {
         super.prepareForReuse()
         isFresh = true
         onSelectMember = nil; onCloseMember = nil; onResetMember = nil
+        onRename = nil;onCloseUnit = nil;isEditingName = false
         hovered = false; isSelected = false
         configure([],focusedIndex:nil)
     }

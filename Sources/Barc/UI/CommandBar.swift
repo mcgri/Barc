@@ -91,6 +91,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private let rowsStack = CommandResultsView()
     private let resultsContainer = NSStackView()
     private var centeredConstraints: [NSLayoutConstraint] = []
+    private var stableTop: NSLayoutConstraint!
+    private var openingTop: CGFloat?
+    private var openingID = UUID()
+    private var resultsAreCurrent = true
     private var addressConstraints: [NSLayoutConstraint] = []
     private var preferredWidth: NSLayoutConstraint!
     private var addressLeading: NSLayoutConstraint!
@@ -198,6 +202,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
                 constant: -2 * CommandBarMetrics.minimumSideGap
             )
         ]
+        stableTop = shadowHost.topAnchor.constraint(equalTo:topAnchor)
         addressLeading = shadowHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4)
         addressTop = shadowHost.topAnchor.constraint(equalTo: topAnchor, constant: 4)
         addressConstraints = [addressLeading, addressTop,
@@ -266,8 +271,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         divider.translatesAutoresizingMaskIntoConstraints = false
 
         rowsStack.onSelect = { [weak self] index in
-            self?.select(index)
-            self?.previewSelection()
+            guard let self,self.resultsAreCurrent else { return }
+            self.select(index)
+            self.previewSelection()
         }
         rowsStack.orientation = .vertical
         rowsStack.alignment = .leading
@@ -333,6 +339,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     func open(text: String = "", openInNewTab: Bool = false) {
         configurePresentation(address: false)
         present(text: text, openInNewTab: openInNewTab)
+        finishOpeningPlacement()
         if !text.isEmpty { scheduleQuery(for: text) }
     }
 
@@ -348,6 +355,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         superview?.layoutSubtreeIfNeeded()
         select(0)
         updateSplitPosition()
+        finishOpeningPlacement()
     }
 
     /// New Tab is a transient question over the whole window. Choosing an
@@ -362,6 +370,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         superview?.layoutSubtreeIfNeeded()
         select(0)
         updateSplitPosition()
+        finishOpeningPlacement()
     }
 
     private func configureLauncherPresentation() {
@@ -402,6 +411,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         superview?.layoutSubtreeIfNeeded()
         select(0)
         updateSplitPosition()
+        finishOpeningPlacement()
         loadInitialSuggestions(loadSuggestions, for: text)
     }
 
@@ -422,11 +432,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     private func loadInitialSuggestions(_ loader: (@MainActor () async -> [CommandResult])?, for text: String) {
         guard let loader else { return }
-        let address = isAddressMode, location = isLocationMode
+        let address = isAddressMode, location = isLocationMode, opening = openingID
         queryTask = Task { [weak self] in
             let found = await loader()
             guard !Task.isCancelled, let self, self.isOpen,
-                  self.isAddressMode == address, self.isLocationMode == location, self.queryText == text else { return }
+                  self.openingID == opening,self.isAddressMode == address, self.isLocationMode == location,
+                  !self.hasEditedQuery,self.typedQuery == text else { return }
             if address { self.initialAddressResults = found }
             else { self.initialLocationResults = found }
             self.setResults(found)
@@ -435,6 +446,8 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     private func configurePresentation(address: Bool) {
+        stableTop.isActive = false
+        openingTop = nil
         NSLayoutConstraint.deactivate(isAddressMode ? addressConstraints : centeredConstraints)
         isAddressMode = address
         addressIconLeading.constant = 16
@@ -468,7 +481,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         }
         if !address { addressAnchor = nil; initialAddressResults = [] }
         updateAddressPosition()
-        NSLayoutConstraint.activate(address ? addressConstraints : centeredConstraints)
+        if address { NSLayoutConstraint.activate(addressConstraints) }
+        else {
+            stableTop.constant = 0
+            NSLayoutConstraint.activate([centeredConstraints[0],centeredConstraints[2],stableTop])
+        }
         needsLayout = true
     }
 
@@ -483,12 +500,19 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func present(text: String, openInNewTab: Bool) {
         queryTask?.cancel()
         queryTask = nil
+        openingID = UUID()
         isNewTabMode = openInNewTab
         if !isOpen {
             previousResponder = window?.firstResponder
         }
         isHidden = false
-        superview?.addSubview(self, positioned: .above, relativeTo: nil)
+        // Re-adding an installed view can discard its host constraints. Reorder
+        // in place so repeated openings keep the same full-window geometry.
+        superview?.sortSubviews({ first,second,_ in
+            if first is CommandBar { return .orderedDescending }
+            if second is CommandBar { return .orderedAscending }
+            return .orderedSame
+        },context:nil)
         field.stringValue = text
         typedQuery = text
         hasEditedQuery = false
@@ -504,6 +528,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     func close(committing: Bool = false) {
         guard isOpen else { return }
         isNewTabMode = false
+        openingID = UUID()
         queryTask?.cancel()
         queryTask = nil
         restoreTextSelection()
@@ -568,6 +593,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// keeps a stale selection is one that opens the wrong page on Return.
     func setResults(_ newResults: [CommandResult]) {
         results = newResults
+        resultsAreCurrent = true
         selectedIndex = nil
         rebuildRows()
     }
@@ -595,7 +621,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             row.selectionColor = selectionColor
             row.configure(result, image: resultImageProvider?(result), compact: isAddressMode,
                           splitChoice: usesLauncherRows && !isLocationMode, locationChoice: isLocationMode)
-            row.onHover = { [weak self] in self?.select(index) }
+            row.onHover = { [weak self] in
+                guard let self,resultsAreCurrent else { return }
+                select(index)
+            }
             row.onClick = { [weak self] in self?.run(at: index) }
             rowsStack.addArrangedSubview(row)
             row.widthAnchor.constraint(equalTo: rowsStack.widthAnchor).isActive = true
@@ -629,8 +658,44 @@ final class CommandBar: NSView, NSTextFieldDelegate {
         super.layout()
         updateSplitPosition()
         updateAddressPosition()
+        updateFixedTop()
         let expected = min(maximumRows, results.count)
         if expected != visibleResults.count { rebuildRows() }
+    }
+
+    override func setFrameSize(_ newSize:NSSize) {
+        super.setFrameSize(newSize)
+        // Apply the resize correction before the next layout pass. Otherwise
+        // the next result update would appear to move the field by this amount.
+        updateFixedTop()
+    }
+
+    private func updateFixedTop() {
+        guard let openingTop,let stableTop,let fieldHeight else { return }
+        let pitch = usesLauncherRows ? CommandBarMetrics.splitRowHeight+CommandBarMetrics.splitRowSpacing
+            : CommandBarMetrics.rowHeight+CommandBarMetrics.rowSpacing
+        stableTop.constant = min(openingTop,max(8,bounds.height-fieldHeight.constant-CommandBarMetrics.bottomGap-20-pitch))
+    }
+
+    /// Freeze the query row after initial placement. Use the measured content
+    /// height, not the previous frame: a stack's frame can still describe its
+    /// collapsed state during the opening layout pass.
+    private func finishOpeningPlacement() {
+        guard !isAddressMode else { return }
+        superview?.layoutSubtreeIfNeeded()
+        let midY:CGFloat
+        if let splitAnchor { midY = convert(splitAnchor.bounds,from:splitAnchor).midY+10 }
+        else if usesLauncherRows { midY = bounds.midY+5 }
+        else if let centerHost { midY = convert(centerHost.bounds,from:centerHost).midY }
+        else { midY = bounds.midY }
+        let height = max(fieldHeight.constant,panel.fittingSize.height)
+        openingTop = max(8,bounds.maxY-midY-height/2)
+        centeredConstraints[1].isActive = false
+        stableTop.isActive = true
+        updateFixedTop()
+        window?.layoutIfNeeded()
+        superview?.needsLayout = true
+        superview?.layoutSubtreeIfNeeded()
     }
 
     private func updateSplitPosition() {
@@ -643,11 +708,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             centeredConstraints[0].constant = x - center.midX
             // Anchor rectangles use AppKit's upward Y; layout constants run
             // downward. Arc's chooser rests just above the pane's centre.
-            centeredConstraints[1].constant = center.midY - rect.midY - 10
+            if openingTop == nil { centeredConstraints[1].constant = center.midY - rect.midY - 10 }
         } else if usesLauncherRows, let centerHost {
             let center = convert(centerHost.bounds, from: centerHost)
             centeredConstraints[0].constant = bounds.midX - center.midX
-            centeredConstraints[1].constant = center.midY - bounds.midY - 5
+            if openingTop == nil { centeredConstraints[1].constant = center.midY - bounds.midY - 5 }
         }
     }
 
@@ -664,6 +729,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     private var maximumRows: Int {
         guard isAddressMode else {
+            if openingTop != nil {
+                let pitch = usesLauncherRows ? CommandBarMetrics.splitRowHeight+CommandBarMetrics.splitRowSpacing
+                    : CommandBarMetrics.rowHeight+CommandBarMetrics.rowSpacing
+                let available = bounds.height-stableTop.constant-fieldHeight.constant-CommandBarMetrics.bottomGap-20
+                return max(0,Int(available/pitch))
+            }
             return Self.maximumVisibleRows(inHeight: bounds.height - (usesLauncherRows ? 6 : 0),
                 rowHeight: usesLauncherRows ? CommandBarMetrics.splitRowHeight : CommandBarMetrics.rowHeight,
                 fieldHeight: usesLauncherRows ? 64 : CommandBarMetrics.fieldHeight,
@@ -680,7 +751,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// Arc wraps from either end of the list. Keyboard navigation previews
     /// the destination without submitting it or fetching a new result list.
     func moveSelection(by delta: Int) {
-        guard !visibleResults.isEmpty else { return }
+        guard resultsAreCurrent,!visibleResults.isEmpty else { return }
         let count = visibleResults.count
         let start = selectedIndex ?? (delta > 0 ? -1 : 0)
         select(((start + delta) % count + count) % count)
@@ -743,10 +814,10 @@ final class CommandBar: NSView, NSTextFieldDelegate {
 
     // MARK: - Running
 
-    private func run(at index: Int) {
-        guard visibleResults.indices.contains(index) else { return }
+    private func run(at index: Int, forceNewTab:Bool = false) {
+        guard resultsAreCurrent,visibleResults.indices.contains(index) else { return }
         let action = visibleResults[index].action
-        let openInNewTab = isNewTabMode
+        let openInNewTab = isNewTabMode || forceNewTab
         let query = typedQuery
         close(committing: true)
         onRun?(action, openInNewTab, query)
@@ -756,11 +827,12 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// same way the omnibox resolves it, so "barc" searches and "barc.dev"
     /// navigates without the two needing different keystrokes.
     func submit() {
-        if let selectedIndex {
-            run(at: selectedIndex)
+        guard (field.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
+        if let selectedIndex,resultsAreCurrent {
+            run(at: selectedIndex,forceNewTab:NSEvent.modifierFlags.contains(.command))
             return
         }
-        let text = field.stringValue
+        let text = resultsAreCurrent ? field.stringValue : typedQuery
         let engine = searchEngineProvider?() ?? Settings.shared.searchEngine
         guard let url = URLResolver.resolve(text, using: engine, engines: Settings.shared.searchEngines) else { return }
         if NSEvent.modifierFlags.contains(.command) {
@@ -776,6 +848,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     private func scheduleQuery(for text: String) {
         queryTask?.cancel()
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let opening = openingID
         guard !query.isEmpty, let resultsProvider else {
             setResults([])
             return
@@ -786,8 +859,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             let found = await resultsProvider(query)
             // The text can have moved on while the database was read; showing
             // rows for a query that is no longer on screen is worse than none.
-            guard !Task.isCancelled,
-                  self.field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) == query
+            guard !Task.isCancelled,self.isOpen,self.openingID == opening,
+                  (self.field.currentEditor() as? NSTextView)?.hasMarkedText() != true,
+                  self.typedQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query
             else { return }
             self.setResults(found)
             self.select(0)
@@ -861,6 +935,11 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
         typedQuery = field.stringValue
         hasEditedQuery = true
+        if (field.currentEditor() as? NSTextView)?.hasMarkedText() == true {
+            resultsAreCurrent = false;self.selectedIndex = nil;applySelectionToRows()
+            queryTask?.cancel();queryTask = nil
+            return
+        }
         if usesLauncherRows, !isSplitMode, field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             queryTask?.cancel()
             queryTask = nil
@@ -882,9 +961,14 @@ final class CommandBar: NSView, NSTextFieldDelegate {
             select(0)
             return
         }
-        // Return immediately after typing must use the new text, even before
-        // the debounced provider has replaced a previously selected suggestion.
-        setResults([])
+        // Preserve the panel while loading, but make every old action inert.
+        resultsAreCurrent = false
+        selectedIndex = nil
+        applySelectionToRows()
+        if (field.currentEditor() as? NSTextView)?.hasMarkedText() == true {
+            queryTask?.cancel();queryTask = nil
+            return
+        }
         scheduleQuery(for: field.stringValue)
     }
 
@@ -895,6 +979,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     /// keeps focus throughout: the user is always typing, even while walking
     /// the list, and one more keystroke can narrow it again.
     func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        if textView.hasMarkedText() { return false }
         switch selector {
         case #selector(NSResponder.moveDown(_:)):
             moveSelection(by: 1)
@@ -919,6 +1004,7 @@ final class CommandBar: NSView, NSTextFieldDelegate {
                 typedQuery = fillText
                 hasEditedQuery = true
                 field.currentEditor()?.moveToEndOfLine(nil)
+                resultsAreCurrent = false;self.selectedIndex = nil;applySelectionToRows()
                 scheduleQuery(for: fillText)
                 return true
             }

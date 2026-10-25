@@ -20,6 +20,7 @@ struct LiveFolderState: Codable, Sendable, Equatable {
     ]
 
     var interval: TimeInterval = defaultInterval
+    var paused: Bool? = nil
     var lastFetched: Date?
     /// Survives a relaunch, so a folder that was broken yesterday still says so
     /// this morning instead of looking empty until its first poll lands.

@@ -3,14 +3,9 @@ import Foundation
 
 /// A live folder of GitHub pull requests or issues for one account.
 ///
-/// **This provider is anonymous, by design.** Issuing the GitHub request under
-/// the workspace's container would let the user's browser session come along
-/// with it, which is how private work could be listed with no OAuth flow at
-/// all. Barc does not do that: it would mean copying cookies across the
-/// profile boundary that exists to enforce isolation (see
-/// `LiveFolderFetcher`), so it asks GitHub's public search API about a named
-/// account instead. The consequence is honest and stated in the folder's
-/// empty state: public repositories only.
+/// Public mode uses the anonymous search API. Signed-in mode reads GitHub's
+/// search pages inside the owning profile's WebKit store, so private activity
+/// never needs cookies copied into a separate client.
 struct GitHubLiveFolderProvider: LiveFolderProvider {
     static let kind: LiveFolderKind = .github
 
@@ -23,6 +18,7 @@ struct GitHubLiveFolderProvider: LiveFolderProvider {
         /// The account the folder is about. Empty means the folder was never
         /// finished being set up.
         var login: String
+        var useProfileSession:Bool? = nil
         var scope: Scope = .pullRequests
         /// The three filters, each of which becomes its own search query.
         var authorMe: Bool = false
@@ -56,6 +52,7 @@ struct GitHubLiveFolderProvider: LiveFolderProvider {
 
     var options: [LiveFolderOption] {
         var items: [LiveFolderOption] = [
+            .toggle(key:"profileSession",title:"Use Signed-in GitHub Account",isOn:configuration.useProfileSession == true),
             .toggle(key: "authorMe", title: "Created by \(displayLogin)", isOn: configuration.authorMe),
             .toggle(key: "assignedMe", title: "Assigned to \(displayLogin)", isOn: configuration.assignedMe)
         ]
@@ -95,6 +92,7 @@ struct GitHubLiveFolderProvider: LiveFolderProvider {
     func applying(_ change: LiveFolderOptionChange) -> any LiveFolderProvider {
         var updated = configuration
         switch (change.key, change.value) {
+        case ("profileSession",.bool(let on)): updated.useProfileSession = on ? true:nil
         case ("authorMe", .bool(let on)): updated.authorMe = on
         case ("assignedMe", .bool(let on)): updated.assignedMe = on
         case ("reviewRequested", .bool(let on)): updated.reviewRequested = on

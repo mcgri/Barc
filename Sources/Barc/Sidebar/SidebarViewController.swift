@@ -311,6 +311,20 @@ final class SidebarViewController: NSViewController {
             guard let self,let target = favoriteTileTarget(id) else { return }
             self.session.removePinnedSite(target.site)
         }
+        pinnedTiles.onRename = { [weak self] id,anchor in
+            guard let self,let target = favoriteTileTarget(id) else { return }
+            let rect = pinnedTiles.convert(anchor.bounds,from:anchor)
+            DispatchQueue.main.async { [weak self] in
+                guard let self,pinnedTiles.window != nil,let current = favoriteTileTarget(id) else { return }
+                let popover = NSPopover();popover.behavior = .transient
+                popover.contentViewController = InlineNamePopover(name:current.site.title) { [weak self,weak profile = target.profile,weak popover] name in
+                    if let self,let profile,let name { session.setFavoriteName(name,for:current.site.id,in:profile) }
+                    popover?.close()
+                }
+                tabIconPopover?.close();tabIconPopover = popover
+                popover.show(relativeTo:rect,of:pinnedTiles,preferredEdge:.minY)
+            }
+        }
         pinnedTiles.onChangeIcon = { [weak self] id,anchor in
             guard let self,let target = favoriteTileTarget(id) else { return }
             // Session updates replace individual tiles while the menu closes.
@@ -1244,13 +1258,14 @@ final class SidebarViewController: NSViewController {
     /// list that changed from a different list altogether.
     private var shownRowsSpaceID: Space.ID?
     private var folderNameEdit: (id: UUID, space: Space, group: TabGroup, field: FolderNameEditor)?
-    private var tabNameEdit: (id: UUID, space: Space, tab: Tab, field: FolderNameEditor)?
+    private var tabNameEdit: (id: UUID, space: Space, tab: Tab, splitID:UUID?, field: FolderNameEditor)?
     private(set) var tabIconPopover: NSPopover?
 
     private func reloadTabs() {
         tableView.showSplitDropPreview(nil)
         if let edit = tabNameEdit,
-           shownSpace !== edit.space || !edit.space.tabs.contains(where: { $0 === edit.tab }) {
+           shownSpace !== edit.space || !edit.space.tabs.contains(where: { $0 === edit.tab })
+                || edit.splitID.map { edit.space.splits.identifier(containing:edit.tab.id) != $0 } == true {
             edit.field.commit()
         }
         if let edit = folderNameEdit,
@@ -1655,7 +1670,18 @@ final class SidebarViewController: NSViewController {
         let space = shownSpace
         let focused = space.splits.preferredTab(containing: split.anchor.id)
         cell.indentation = Style.Metrics.sidebarInset + FolderTree.indent(forDepth: split.depth)
-        cell.configure(split.tabs.map { rowContent(for: $0) }, focusedIndex: split.tabs.firstIndex { $0.id == focused })
+        cell.configure(split.tabs.map { rowContent(for: $0) }, focusedIndex: split.tabs.firstIndex { $0.id == focused },
+                       name:space.splits.name(containing:split.anchor.id),icon:space.splits.icon(containing:split.anchor.id))
+        cell.isEditingName = tabNameEdit?.splitID == split.id
+        cell.onRename = { [weak self,weak space] in
+            guard let self,let space,shownSpace === space,space.splits.identifier(containing:split.anchor.id) == split.id else { return }
+            beginNamingTab(split.anchor,in:space)
+        }
+        cell.onCloseUnit = { [weak self,weak space] in
+            guard let self,let space,shownSpace === space,space.splits.identifier(containing:split.anchor.id) == split.id,
+                  split.tabs.allSatisfy({ !$0.isLocked }) else { return }
+            session.closeTabs(split.tabs)
+        }
         for (index,tab) in split.tabs.enumerated() {
             cell.members[index].favicon.show(for:tab.url,in:tab.currentWebView,isPrivate:tab.isPrivate,restored:tab.restoredFavicon)
             cell.members[index].title.alphaValue = tabNameEdit?.tab === tab ? 0 : 1
@@ -2176,7 +2202,19 @@ final class SidebarViewController: NSViewController {
             move.submenu = spaces
             menu.addItem(move)
         } else {
+            let options = LiveFolderOptionsMenu.menu(for:session.liveFolders.options(for:group.id)) { [weak self,weak group] change in
+                guard let self,let group,session.spaces.contains(where:{ $0.group(withID:group.id) === group }) else { return }
+                session.liveFolders.apply(change,to:group.id)
+            }
+            let parent = NSMenuItem(title:"Options",action:nil,keyEquivalent:"");parent.submenu = options;menu.addItem(parent)
             add(group.isCollapsed ? "Expand" : "Collapse", #selector(toggleGroupCollapsedFromMenu(_:)))
+        }
+        if !group.isLive,group.symbolName == "arc.github.folder",let owner,!owner.isPrivate {
+            let item = NSMenuItem(title:"Enable Live Updates",action:#selector(SidebarMenuAction.run),keyEquivalent:"")
+            let target = SidebarMenuAction { [weak self,weak group,weak owner] in
+                if let self,let group,let owner { session.enableGitHubLiveFolder(group,in:owner) }
+            }
+            item.target = target;item.representedObject = target;menu.addItem(item)
         }
         menu.addItem(.separator())
         add("Delete", #selector(removeGroupFromMenu(_:))).isEnabled = !group.isLocked
@@ -2332,18 +2370,24 @@ final class SidebarViewController: NSViewController {
             ancestor = parent.parentID
         }
         guard let row = row(of: tab) else { return }
-        let id = UUID()
-        let field = FolderNameEditor(name: tab.displayTitle, font: Style.Fonts.tabTitle, placeholder: "Tab Title", label: "Tab name") {
+        let id = UUID(),splitID = space.splits.identifier(containing:tab.id)
+        let initialName = splitID == nil ? tab.displayTitle : space.splits.name(containing:tab.id)
+            ?? space.splits.layout(containing:tab.id)?.tabIDs.compactMap { member in space.tabs.first { $0.id == member }?.displayTitle }.joined(separator:" / ") ?? tab.displayTitle
+        let field = FolderNameEditor(name: initialName, font: Style.Fonts.tabTitle, placeholder: "Tab Title", label: splitID == nil ? "Tab name":"Split name") {
             [weak self, weak tab, weak space] name in
             guard let self, let edit = tabNameEdit, edit.id == id else { return }
             tabNameEdit = nil
             edit.field.removeFromSuperview()
             if let tab, let space, let name, session.spaces.contains(where: { $0 === space }),
-               space.tabs.contains(where: { $0 === tab }) { session.rename(tab, to: name) }
+               space.tabs.contains(where: { $0 === tab }) {
+                if let splitID {
+                    if space.splits.identifier(containing:tab.id) == splitID { session.renameSplit(containing:tab.id,in:space,to:name) }
+                } else if space.splits.identifier(containing:tab.id) == nil { session.rename(tab,to:name) }
+            }
             reloadTabs()
             NSAccessibility.post(element: view, notification: .layoutChanged)
         }
-        tabNameEdit = (id, space, tab, field)
+        tabNameEdit = (id, space, tab, splitID, field)
         tableView.scrollRowToVisible(row)
         view.addSubview(field)
         positionTabNameEditor()
@@ -2365,8 +2409,9 @@ final class SidebarViewController: NSViewController {
             cell.isEditingName = true
         } else if let cell = cell as? SplitRowView, case .split(let split) = rows[row],
                   let index = split.tabs.firstIndex(where: { $0 === edit.tab }), cell.members.indices.contains(index) {
-            tableFrame = cell.members[index].title.convert(cell.members[index].title.bounds,to:tableView)
-            cell.members[index].title.alphaValue = 0
+            _ = index
+            tableFrame = cell.nameEditorFrame(in:tableView)
+            cell.isEditingName = true
         } else { edit.field.commit(); return }
         let viewport = scrollView.contentView.convert(scrollView.contentView.bounds, to: tableView)
         if viewport.height > 0, tableFrame.minY < viewport.minY || tableFrame.maxY > viewport.maxY { edit.field.commit(); return }
@@ -2707,6 +2752,89 @@ final class SidebarViewController: NSViewController {
         return menu
     }
 
+    private func makeSplitMenu(for split:SidebarSplitRow) -> NSMenu {
+        let menu = NSMenu();menu.autoenablesItems = false;menu.allowsContextMenuPlugIns = false
+        if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
+        let owner = shownSpace
+        func add(_ title:String,enabled:Bool = true,action:@escaping ()->Void) {
+            let target = SidebarMenuAction { [weak self,weak owner] in
+                guard let self,let owner,session.spaces.contains(where:{ $0 === owner }),
+                      owner.splits.identifier(containing:split.anchor.id) == split.id else { return }
+                action()
+            }
+            let item = NSMenuItem(title:title,action:#selector(SidebarMenuAction.run),keyEquivalent:"")
+            item.target = target;item.representedObject = target;item.isEnabled = enabled;menu.addItem(item)
+        }
+        add("Copy Links") { [weak self] in
+            guard self != nil else { return };NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(split.tabs.map { $0.url.absoluteString }.joined(separator:"\n"),forType:.string)
+        }
+        menu.addItem(.separator())
+        add("Change Icon…") { [weak self,weak owner] in
+            guard let self,let owner else { return }
+            let popover = NSPopover();popover.behavior = .transient
+            popover.contentViewController = CompactSpaceIconPicker(selected:owner.splits.icon(containing:split.anchor.id),label:"Split icon") { [weak self,weak owner,weak popover] icon in
+                if let self,let owner,owner.splits.identifier(containing:split.anchor.id) == split.id {
+                    session.setSplitIcon(icon,containing:split.anchor.id,in:owner)
+                }
+                popover?.close()
+            }
+            tabIconPopover?.close();tabIconPopover = popover
+            popover.show(relativeTo:tableView.rect(ofRow:row(of:split.anchor) ?? 0),of:tableView,preferredEdge:.minY)
+        }
+        add("Rename…") { [weak self,weak owner] in if let self,let owner { beginNamingTab(split.anchor,in:owner) } }
+        let muted = split.tabs.allSatisfy(\.isMuted)
+        add(muted ? "Unmute":"Mute",enabled:split.tabs.contains { $0.isPlayingAudio || $0.isMuted }) {
+            for page in split.tabs where page.isMuted == muted { page.toggleMute() }
+        }
+        menu.addItem(.separator())
+        add("Add Split View",enabled:split.tabs.count<SplitLayout.maximumPanes) { [weak self,weak owner] in
+            guard let self,let owner else { return };session.selectSpace(owner);session.selectTab(split.anchor);onChooseSplitPage?()
+        }
+        add("Separate Tabs") { [weak self,weak owner] in
+            guard let self,let owner else { return };session.selectSpace(owner);session.selectTab(split.anchor);session.unsplit()
+        }
+        add("Duplicate") { [weak self] in _ = self?.session.duplicateTabs(split.tabs) }
+        let move = NSMenuItem(title:"Move to",action:nil,keyEquivalent:"");let destinations = NSMenu()
+        destinations.autoenablesItems = false
+        for candidate in session.sidebarSpaces where candidate !== owner {
+            let item = NSMenuItem(title:candidate.name,action:#selector(SidebarMenuAction.run),keyEquivalent:"")
+            let target = SidebarMenuAction { [weak self,weak owner,weak candidate] in
+                guard let self,let owner,let candidate,owner.splits.identifier(containing:split.anchor.id) == split.id else { return }
+                session.moveTabs(split.tabs,toSpace:candidate)
+            }
+            item.target = target;item.representedObject = target;item.image = candidate.menuImage();destinations.addItem(item)
+        }
+        move.submenu = destinations;move.isEnabled = !destinations.items.isEmpty;menu.addItem(move)
+        menu.addItem(.separator())
+        add(split.tabs.allSatisfy(\.isSidebarRetained) ? "Remove Pin":"Pin",enabled:session.canChangeSidebarPin(split.anchor)) { [weak self,weak owner] in
+            guard let self,let owner else { return };session.selectSpace(owner)
+            session.setSidebarPin(!split.anchor.isSidebarRetained,for:split.anchor)
+        }
+        add("Archive Tab",enabled:split.tabs.allSatisfy { !$0.isLocked }) { [weak self] in self?.session.archive(split.tabs) }
+        let panes = NSMenuItem(title:"Tabs",action:nil,keyEquivalent:"");let paneMenu = NSMenu()
+        for page in split.tabs {
+            let target = SidebarMenuAction { [weak self,weak owner,weak page] in
+                guard let self,let owner,let page,owner.splits.identifier(containing:page.id) == split.id else { return }
+                session.selectSpace(owner);session.selectTab(page)
+            }
+            let item = NSMenuItem(title:page.displayTitle,action:#selector(SidebarMenuAction.run),keyEquivalent:"")
+            item.target = target;item.representedObject = target
+            let choices = NSMenu()
+            let focus = NSMenuItem(title:"Focus Tab",action:#selector(SidebarMenuAction.run),keyEquivalent:"")
+            focus.target = target;focus.representedObject = target;choices.addItem(focus)
+            let detachTarget = SidebarMenuAction { [weak self,weak owner,weak page] in
+                if let self,let owner,let page,owner.splits.identifier(containing:page.id) == split.id { session.detachSplitPane(page,in:owner) }
+            }
+            let detach = NSMenuItem(title:"Remove from Split View",action:#selector(SidebarMenuAction.run),keyEquivalent:"")
+            detach.target = detachTarget;detach.representedObject = detachTarget
+            detach.isEnabled = split.tabs.allSatisfy { $0.pinnedSiteID == nil };choices.addItem(detach)
+            item.submenu = choices;paneMenu.addItem(item)
+        }
+        panes.submenu = paneMenu;menu.addItem(panes)
+        return menu
+    }
+
     @objc private func reloadSelectedTabsFromMenu(_ sender: Any?) {
         guard let tabs = (sender as? NSMenuItem)?.representedObject as? [Tab] else { return }
         session.reloadTabs(tabs)
@@ -2787,9 +2915,9 @@ final class SidebarViewController: NSViewController {
     private func newGitHubGroup(scope: GitHubLiveFolderProvider.Scope) {
         let noun = scope == .pullRequests ? "pull requests" : "issues"
         guard let login = prompt(title: "New Live Group",
-                                 message: "The GitHub account whose \(noun) the group follows.",
+                                 message: "The GitHub account signed in to this profile, whose \(noun) the group follows.",
                                  initial: "") else { return }
-        session.createLiveGroup(source: .github(GitHubLiveFolderProvider.Configuration(login: login, scope: scope)))
+        session.createLiveGroup(source: .github(GitHubLiveFolderProvider.Configuration(login: login,useProfileSession:true,scope:scope)))
     }
 
     @objc private func bookmarkAllTabsFromMenu() {
@@ -2817,10 +2945,10 @@ extension SidebarViewController: NSMenuDelegate {
     func makeRowMenu(at clicked: Int) -> NSMenu {
         let source: NSMenu
         let selection = selectedTabs
-        if selection.count > 1, clicked >= 0, tableView.selectedRowIndexes.contains(clicked) {
+        if tableView.selectedRowIndexes.count > 1, selection.count > 1, clicked >= 0, tableView.selectedRowIndexes.contains(clicked) {
             source = makeMultiTabMenu(for: selection)
         } else if rows.indices.contains(clicked), case .split(let split) = rows[clicked] {
-            source = makeMultiTabMenu(for:split.tabs)
+            source = makeSplitMenu(for:split)
         } else if rows.indices.contains(clicked), case .tab(let tab, _, _) = rows[clicked] {
             source = makeTabMenu(for: tab, anchor: tableView.view(atColumn: 0, row: clicked, makeIfNecessary: true) ?? tableView)
         } else if rows.indices.contains(clicked), case .group(let group, _, _) = rows[clicked] {
@@ -2932,8 +3060,8 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         switch sidebarRow {
         case .group(let group, let depth, _):
             return groupHeaderCell(for: group, depth: depth)
-        case .liveStatus(_, let status, let depth):
-            return liveStatusCell(status, depth: depth)
+        case .liveStatus(let group, let status, let depth):
+            return liveStatusCell(status, depth: depth,group:group)
         case .newTab:
             return newTabRowCell()
         case .split(let split):
@@ -3048,9 +3176,17 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     /// A live folder that is fetching, empty or failed says so in a row of its
     /// own rather than looking like an ordinary empty folder.
-    private func liveStatusCell(_ status: LiveFolderStatus, depth: Int) -> NSView {
+    private func liveStatusCell(_ status: LiveFolderStatus, depth: Int,group:TabGroup) -> NSView {
         let view = LiveFolderStatusView()
         view.show(status, indent: FolderTree.indent(forDepth: depth))
+        view.onAction = { [weak self,weak group] in
+            guard let self,let group,let owner = session.spaces.first(where:{ $0.group(withID:group.id) === group }) else { return }
+            if case .failed(let issue) = status {
+                if let url = session.liveFolders.recover(from:issue,folderID:group.id) {
+                    session.selectSpace(owner);session.newTab(url:url)
+                }
+            } else { Task { await self.session.liveFolders.refresh(folderID:group.id) } }
+        }
 
         let container = NSView()
         container.addSubview(view)
@@ -3156,6 +3292,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         let item = NSPasteboardItem()
         item.setString(String(index), forType: Self.tabRowType)
         item.setString(tab.id.uuidString, forType: SidebarTabDrag.type)
+        item.setString(session.activeSpace.id.uuidString,forType:SidebarTabDrag.ownerType)
         return item
     }
 
@@ -3188,11 +3325,22 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         if items.contains(where: { $0.types.contains(SidebarTabDrag.type) || $0.types.contains(Self.tabRowType) }) {
             var tabs: [Tab] = []
             var seen: Set<UUID> = []
+            let owners = Set(items.compactMap { $0.string(forType:SidebarTabDrag.ownerType) })
+            guard owners.count<=1 else { return nil }
+            let origin:Space
+            if let raw = owners.first {
+                guard let id = UUID(uuidString:raw),let source = session.spaces.first(where:{ $0.id == id }) else { return nil }
+                origin = source
+            } else { origin = session.activeSpace }
             for item in items {
                 guard let raw = item.string(forType:SidebarTabDrag.type), let id = UUID(uuidString:raw),
-                      let tab = session.activeSpace.tabs.first(where: { $0.id == id }),
+                      let tab = origin.tabs.first(where: { $0.id == id }),
                       !tab.isSidebarPlaceholder else { return nil }
                 if seen.insert(id).inserted { tabs.append(tab) }
+            }
+            if origin !== session.activeSpace,info.draggingSourceOperationMask.contains(.move) {
+                let members = tabs.flatMap { origin.splits.layout(containing:$0.id)?.tabIDs ?? [$0.id] }
+                guard members.allSatisfy({ id in origin.tabs.first(where:{ $0.id == id })?.pinnedSiteID == nil }) else { return nil }
             }
             return tabs.isEmpty ? nil : .tabs(tabs)
         }
@@ -3322,7 +3470,13 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 tab.id == targetTab.id || session.activeSpace.splits.layout(containing:tab.id)?.contains(targetTab.id) == true
             }) else { return false }
             var proposed = session.activeSpace.splits
-            return proposed.insert(tabs.map(\.id),beside:targetTab.id,on:target.side)
+            var members = tabs.map(\.id)
+            if let origin = session.spaces.first(where:{ owner in owner !== session.activeSpace && tabs.allSatisfy { page in owner.workspaceTabs.contains { $0 === page } } }) {
+                var seen:Set<UUID> = []
+                members = tabs.flatMap { origin.splits.layout(containing:$0.id)?.tabIDs ?? [$0.id] }.filter { seen.insert($0).inserted }
+                proposed.copyCompleteGroups(from:origin.splits,mapping:Dictionary(uniqueKeysWithValues:members.map { ($0,$0) }))
+            }
+            return proposed.insert(members,beside:targetTab.id,on:target.side)
         case .link:
             return session.activeSpace.splits.layout(containing:targetTab.id)?.isFull != true
         case .group:
@@ -3348,8 +3502,12 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             guard let view = cell as? TabRowView else { return nil }
             tab = page; rect = view.pillRect
         case .split(let split):
-            guard let view = cell as? SplitRowView,
-                  let index = view.members.indices.min(by: {
+            guard let view = cell as? SplitRowView else { return nil }
+            if view.isNamed {
+                tab = split.tabs[min(view.focusedIndex ?? 0,split.tabs.count-1)];rect = view.pillRect
+                break
+            }
+            guard let index = view.members.indices.min(by: {
                       abs(view.members[$0].frame.midX-point.x) < abs(view.members[$1].frame.midX-point.x)
                   }), split.tabs.indices.contains(index) else { return nil }
             tab = split.tabs[index]; rect = view.members[index].frame
@@ -3424,6 +3582,24 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         guard shownSpace === session.activeSpace, let payload = dropPayload(from: info) else { return false }
         let operation = allowedDropOperation(for:payload,source:info.draggingSourceOperationMask)
         guard !operation.isEmpty else { return false }
+        if case .tabs(let dragged) = payload,
+           let raw = info.draggingPasteboard.string(forType:SidebarTabDrag.ownerType),let id = UUID(uuidString:raw),
+           let origin = session.spaces.first(where:{ $0.id == id }),origin !== session.activeSpace {
+            let destination = dropDestination(info,payload:payload,row:row,operation:dropOperation)
+            let splitTarget = dropOperation == .on ? splitDropTarget(at:row,info:info):nil
+            guard destination != nil || splitTarget != nil else { return false }
+            if let splitTarget,operation != .copy,!isTabSplitDrop(onto:splitTarget,payload:payload) { return false }
+            return session.changes.batch {
+                let pages = session.receiveSidebarTabs(dragged,from:origin,into:session.activeSpace,copy:operation == .copy)
+                guard !pages.isEmpty else { return false }
+                if let splitTarget,operation != .copy {
+                    return session.splitSidebarTabs(pages,beside:splitTarget.tab,on:splitTarget.side)
+                }
+                guard let destination else { return false }
+                let group = destination.plan.groupID.flatMap { session.activeSpace.group(withID:$0) }
+                return session.moveSidebarTabs(pages,to:destination.plan.tabIndex,group:group,before:destination.before,retained:destination.retained)
+            }
+        }
         // A group drag reorders the top-level groups rather than moving a tab.
         if case .group(let dragged) = payload {
             if dragged.parentID == nil {
@@ -3500,4 +3676,11 @@ private final class SpaceStillView: NSImageView {
     required init?(coder: NSCoder) {
         fatalError("SpaceStillView is created in code only")
     }
+}
+
+@MainActor
+private final class SidebarMenuAction:NSObject {
+    let action:()->Void
+    init(_ action:@escaping ()->Void) { self.action = action }
+    @objc func run() { action() }
 }

@@ -62,6 +62,7 @@ struct ArcSidebar: Sendable {
         var isCollapsed: Bool? = nil
         var folderEmoji: String? = nil
         var folderBadge: String? = nil
+        var liveGitHub:Bool? = nil
         var split: Split? = nil
     }
     struct Space: Sendable {

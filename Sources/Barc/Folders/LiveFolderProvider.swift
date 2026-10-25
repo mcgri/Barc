@@ -26,6 +26,8 @@ struct LiveFolderItem: Sendable, Equatable, Codable {
 enum LiveFolderIssue: Codable, Sendable, Equatable {
     /// The provider has not been given what it needs (no feed URL, no account).
     case notConfigured
+    case authenticationRequired
+    case incompleteResults
     /// Every filter is switched off, so there is no question to ask. Detected
     /// before any request is made.
     case noFilterSelected
@@ -43,6 +45,8 @@ enum LiveFolderIssue: Codable, Sendable, Equatable {
     var message: String {
         switch self {
         case .notConfigured: return "Not set up yet"
+        case .authenticationRequired: return "Sign in to GitHub in this profile"
+        case .incompleteResults: return "Too many results; narrow the filters"
         case .noFilterSelected: return "No filters selected"
         case .unknownAccount(let name): return "Can't find \(name)"
         case .rateLimited: return "Rate limited — will retry"
@@ -55,6 +59,7 @@ enum LiveFolderIssue: Codable, Sendable, Equatable {
     /// What the header's action button does about it. `nil` means the button
     /// only offers a retry.
     var recoveryURL: URL? {
+        if case .authenticationRequired = self { return URL(string:"https://github.com/login") }
         if case .unknownAccount(let name) = self {
             return URL(string: "https://github.com/\(name)")
         }
@@ -66,7 +71,7 @@ enum LiveFolderIssue: Codable, Sendable, Equatable {
     var allowsImmediateRetry: Bool {
         switch self {
         case .rateLimited: return false
-        case .notConfigured, .noFilterSelected, .unknownAccount,
+        case .notConfigured, .authenticationRequired, .incompleteResults, .noFilterSelected, .unknownAccount,
              .network, .malformedResponse, .sourceUnavailable: return true
         }
     }
@@ -192,4 +197,5 @@ struct LiveFolderOptionChange: Sendable, Equatable {
     static let refreshKey = "refresh"
     /// Poll interval, in seconds, as a string. Handled by the manager.
     static let intervalKey = "interval"
+    static let pauseKey = "pause"
 }
