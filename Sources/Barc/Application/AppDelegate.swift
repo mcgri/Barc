@@ -58,6 +58,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             let controller = BrowserWindowController(session:session);mainWindowController = controller
             controller.window?.title = "Barc Review"
             controller.showWindow(nil);NSApp.activate(ignoringOtherApps:true)
+            ShortcutDispatcher.shared.install()
             return
         }
         Metrics.reportLaunchIfRequested(stage: "did-finish-launching")

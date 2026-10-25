@@ -539,7 +539,7 @@ final class ShortcutManager {
     }
 
     var dispatcherBindings: [Binding] {
-        store.customShortcuts.compactMap { id, custom in
+        let customBindings:[Binding] = store.customShortcuts.compactMap { id, custom in
             guard !custom.isCleared, !custom.key.isEmpty else { return nil }
             let selector = definition(for: id)?.selector
             let isCommand = id.hasPrefix(AutomationService.commandPrefix)
@@ -547,6 +547,14 @@ final class ShortcutManager {
             guard selector != nil || isCommand else { return nil }
             return Binding(id: id, key: custom.key, modifiers: custom.modifiers, secondKey: custom.secondKey, selector: selector)
         }
+        // Web content can claim modified arrows before menu key equivalents.
+        // Route sidebar traversal before the page while preserving remaps/clears.
+        let navigation = ["next-tab","previous-tab","next-space","previous-space"].compactMap { id -> Binding? in
+            guard !customBindings.contains(where:{ $0.id == id }),let shortcut = effectiveShortcut(for:id),
+                  !shortcut.key.isEmpty,let selector = definition(for:id)?.selector else { return nil }
+            return Binding(id:id,key:shortcut.key,modifiers:shortcut.modifiers,secondKey:nil,selector:selector)
+        }
+        return customBindings+navigation
     }
 
     /// Binds a chord: the leader stroke, then `secondKey` on its own.

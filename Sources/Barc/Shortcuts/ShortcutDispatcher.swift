@@ -19,6 +19,7 @@ final class ShortcutDispatcher {
 
     /// How long a leader waits for its second stroke.
     static let chordWindow: TimeInterval = 1.5
+    private static let shortcutModifiers:NSEvent.ModifierFlags = [.command,.option,.control,.shift]
 
     private var pendingLeader: (key: String, modifiers: NSEvent.ModifierFlags, at: Date)?
     private var monitor: Any?
@@ -33,7 +34,7 @@ final class ShortcutDispatcher {
             let swallow = MainActor.assumeIsolated { () -> Bool in
                 guard let self, let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return false }
                 // Typing in a text field is typing, not a chord's second stroke.
-                if event.modifierFlags.intersection(.deviceIndependentFlagsMask).isEmpty,
+                if event.modifierFlags.intersection(Self.shortcutModifiers).isEmpty,
                    event.window?.firstResponder is NSTextView, self.pendingLeader == nil {
                     return false
                 }
@@ -64,25 +65,26 @@ final class ShortcutDispatcher {
     }
 
     func decide(key: String, modifiers: NSEvent.ModifierFlags, now: Date = .now) -> Decision {
-        let flags = modifiers.intersection(.deviceIndependentFlagsMask)
+        // Arrow events carry Function/NumericPad flags that are not shortcut modifiers.
+        let flags = modifiers.intersection(Self.shortcutModifiers)
         let all = bindings()
 
         if let leader = pendingLeader {
             pendingLeader = nil
             if now.timeIntervalSince(leader.at) <= Self.chordWindow {
                 let completed = all.first { binding in
-                    binding.secondKey == key && binding.key == leader.key && binding.modifiers == leader.modifiers
+                    binding.secondKey == key && binding.key == leader.key && binding.modifiers.intersection(Self.shortcutModifiers) == leader.modifiers
                         && (flags.isEmpty || flags == leader.modifiers)
                 }
                 if let completed { return .perform(id: completed.id) }
             }
         }
 
-        if all.contains(where: { $0.secondKey != nil && $0.key == key && $0.modifiers == flags }) {
+        if all.contains(where: { $0.secondKey != nil && $0.key == key && $0.modifiers.intersection(Self.shortcutModifiers) == flags }) {
             pendingLeader = (key, flags, now)
             return .armed
         }
-        if let direct = all.first(where: { $0.secondKey == nil && $0.key == key && $0.modifiers == flags }) {
+        if let direct = all.first(where: { $0.secondKey == nil && $0.key == key && $0.modifiers.intersection(Self.shortcutModifiers) == flags }) {
             return .perform(id: direct.id)
         }
         return .pass

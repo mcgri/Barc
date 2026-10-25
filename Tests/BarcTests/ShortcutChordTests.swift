@@ -29,14 +29,30 @@ struct ShortcutChordTests {
         manager.apply(to: menu)
         #expect(item.keyEquivalent == "", "the leader must not fire the menu item")
 
-        let bindings = manager.dispatcherBindings
+        let bindings = manager.dispatcherBindings.filter { $0.id == "print-page" }
         #expect(bindings.count == 1)
         #expect(bindings.first?.secondKey == "p")
         #expect(bindings.first?.selector == #selector(BrowserWindowController.printPage(_:)))
 
         manager.setShortcut(id: "print-page", key: "p", modifiers: [.command])
         #expect(manager.secondKey(for: "print-page") == nil)
-        #expect(manager.dispatcherBindings.isEmpty)
+        #expect(!manager.dispatcherBindings.contains { $0.id == "print-page" })
+    }
+
+    @Test("Sidebar arrows dispatch with native function flags and respect cleared/remapped bindings")
+    func nativeArrowBindings() {
+        let (manager,file) = makeManager();defer { try? FileManager.default.removeItem(at:file) }
+        let dispatcher = ShortcutDispatcher();dispatcher.bindings = { manager.dispatcherBindings }
+        #expect(dispatcher.decide(key:"\u{F701}",modifiers:[.command,.option,.numericPad,.function]) == .perform(id:"next-tab"))
+        #expect(dispatcher.decide(key:"\u{F700}",modifiers:[.command,.option,.capsLock,.function]) == .perform(id:"previous-tab"))
+        #expect(dispatcher.decide(key:"\u{F703}",modifiers:[.command,.option,.function]) == .perform(id:"next-space"))
+        manager.clearShortcut(id:"next-tab")
+        #expect(dispatcher.decide(key:"\u{F701}",modifiers:[.command,.option,.function]) == .pass)
+        manager.setShortcut(id:"next-tab",key:"j",modifiers:[.command,.option])
+        #expect(dispatcher.decide(key:"j",modifiers:[.command,.option]) == .perform(id:"next-tab"))
+        #expect(dispatcher.decide(key:"\u{F701}",modifiers:[.command,.option]) == .pass)
+        manager.setShortcut(id:"next-tab",key:"\u{F700}",modifiers:[.control,.function,.numericPad])
+        #expect(dispatcher.decide(key:"\u{F700}",modifiers:[.control,.function,.numericPad]) == .perform(id:"next-tab"))
     }
 
     @Test("A custom command's key is a binding with no selector, and conflicts are found")
