@@ -459,17 +459,21 @@ private final class EmptyFavoritesHint: NSView {
     private func refreshInk() {
         // The frozen dark card supplies these ink levels. Light ink retains
         // the former effective opacity, now drawn once rather than twice.
-        title.textColor = .labelColor.withAlphaComponent(isDark ? 0.90 : 0.91)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        paragraph.lineSpacing = 1
-        detail.attributedStringValue = NSAttributedString(string:detail.stringValue,attributes:[
-            .font:NSFont.systemFont(ofSize:11.5),
-            .foregroundColor:NSColor.labelColor.withAlphaComponent(isDark ? 0.65 : 0.80),
-            .paragraphStyle:paragraph
-        ])
-        icon.contentTintColor = .labelColor.withAlphaComponent(isDark ? 0.95 : 0.90)
-        dismiss.contentTintColor = .labelColor.withAlphaComponent(isDark ? 0.65 : 0.45)
+        // Replacing a catalog color's alpha freezes its current RGB, so use
+        // this view's theme even when an appearance callback runs elsewhere.
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            title.textColor = .labelColor.withAlphaComponent(isDark ? 0.90 : 0.91)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            paragraph.lineSpacing = 1
+            detail.attributedStringValue = NSAttributedString(string:detail.stringValue,attributes:[
+                .font:NSFont.systemFont(ofSize:11.5),
+                .foregroundColor:NSColor.labelColor.withAlphaComponent(isDark ? 0.65 : 0.80),
+                .paragraphStyle:paragraph
+            ])
+            icon.contentTintColor = .labelColor.withAlphaComponent(isDark ? 0.95 : 0.90)
+            dismiss.contentTintColor = .labelColor.withAlphaComponent(isDark ? 0.65 : 0.45)
+        }
         needsDisplay = true
     }
     override func viewDidChangeEffectiveAppearance() {

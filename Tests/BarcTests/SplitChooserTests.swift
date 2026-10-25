@@ -35,6 +35,9 @@ struct SplitChooserTests {
         let sidebar = try #require(UITestSupport.descendants(of:root).compactMap { $0.nextResponder as? SidebarViewController }.first)
         let item = try #require(sidebar.makeTabMenu(for:source).items.first { $0.title == "Add Split View" })
         #expect(item.isEnabled)
+        let pageView = try #require(source.currentWebView)
+        let back = pageView.backForwardList.backList.map(\.url)
+        let forward = pageView.backForwardList.forwardList.map(\.url)
         let before = session.snapshot()
         #expect(NSApp.sendAction(try #require(item.action),to:item.target,from:item))
         await withCheckedContinuation { c in DispatchQueue.main.async { c.resume() } }
@@ -42,15 +45,17 @@ struct SplitChooserTests {
         #expect(command.isOpen && command.isSplitMode && empty(controller) != nil)
         let after = session.snapshot()
         let openedChanges = try changedFields(before,after)
-        // Focusing the preview refreshes the existing page's activity time.
-        // Every saved field other than that one timestamp must stay intact.
-        let activityField = "session.spaces[0].tabs[0].lastActiveAt"
-        #expect(openedChanges.allSatisfy { $0 == activityField }, "Changed fields: \(openedChanges)")
+        // Rendering may initialize WebKit's opaque state and refresh activity.
+        // Page identity, URLs, actual history and all layout fields stay intact.
+        let renderingFields:Set<String> = ["session.spaces[0].tabs[0].lastActiveAt","session.spaces[0].tabs[0].interactionState"]
+        #expect(openedChanges.allSatisfy(renderingFields.contains), "Changed fields: \(openedChanges)")
         #expect(session.activeSplit == nil)
         command.cancelOperation(nil)
         #expect(!command.isOpen && empty(controller) == nil)
         let closedChanges = try changedFields(before,session.snapshot())
-        #expect(closedChanges.allSatisfy { $0 == activityField }, "Changed fields: \(closedChanges)")
+        #expect(closedChanges.allSatisfy(renderingFields.contains), "Changed fields: \(closedChanges)")
+        #expect(source.currentWebView === pageView)
+        #expect(pageView.backForwardList.backList.map(\.url) == back && pageView.backForwardList.forwardList.map(\.url) == forward)
         session.saveNow()
         let saved = try #require(try store.load())
         #expect(saved.spaces[0].tabs.count == 1 && saved.spaces[0].tabs[0].url == source.url)

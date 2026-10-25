@@ -12,19 +12,29 @@ extension BrowserSession {
 
     /// Space pins and profile-wide Favorites are different destinations.
     func canChangeSidebarPin(_ tab: Tab) -> Bool {
-        sidebarOwner(of: tab) != nil && tab.pinnedSiteID == nil && !tab.isLocked
-            && !tab.isSidebarPlaceholder && !isInLiveFolder(tab)
+        sidebarPinUnit(for:tab) != nil
     }
 
     func setSidebarPin(_ retained: Bool, for tab: Tab) {
-        guard canChangeSidebarPin(tab), let owner = sidebarOwner(of: tab),
-              retained != tab.isSidebarRetained else { return }
-        selectSpace(owner)
-        if retained {
-            positionSidebarItem(.tab(tab), before: nil, retained: true)
-        } else {
-            removeSidebarPin(tab, in: owner)
+        guard let (owner,members) = sidebarPinUnit(for:tab),
+              members.contains(where:{ $0.isSidebarRetained != retained }) else { return }
+        changes.batch {
+            selectSpace(owner)
+            let folder = retained ? tab.groupID.flatMap { owner.group(withID:$0) }:nil
+            moveSidebarTabs(members,to:owner.tabs.count,group:folder,before:nil,retained:retained)
         }
+    }
+
+    /// Resolve the complete row before changing anything. A protected page or
+    /// profile-owned Favorite must never leave a split half filed in Today.
+    private func sidebarPinUnit(for tab:Tab) -> (Space,[Tab])? {
+        guard let owner = sidebarOwner(of:tab) else { return nil }
+        let ids = owner.splits.layout(containing:tab.id)?.tabIDs ?? [tab.id]
+        let members = ids.compactMap { id in owner.workspaceTabs.first { $0.id == id } }
+        guard members.count == ids.count,
+              members.allSatisfy({ $0.pinnedSiteID == nil && !$0.isLocked
+                  && !$0.isSidebarPlaceholder && !isInLiveFolder($0) }) else { return nil }
+        return (owner,members)
     }
 
     func canResetSidebarPin(_ tab: Tab) -> Bool {
@@ -76,11 +86,11 @@ extension BrowserSession {
     func removeSidebarPin(_ tab: Tab, in owner: Space) {
         guard spaces.contains(where: { $0 === owner }), owner.tabs.contains(where: { $0 === tab }),
               !tab.isLocked, !isInLiveFolder(tab) else { return }
-        selectSpace(owner)
-        if tab.pinnedSiteID != nil { unpin(tab); return }
-        tab.setKeepsInSidebar(false)
-        tab.setGroupID(nil)
-        SidebarOrder.place(.tab(tab), before: nil, in: SidebarOrder.items(groups: owner.groups, tabs: owner.sidebarVisibleTabs))
-        move(tab, to: nil)
+        if tab.pinnedSiteID != nil {
+            selectSpace(owner)
+            unpin(tab)
+        } else {
+            setSidebarPin(false,for:tab)
+        }
     }
 }

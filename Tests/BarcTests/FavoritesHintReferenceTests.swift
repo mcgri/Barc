@@ -23,6 +23,12 @@ struct FavoritesHintReferenceTests {
         host.addSubview(pins)
         pins.show([])
         host.layoutSubtreeIfNeeded()
+        let hint = try #require(pins.subviews.first { $0.accessibilityLabel() == "Empty Favorites" })
+        // A dark Space may refresh while the Mac's drawing context is light.
+        // Catalog colors with a replaced alpha can freeze that ambient RGB.
+        NSAppearance(named:.aqua)!.performAsCurrentDrawingAppearance {
+            hint.viewDidChangeEffectiveAppearance()
+        }
         let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:456,pixelsHigh:232,
             bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0))
         bitmap.size = host.bounds.size
