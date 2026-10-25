@@ -41,8 +41,6 @@ enum CommandSearch {
     }
 
     private static func destinationKey(_ url:URL) -> String {
-        var key = AddressFormatter.completion(url).lowercased()
-        if key.hasSuffix("/") { key.removeLast() }
-        return key
+        AddressFormatter.destinationKey(url)
     }
 }

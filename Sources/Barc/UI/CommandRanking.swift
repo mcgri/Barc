@@ -480,12 +480,9 @@ enum CommandRanker {
         return key
     }
 
-    /// Two URLs are the same destination when they differ only by scheme,
-    /// `www.` or a trailing slash -- which is exactly how the same page tends
-    /// to arrive from a tab and from history.
+    /// Fold display aliases without collapsing distinct case-sensitive resources.
     private static func destinationKey(_ url: URL) -> String {
-        let key = matchKey(url.absoluteString)
-        return key.hasSuffix("/") ? String(key.dropLast()) : key
+        AddressFormatter.destinationKey(url)
     }
 
     /// Whether the query begins a word. Words are split on the punctuation that

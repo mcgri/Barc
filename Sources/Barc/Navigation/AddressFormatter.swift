@@ -26,6 +26,21 @@ enum AddressFormatter {
         return text
     }
 
+    /// Suggestion aliases fold web schemes and www, but resource paths and
+    /// query values remain case-sensitive. Only an empty root slash is elided.
+    static func destinationKey(_ url: URL) -> String {
+        guard var parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let scheme = parts.scheme?.lowercased(), ["http", "https"].contains(scheme) else { return url.absoluteString }
+        parts.scheme = nil
+        if let host = parts.host {
+            let lower = host.lowercased()
+            parts.host = parts.user == nil && parts.password == nil && lower.hasPrefix("www.") ? String(lower.dropFirst(4)) : lower
+        }
+        if (scheme == "http" && parts.port == 80) || (scheme == "https" && parts.port == 443) { parts.port = nil }
+        if parts.percentEncodedPath == "/" { parts.percentEncodedPath = "" }
+        return parts.string ?? url.absoluteString
+    }
+
     /// The address as the chrome shows it.
     ///
     /// - Parameters:

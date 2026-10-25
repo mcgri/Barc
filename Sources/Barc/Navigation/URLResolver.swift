@@ -1,5 +1,6 @@
-// Modified for Barc: share direct navigation detection with address suggestions, 2026-10-24.
+// Modified for Barc: consistent address fixup, IPv6 and authority validation, 2026-10-25.
 import Foundation
+import Darwin
 
 /// Turns raw address-bar text into something navigable.
 ///
@@ -35,12 +36,28 @@ enum URLResolver {
     /// ordinary search words into a search-engine URL.
     static func navigationURL(_ input: String) -> URL? {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
+        guard !text.isEmpty,
+              !text.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else { return nil }
+        // A pasted web scheme may be missing one or both slashes. This is a
+        // typed-address fixup only; unsupported schemes still remain searches.
+        if let colon = text.firstIndex(of: ":"),
+           ["http", "https"].contains(text[..<colon].lowercased()) {
+            let scheme = text[..<colon].lowercased()
+            let remainder = text[text.index(after: colon)...].replacingOccurrences(of: "\\", with: "/")
+            return webURL("\(scheme)://\(remainder.drop(while: { $0 == "/" }))")
+        }
         if let scheme = explicitScheme(of: text) {
             return passthroughSchemes.contains(scheme) ? URL(string: text) : nil
         }
-        if looksLikeHost(text) { return URL(string: "\(defaultScheme(for: text))://\(text)") }
-        return nil
+        let address = text.hasPrefix("//") ? String(text.dropFirst(2)) : text
+        guard let url = webURL("\(defaultScheme(for: address))://\(address)"),
+              let host = host(of: address), text.hasPrefix("//") || looksLikeHost(host, in: address),
+              let parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        // A bare email address is a query. A path, port or password supplies
+        // additional navigation intent for an HTTP user-info destination.
+        if parts.user != nil && parts.password == nil && parts.port == nil && parts.path.isEmpty
+            && parts.query == nil && parts.fragment == nil { return nil }
+        return url
     }
 
     /// `g cats` with an engine whose keyword is `g`. The keyword alone is not
@@ -98,7 +115,8 @@ enum URLResolver {
 
         let rest = text[text.index(after: colon)...]
         let scheme = candidate.lowercased()
-        if rest.hasPrefix("//") || opaqueSchemes.contains(scheme) {
+        let customPathScheme = rest.hasPrefix("/") && !candidate.contains(".") && !dotlessHosts.contains(scheme)
+        if rest.hasPrefix("//") || opaqueSchemes.contains(scheme) || passthroughSchemes.contains(scheme) || customPathScheme {
             return scheme
         }
         return nil
@@ -112,31 +130,51 @@ enum URLResolver {
     /// scheme. Safari and Chrome make the same exception.
     static func defaultScheme(for text: String) -> String {
         guard let host = host(of: text) else { return "https" }
-        return isLocal(host: host) ? "http" : "https"
+        return isLocal(host: host) || (!host.contains(".") && ipv6Bytes(host) == nil) ? "http" : "https"
     }
 
-    /// The host portion of typed text: no scheme, userinfo, port or path.
+    /// Validate the authority separately from the resource. Foundation escapes
+    /// spaces in paths/queries, but spaces in a host must never become a URL.
+    private static func webURL(_ text: String) -> URL? {
+        guard let separator = text.range(of: "://") else { return nil }
+        let authority = text[separator.upperBound...].prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" })
+        guard !authority.isEmpty, !authority.contains(where: \.isWhitespace),
+              !authority.contains("\\"),
+              let parts = URLComponents(string: text), let host = parts.host,
+              validHost(host), parts.port.map({ (0...65535).contains($0) }) ?? true,
+              let url = parts.url, url.host() != nil else { return nil }
+        return url
+    }
+
+    /// The host portion of schemeless text, including IPv6 brackets.
     private static func host(of text: String) -> String? {
-        guard !text.contains(where: { $0.isWhitespace }) else { return nil }
-
-        // Strip path, query and fragment; only the authority matters here.
         let authority = text.prefix(while: { $0 != "/" && $0 != "?" && $0 != "#" })
-        guard !authority.isEmpty else { return nil }
-
-        // Drop any userinfo and port.
-        let hostPart = authority.split(separator: "@").last.map(String.init) ?? String(authority)
-        let host = hostPart.split(separator: ":").first.map(String.init) ?? hostPart
-        return host.isEmpty ? nil : host
+        guard !authority.isEmpty, !authority.contains(where: \.isWhitespace) else { return nil }
+        return URLComponents(string: "http://\(authority)")?.host
     }
 
-    /// `localhost`, `.local`/`.localhost` names, and the loopback, private
-    /// and link-local IPv4 ranges.
+    private static func ipv6Bytes(_ host: String) -> [UInt8]? {
+        let name = host.hasPrefix("[") && host.hasSuffix("]") ? String(host.dropFirst().dropLast()) : host
+        var address = in6_addr()
+        guard name.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
+        return withUnsafeBytes(of: &address) { Array($0) }
+    }
+
+    /// Local names, loopback, private and link-local addresses use HTTP.
     private static func isLocal(host: String) -> Bool {
-        let name = host.lowercased()
+        let name = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
         if name == "localhost" || name.hasSuffix(".localhost") || name.hasSuffix(".local") { return true }
+        if let bytes = ipv6Bytes(name) {
+            if bytes.prefix(15).allSatisfy({ $0 == 0 }), bytes[15] <= 1 { return true }
+            if bytes[0] & 0xfe == 0xfc || (bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80) { return true }
+            // IPv4-mapped addresses inherit the embedded address's policy.
+            if bytes.prefix(10).allSatisfy({ $0 == 0 }), bytes[10] == 0xff, bytes[11] == 0xff {
+                return isLocal(host: bytes.suffix(4).map(String.init).joined(separator: "."))
+            }
+            return false
+        }
         guard isIPv4(name) else { return false }
         let octets = name.split(separator: ".").compactMap { Int($0) }
-        guard octets.count == 4 else { return false }
         switch (octets[0], octets[1]) {
         case (127, _), (10, _), (0, _), (192, 168), (169, 254): return true
         case (172, 16...31): return true
@@ -144,24 +182,25 @@ enum URLResolver {
         }
     }
 
-    /// Heuristic: a bare host has no whitespace and either contains a dot in the
-    /// host portion or is a known dotless host such as `localhost`.
-    private static func looksLikeHost(_ text: String) -> Bool {
-        guard let host = host(of: text) else { return false }
-
-        if dotlessHosts.contains(host.lowercased()) { return true }
-        guard host.contains(".") else { return false }
-
-        // Dotted-quad IP addresses are hosts even though their last label is numeric.
-        if isIPv4(host) { return true }
-
-        // "1.5" or "hello.world " style input is more likely a search than a host,
-        // so require the last label to look like a TLD.
-        guard let tld = host.split(separator: ".").last, tld.count >= 2,
-              tld.allSatisfy({ $0.isLetter }) else {
-            return false
+    private static func validHost(_ host: String) -> Bool {
+        if ipv6Bytes(host) != nil { return true }
+        guard !host.contains(":"), !host.contains("["), !host.contains("]") else { return false }
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        let labels = name.split(separator: ".", omittingEmptySubsequences: false)
+        return !labels.isEmpty && labels.allSatisfy { label in
+            !label.isEmpty && label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
         }
-        return true
+    }
+
+    private static func looksLikeHost(_ host: String, in address: String) -> Bool {
+        if ipv6Bytes(host) != nil || isIPv4(host) { return true }
+        let name = host.hasSuffix(".") ? String(host.dropLast()) : host
+        if dotlessHosts.contains(name.lowercased()) { return true }
+        // Chromium treats an explicit slash as navigation intent for an
+        // intranet name. An ordinary single word still searches.
+        if !name.contains(".") { return address.contains("/") || URLComponents(string: "http://\(address)")?.port != nil }
+        guard let tld = name.split(separator: ".").last else { return false }
+        return (tld.count >= 2 && tld.allSatisfy(\.isLetter)) || tld.lowercased().hasPrefix("xn--")
     }
 
     private static func isIPv4(_ host: String) -> Bool {

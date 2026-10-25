@@ -116,18 +116,20 @@ actor SearchSuggestions {
         let types = metadata?["google:suggesttype"] as? [String] ?? []
         let descriptions = payload.count>2 ? payload[2] as? [String] ?? []:[]
         var seen:Set<String> = [query.trimmingCharacters(in:.whitespacesAndNewlines).lowercased()]
+        var seenNavigation:Set<String> = []
         return Array(values.enumerated().compactMap { index,value -> SearchPrediction? in
             let value = value.trimmingCharacters(in:.whitespacesAndNewlines)
             guard !value.isEmpty,value.utf16.count<=200,
-                  !value.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains),
-                  seen.insert(value.lowercased()).inserted else { return nil }
+                  !value.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains) else { return nil }
             if types.indices.contains(index),["NAVIGATION","PERSONALIZED_NAVIGATION"].contains(types[index]) {
                 guard let url = URLResolver.navigationURL(value),["http","https"].contains(url.scheme?.lowercased() ?? ""),
-                      let host = url.host(),!host.isEmpty,url.user == nil,url.password == nil else { return nil }
+                      let host = url.host(),!host.isEmpty,url.user == nil,url.password == nil,
+                      seenNavigation.insert(AddressFormatter.destinationKey(url)).inserted else { return nil }
                 let description = descriptions.indices.contains(index) ? descriptions[index]:""
                 let title = description.utf16.count<=512 && !description.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains) ? description:""
                 return .navigation(url,title:title)
             }
+            guard seen.insert(value.lowercased()).inserted else { return nil }
             return .query(value)
         }.prefix(6))
     }
