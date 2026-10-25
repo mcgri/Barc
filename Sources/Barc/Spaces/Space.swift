@@ -241,6 +241,8 @@ final class Space: Identifiable {
     var isPrivate: Bool { identity.isPrivate }
 
     var splits = SplitCollection()
+    /// Source units already considered, including those later separated locally.
+    var importedSplitIDs: Set<UUID> = []
 
     private(set) var workspaceTabs: [Tab] = []
     var tabs: [Tab] {

@@ -1,4 +1,4 @@
-// Modified for Barc: import Arc Space icons and native sidebar width, 2026-10-24.
+// Modified for Barc: import Space icons, sidebar width and split metadata, 2026-10-25.
 import Foundation
 import CoreFoundation
 
@@ -79,7 +79,8 @@ enum ArcSidebarReader {
                 lastActiveAt: (tab?["timeLastActiveAt"] as? Double).map { Date(timeIntervalSinceReferenceDate: $0) },
                 customName: object["title"] as? String,
                 isCollapsed: payload["list"] != nil ? expandedFolders.map { !$0.contains(key) } : nil,
-                folderEmoji: folderEmoji, folderBadge: folderIcon?["icon"] as? String
+                folderEmoji: folderEmoji, folderBadge: folderIcon?["icon"] as? String,
+                split: (payload["splitView"] as? [String:Any]).map(readSplit)
             )
             orderedIDs.append(key)
         }
@@ -167,5 +168,39 @@ enum ArcSidebarReader {
         guard let url = ArcURL.parse(string), let scheme = url.scheme?.lowercased(),
               ["http", "https", "file"].contains(scheme) else { return nil }
         return url
+    }
+
+    private static func readSplit(_ data:[String:Any]) -> ArcSidebar.Split {
+        let axis:SplitLayout.Axis? = switch data["layoutOrientation"] as? String {
+        case "horizontal": .horizontal
+        case "vertical": .vertical
+        default: nil
+        }
+        func weight(_ value:Any) -> Double? {
+            guard let number = value as? NSNumber,CFGetTypeID(number) != CFBooleanGetTypeID(),
+                  number.doubleValue.isFinite,number.doubleValue > 0 else { return nil }
+            return number.doubleValue
+        }
+        func weights(_ raw:Any?) -> [String:Double]? {
+            guard let raw,!(raw is NSNull) else { return [:] }
+            var result:[String:Double] = [:]
+            if let map = raw as? [String:Any] {
+                for (id,value) in map {
+                    guard let value = weight(value) else { return nil }
+                    result[id] = value
+                }
+                return result
+            }
+            // Swift dictionaries with wrapped IDs use alternating key/value
+            // entries. Unknown shapes are retained as loose pages by the builder.
+            guard let pairs = raw as? [Any],pairs.count.isMultiple(of:2) else { return nil }
+            for index in stride(from:0,to:pairs.count,by:2) {
+                guard let id = pairs[index] as? String,result[id] == nil,
+                      let value = weight(pairs[index+1]) else { return nil }
+                result[id] = value
+            }
+            return result
+        }
+        return .init(axis:axis,weights:weights(data["itemWidthFactors"]),focusedItemID:data["focusItemID"] as? String)
     }
 }

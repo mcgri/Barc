@@ -226,7 +226,25 @@ final class ArcImportCoordinator {
                     incoming[offset].name += " (Arc)"
                 }
             }
+            let beforeSplits = Set(session.spaces.flatMap { space in
+                space.splits.layouts.compactMap { $0.tabIDs.first.flatMap { space.splits.identifier(containing:$0) } }
+            })
             let applied = try session.applyArcSpaces(incoming)
+            let sourceSplits = Set(profileSpaces.flatMap(\.sourceSplitKeys))
+            if !sourceSplits.isEmpty {
+                let actual = Set(session.spaces.flatMap { space in
+                    space.splits.layouts.compactMap { $0.tabIDs.first.flatMap { space.splits.identifier(containing:$0) } }
+                })
+                let expected = Set(incoming.flatMap { ($0.splits ?? []).compactMap(\.id) })
+                let verified = expected.intersection(actual)
+                result.counts["Split layouts"] = .init(source:sourceSplits.count,
+                    imported:verified.subtracting(beforeSplits).count,existing:verified.intersection(beforeSplits).count,
+                    skipped:sourceSplits.count-verified.count,verified:verified.count)
+                result.notes.append("Split-wide names, custom unit icons and Favorite split units are not imported. Unsupported layouts keep their readable pages separately.")
+                if !expected.isSubset(of:actual) {
+                    result.notes.append("Existing local organization was kept instead of regrouping some pages.")
+                }
+            }
             if options.sidebar, let hints = source.favoritesHintDismissedProfiles {
                 let dismissed = hints.contains(profile.folder)
                 let added = session.enrichArcFavoritesHint(dismissed,for:identity)

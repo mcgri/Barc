@@ -115,6 +115,7 @@ struct SessionSnapshot: Codable, Equatable {
         /// written before spaces had icons, which restore on the dot.
         var icon: SpaceIcon?
         var splits: [Split]?
+        var importedSplitIDs: [UUID]? = nil
 
         init(
             id: UUID? = nil,
@@ -144,7 +145,8 @@ struct SessionSnapshot: Codable, Equatable {
             sleepMinutes: Int? = nil,
             defaultZoom: String? = nil,
             icon: SpaceIcon? = nil,
-            splits: [Split]? = nil
+            splits: [Split]? = nil,
+            importedSplitIDs: [UUID]? = nil
         ) {
             self.id = id
             self.name = name
@@ -174,6 +176,7 @@ struct SessionSnapshot: Codable, Equatable {
             self.defaultZoom = defaultZoom
             self.icon = icon
             self.splits = splits
+            self.importedSplitIDs = importedSplitIDs
         }
     }
 

@@ -150,6 +150,12 @@ struct SplitLayout: Equatable, Codable, Sendable {
         self.grid = grid
     }
 
+    /// Imports may supply a nested tree, but cannot bypass native invariants.
+    init?(validating root:Node,grid:Grid) {
+        self.init(root:root,grid:grid)
+        guard isValid else { return nil }
+    }
+
     /// Insert complete incoming units beside the indicated pane. Horizontal
     /// siblings share the new space proportionally; a vertical branch keeps
     /// its height and splits only the indicated pane horizontally.

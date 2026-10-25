@@ -3029,7 +3029,9 @@ final class BrowserSession {
                     sleepMinutes: space.sleepMinutes,
                     defaultZoom: space.defaultZoom,
                     icon: space.icon,
-                    splits: space.isPrivate ? nil : space.splits.snapshot(tabIDs: space.tabs.map(\.id))
+                    splits: space.isPrivate ? nil : space.splits.snapshot(tabIDs: space.tabs.map(\.id)),
+                    importedSplitIDs:space.isPrivate || space.importedSplitIDs.isEmpty ? nil:
+                        space.importedSplitIDs.sorted { $0.uuidString < $1.uuidString }
                 )
             },
             activeSpaceIndex: spaces.firstIndex { $0.id == activeSpaceID } ?? 0,
@@ -3146,6 +3148,7 @@ final class BrowserSession {
             } else { space.setActiveTabID(space.tabs.first?.id) }
             if !space.isPrivate {
                 space.splits = SplitCollection.restoring(stored.splits, tabIDs: restoredSelection.map(\.id))
+                space.importedSplitIDs = Set(stored.importedSplitIDs ?? [])
             }
             return space
         }
@@ -3287,6 +3290,7 @@ final class BrowserSession {
                 knownArchive.formUnion(record.tabs.compactMap(\.importedSourceID))
                 addedArchived += 1
             }
+            mergeArcSplits(stored,into:space)
         }
         reconcileProfiles()
         changes.send(.spaces)

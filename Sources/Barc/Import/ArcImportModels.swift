@@ -44,6 +44,12 @@ struct ArcProfile: Identifiable, Sendable, Equatable {
 }
 
 struct ArcSidebar: Sendable {
+    struct Split: Sendable {
+        let axis: SplitLayout.Axis?
+        /// Empty is uniform; nil means an unsupported or malformed encoding.
+        let weights: [String: Double]?
+        let focusedItemID: String?
+    }
     struct Item: Sendable {
         let id: String
         let parentID: String?
@@ -56,6 +62,7 @@ struct ArcSidebar: Sendable {
         var isCollapsed: Bool? = nil
         var folderEmoji: String? = nil
         var folderBadge: String? = nil
+        var split: Split? = nil
     }
     struct Space: Sendable {
         let id: String
