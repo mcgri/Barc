@@ -22,7 +22,10 @@ enum SidebarReview {
         <h1>Browser sidebar review</h1><div class="grid"><article><h2>A stable place to search</h2><p>Open a new tab and type. The input stays in place while suggestions change underneath it.</p><small>Local demonstration page</small></article><article><h2>Spaces and split views</h2><p>Rename a split, select its panes, and switch Spaces without changing the page data in another profile.</p><small>Isolated review session</small></article></div>
         """
         try? html.write(to:page,atomically:true,encoding:.utf8)
+        let favoritePage = AppPaths.supportDirectory.appending(path:"favorite.html")
+        try? html.replacingOccurrences(of:"Browser sidebar review",with:"Favorite review page").write(to:favoritePage,atomically:true,encoding:.utf8)
         let owner = session.activeSpace
+        owner.addPinnedSite(.init(url:favoritePage,title:"Review Favorite"))
         session.rename(owner,to:"Personal")
         let main = session.newTab(url:page);session.rename(main,to:"Sidebar review")
         for (index,name) in ["Example Cloud Sign-in","Instances | Example | region-one","Example Accounts","Sample reporting"].enumerated() {

@@ -28,6 +28,7 @@ final class ShortcutsSettingsViewController: NSViewController, SettingsWidePane,
     /// draws over whatever is beside it, which is what it was doing.
     private let categoryPopUp = NSPopUpButton()
     private let restoreDefaultsButton = NSButton(title: "Restore All Defaults", target: nil, action: nil)
+    private let includeFavorites = NSButton(checkboxWithTitle:"Include Favorites in numbered sidebar shortcuts",target:nil,action:nil)
     private let tableView = NSTableView()
     private let scrollView = PassingScrollView()
     /// The table is as tall as its rows. The pane is already inside a scroll
@@ -90,6 +91,11 @@ final class ShortcutsSettingsViewController: NSViewController, SettingsWidePane,
         // takes its height from whatever control it holds, so pinning to the
         // plate is the only thing that stays level with it if that changes.
         searchField.heightAnchor.constraint(equalTo: restorePlate.heightAnchor).isActive = true
+
+        includeFavorites.state = Settings.shared.includesFavoritesInNumberedTabs ? .on:.off
+        includeFavorites.target = self;includeFavorites.action = #selector(numberedOrderingChanged)
+        includeFavorites.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(includeFavorites)
 
         let colAction = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("Action"))
         colAction.title = "Action"
@@ -165,7 +171,10 @@ final class ShortcutsSettingsViewController: NSViewController, SettingsWidePane,
             header.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: container.trailingAnchor),
 
-            card.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 16),
+            includeFavorites.topAnchor.constraint(equalTo:header.bottomAnchor,constant:12),
+            includeFavorites.leadingAnchor.constraint(equalTo:header.leadingAnchor),
+            includeFavorites.trailingAnchor.constraint(lessThanOrEqualTo:header.trailingAnchor),
+            card.topAnchor.constraint(equalTo: includeFavorites.bottomAnchor, constant: 16),
             card.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             card.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             card.bottomAnchor.constraint(equalTo: container.bottomAnchor),
@@ -201,6 +210,10 @@ final class ShortcutsSettingsViewController: NSViewController, SettingsWidePane,
 
     @objc private func filterChanged() {
         updateFilter()
+    }
+
+    @objc private func numberedOrderingChanged() {
+        Settings.shared.includesFavoritesInNumberedTabs = includeFavorites.state == .on
     }
 
     private func updateFilter() {

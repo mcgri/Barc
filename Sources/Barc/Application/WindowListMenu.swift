@@ -54,20 +54,15 @@ final class WindowListMenu: NSObject, NSMenuDelegate {
         }
     }
 
-    /// Cmd-1 to Cmd-8 by position; Cmd-9 is always the last tab, as in
-    /// every other browser. Only the tabs the sidebar lists: a pinned site's
-    /// tab lives in its tile and is reached through the tile's own shortcut.
+    /// Numbered actions use the same destinations as keyboard selection.
     private func tabItems() -> [NSMenuItem] {
-        let tabs = session.activeSpace.listedTabs
-        let activeID = session.activeTab?.id
-        return tabs.enumerated().map { index, tab in
-            let item = NSMenuItem(
-                title: tab.displayTitle,
-                action: #selector(BrowserWindowController.selectTabByNumber(_:)),
-                keyEquivalent: Self.shortcut(forIndex: index, count: tabs.count, lastIsNine: true)
-            )
-            item.tag = index + 1
-            item.state = tab.id == activeID ? .on : .off
+        let destinations = session.numberedSidebarItems
+        return destinations.enumerated().map { index,destination in
+            let item = NSMenuItem(title:destination.title(in:session.activeSpace),
+                action:#selector(BrowserWindowController.selectTabByNumber(_:)),
+                keyEquivalent:Self.shortcut(forIndex:index,count:destinations.count,lastIsNine:true))
+            item.tag = index+1
+            item.state = destination.contains(session.activeTab,in:session.activeSpace) ? .on:.off
             return item
         }
     }

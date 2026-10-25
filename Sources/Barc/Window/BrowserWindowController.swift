@@ -1342,12 +1342,13 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             let quick = site == nil ? URLResolver.quickSearch(query,engines:Settings.shared.searchEngines):nil
             let engine = site ?? quick?.engine ?? defaultEngine
             let term = quick?.query ?? query
-            let predictions = await client.suggestions(for:term,engine:engine,explicitSearch:site != nil || quick != nil)
+            let predictions = await client.results(for:term,engine:engine,explicitSearch:site != nil || quick != nil)
             guard !Task.isCancelled,session.activeSpace === space,space.profile === profile,
                   Settings.shared.suggestionSources.searchEngine,
                   session.searchEngine(for:space) == defaultEngine else { return local }
             let prefix = quick.flatMap { $0.engine.keyword }.map { $0+" " } ?? ""
-            return CommandSearch.adding(predictions,query:term,engine:engine,completionPrefix:prefix,to:local)
+            let openTabs = Dictionary(session.spaces.filter { $0.profile === profile }.flatMap(\.tabs).map { ($0.id,$0.displayURL) },uniquingKeysWith:{ first,_ in first })
+            return CommandSearch.addingResults(predictions,query:term,engine:engine,completionPrefix:prefix,openTabs:openTabs,to:local)
         }
 
         commandBar.onRun = { [weak self] action, openInNewTab, query in
@@ -2897,7 +2898,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             guard Settings.shared.favouriteShortcutsEnabled else { return false }
             return session.activeSpace.pinnedSites.indices.contains(menuItem.tag - 1)
         case #selector(selectTabByNumber(_:)):
-            return session.activeSpace.listedTabs.indices.contains(menuItem.tag - 1)
+            return session.numberedSidebarItems.indices.contains(menuItem.tag - 1)
         case #selector(selectSpaceByNumber(_:)):
             return session.sidebarSpaces.indices.contains(menuItem.tag - 1)
         case #selector(stopLoading(_:)): return session.activeTab?.isLoading ?? false

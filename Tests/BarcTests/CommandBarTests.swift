@@ -644,16 +644,17 @@ struct CommandSourcesTests {
         let spaceID = UUID()
         let space = SpaceCandidate(id: spaceID, name: "Development", isActive: false, tabCount: 5)
         let results = CommandRanker.rank(query: "dev", tabs: [], spaces: [space], history: [])
-        #expect(results.contains { $0.kind == .space && $0.title == "Development" && $0.action == .switchToSpace(spaceID) })
-        #expect(results.first?.shortcut == "Space")
+        #expect(results.contains { $0.kind == .space && $0.title == "Focus on Development" && $0.action == .switchToSpace(spaceID) })
+        #expect(results.first?.shortcut == nil)
         #expect(results.first?.subtitle == "Space • 5 tabs")
     }
 
-    @Test("Active space is not offered as somewhere to switch to")
-    func activeSpaceIsExcluded() {
+    @Test("The current Space remains a named Focus action")
+    func activeSpaceCanBeFocused() {
         let space = SpaceCandidate(id: UUID(), name: "Work", isActive: true, tabCount: 3)
         let results = CommandRanker.rank(query: "work", tabs: [], spaces: [space], history: [])
-        #expect(results.isEmpty)
+        #expect(results.first?.action == .switchToSpace(space.id))
+        #expect(results.first?.title == "Focus on Work")
     }
 
     @Test("Commands are ranked by title and keywords with shortcut badges")

@@ -12,6 +12,7 @@ final class Settings {
     static let shared = Settings()
 
     private enum Key {
+        static let numberedIncludesFavorites = "numberedTabsIncludeFavorites"
         static let searchEngine = "searchEngineIdentifier"
         static let restoresSession = "restoresSessionOnLaunch"
         static let suspensionMinutes = "tabSuspensionMinutes"
@@ -526,6 +527,12 @@ final class Settings {
     var opensBookmarksInNewTabs: Bool {
         get { defaults.bool(forKey: Key.bookmarksInNewTabs) }
         set { defaults.set(newValue, forKey: Key.bookmarksInNewTabs) }
+    }
+
+    /// Arc includes Favorites in numbered sidebar selection by default.
+    var includesFavoritesInNumberedTabs:Bool {
+        get { defaults.object(forKey:Key.numberedIncludesFavorites) as? Bool ?? true }
+        set { defaults.set(newValue,forKey:Key.numberedIncludesFavorites) }
     }
 
     /// Option-Command-1 to 9 open the space's pinned sites.

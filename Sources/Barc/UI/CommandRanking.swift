@@ -218,18 +218,18 @@ enum CommandRanker {
         }
 
         // 2. Spaces
-        for space in spaces where !space.isActive && sources.spaces {
-            guard let score = scoreText(query: normalisedQuery, in: space.name) else { continue }
+        for space in spaces where sources.spaces {
+            let title = "Focus on \(space.name)"
+            guard let score = [space.name,title].compactMap({ scoreText(query:normalisedQuery,in:$0) }).max() else { continue }
             let countStr = space.tabCount == 1 ? "1 tab" : "\(space.tabCount) tabs"
             results.append(CommandResult(
                 id: "space:\(space.id.uuidString)",
                 kind: .space,
-                title: space.name,
+                title: title,
                 subtitle: "Space • \(countStr)",
                 symbolName: "square.stack.3d.up",
                 action: .switchToSpace(space.id),
-                score: score + spaceBonus,
-                shortcut: "Space"
+                score: score + spaceBonus + topHitBonus + 100
             ))
         }
 

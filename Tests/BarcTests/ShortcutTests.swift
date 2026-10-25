@@ -154,10 +154,10 @@ struct ShortcutTests {
         // AppKit only fires arrow equivalents holding U+F700-U+F703; the
         // printable arrows (U+2190-U+2193) never match a real keypress.
         let expected: [String: String] = [
-            "next-tab": "\u{F703}",
-            "previous-tab": "\u{F702}",
-            "next-space": "\u{F701}",
-            "previous-space": "\u{F700}",
+            "next-tab": "\u{F701}",
+            "previous-tab": "\u{F700}",
+            "next-space": "\u{F703}",
+            "previous-space": "\u{F702}",
         ]
         for (id, key) in expected {
             let def = manager.definition(for: id)

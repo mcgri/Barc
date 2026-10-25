@@ -52,7 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             AppPaths.ensureSupportDirectory()
             let session = SidebarReview.makeSession();self.session = session
             let menus = SidebarReviewMenuDelegate();sidebarReviewMenu = menus
-            NSApp.mainMenu = MainMenu.build(bookmarks:menus,history:menus,tabs:menus,pinnedSites:menus,spaces:menus)
+            let listMenus = [WindowListMenu.Kind.tabs,.pinnedSites,.spaces].map { WindowListMenu(kind:$0,session:session) }
+            self.listMenus = listMenus
+            NSApp.mainMenu = MainMenu.build(bookmarks:menus,history:menus,tabs:listMenus[0],pinnedSites:listMenus[1],spaces:listMenus[2])
             let controller = BrowserWindowController(session:session);mainWindowController = controller
             controller.window?.title = "Barc Review"
             controller.showWindow(nil);NSApp.activate(ignoringOtherApps:true)

@@ -74,7 +74,7 @@ final class ShortcutManager {
             title: "Next Tab",
             category: .tabs,
             selector: #selector(BrowserWindowController.selectNextTab(_:)),
-            defaultKey: "\u{F703}",
+            defaultKey: "\u{F701}",
             defaultModifiers: [.command, .option]
         ),
         ShortcutDefinition(
@@ -82,7 +82,7 @@ final class ShortcutManager {
             title: "Previous Tab",
             category: .tabs,
             selector: #selector(BrowserWindowController.selectPreviousTab(_:)),
-            defaultKey: "\u{F702}",
+            defaultKey: "\u{F700}",
             defaultModifiers: [.command, .option]
         ),
         ShortcutDefinition(
@@ -190,7 +190,7 @@ final class ShortcutManager {
             title: "Next Space",
             category: .spaces,
             selector: #selector(BrowserWindowController.selectNextSpace(_:)),
-            defaultKey: "\u{F701}",
+            defaultKey: "\u{F703}",
             defaultModifiers: [.command, .option]
         ),
         ShortcutDefinition(
@@ -198,7 +198,7 @@ final class ShortcutManager {
             title: "Previous Space",
             category: .spaces,
             selector: #selector(BrowserWindowController.selectPreviousSpace(_:)),
-            defaultKey: "\u{F700}",
+            defaultKey: "\u{F702}",
             defaultModifiers: [.command, .option]
         ),
 

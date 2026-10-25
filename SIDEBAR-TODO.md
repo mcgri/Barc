@@ -62,3 +62,14 @@ Scan complete. Implement these together before running the combined suite and ow
 - [x] R4. Run one combined automated/native review, check input stability and saved data, and consolidate remaining differences.
 
 Final search-interaction verification: 2,334 tests in 367 suites passed in 94.434 seconds. Build 234, `0.1.64-136-g5db18d7`, passed strict signature verification. Native review confirmed the compact click correction in both a populated Personal Space and an empty Work Space. The same consolidated remaining list is maintained in SIDEBAR-VERIFICATION.md.
+
+## Sidebar navigation and search destinations
+
+Scan complete against saved query captures, native source evidence and Arc's published keyboard documentation. Implement this collected batch before testing.
+
+- [ ] D1. Cycle through sidebar visual order, including one destination per split and open Favorite tile; preserve escape from collapsed Pinned entries.
+- [ ] D2. Use the same visible destination order for numbered menus and their actions. Include Favorites by default, with a Shortcuts preference to exclude them.
+- [ ] D3. Match documented Command-Option-Up/Down tab traversal; separate Space traversal onto the horizontal arrow pair.
+- [ ] D4. Decode provider navigation suggestions as validated web destinations, retain provider descriptions, and deduplicate against existing local destinations. Query predictions remain searches with magnifying glasses.
+- [ ] D5. Match the saved Space-focus action wording, offer the current Space when named, and prioritize a matching Space action as observed in the source capture.
+- [ ] D6. After all implementation, run the combined tests and inspect one built app, then update the consolidated remaining list.

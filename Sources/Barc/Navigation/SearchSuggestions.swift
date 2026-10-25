@@ -1,6 +1,17 @@
 // Modified for Barc: selected-engine predictions without profile cookies, 2026-10-25.
 import Foundation
 
+enum SearchPrediction:Equatable,Sendable {
+    case query(String)
+    case navigation(URL,title:String)
+    var text:String {
+        switch self {
+        case .query(let text):text
+        case .navigation(let url,_):url.absoluteString
+        }
+    }
+}
+
 /// Uses the engines' public OpenSearch-style endpoints. Local matches are
 /// presented first; this request is cancelled with the command-bar query.
 actor SearchSuggestions {
@@ -71,16 +82,24 @@ actor SearchSuggestions {
     }
 
     func suggestions(for query:String,engine:SearchEngine,explicitSearch:Bool = false) async -> [String] {
+        await results(for:query,engine:engine,explicitSearch:explicitSearch).map(\.text)
+    }
+
+    func results(for query:String,engine:SearchEngine,explicitSearch:Bool = false) async -> [SearchPrediction] {
         guard let request = Self.request(for:query,engine:engine,explicitSearch:explicitSearch),!Task.isCancelled else { return [] }
         do {
             let (data,response) = try await session.data(for:request)
             guard !Task.isCancelled,let response = response as? HTTPURLResponse,response.statusCode == 200,
                   response.expectedContentLength<=Self.maximumBytes else { return [] }
-            return Self.decode(data,query:query,encodingName:response.textEncodingName)
+            return Self.decodeResults(data,query:query,encodingName:response.textEncodingName)
         } catch { return [] }
     }
 
     static func decode(_ data:Data,query:String,encodingName:String? = nil) -> [String] {
+        decodeResults(data,query:query,encodingName:encodingName).map(\.text)
+    }
+
+    static func decodeResults(_ data:Data,query:String,encodingName:String? = nil) -> [SearchPrediction] {
         var encoding = String.Encoding.utf8
         if let encodingName {
             let value = CFStringConvertIANACharSetNameToEncoding(encodingName as CFString)
@@ -93,13 +112,23 @@ actor SearchSuggestions {
               let echo = payload[0] as? String,
               echo.trimmingCharacters(in:.whitespacesAndNewlines).caseInsensitiveCompare(query.trimmingCharacters(in:.whitespacesAndNewlines)) == .orderedSame,
               let values = payload[1] as? [String] else { return [] }
+        let metadata = payload.count>4 ? payload[4] as? [String:Any]:nil
+        let types = metadata?["google:suggesttype"] as? [String] ?? []
+        let descriptions = payload.count>2 ? payload[2] as? [String] ?? []:[]
         var seen:Set<String> = [query.trimmingCharacters(in:.whitespacesAndNewlines).lowercased()]
-        return Array(values.compactMap { value -> String? in
+        return Array(values.enumerated().compactMap { index,value -> SearchPrediction? in
             let value = value.trimmingCharacters(in:.whitespacesAndNewlines)
             guard !value.isEmpty,value.utf16.count<=200,
                   !value.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains),
                   seen.insert(value.lowercased()).inserted else { return nil }
-            return value
+            if types.indices.contains(index),["NAVIGATION","PERSONALIZED_NAVIGATION"].contains(types[index]) {
+                guard let url = URLResolver.navigationURL(value),["http","https"].contains(url.scheme?.lowercased() ?? ""),
+                      let host = url.host(),!host.isEmpty,url.user == nil,url.password == nil else { return nil }
+                let description = descriptions.indices.contains(index) ? descriptions[index]:""
+                let title = description.utf16.count<=512 && !description.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains) ? description:""
+                return .navigation(url,title:title)
+            }
+            return .query(value)
         }.prefix(6))
     }
 }

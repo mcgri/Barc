@@ -259,13 +259,13 @@ enum MainMenu {
             item("Close Glance", #selector(BrowserWindowController.closeGlance(_:)), "w",
                  modifiers: [.command, .option]),
             .separator(),
-            item("Next Tab", #selector(BrowserWindowController.selectNextTab(_:)), "\u{F703}",
+            item("Next Tab", #selector(BrowserWindowController.selectNextTab(_:)), "\u{F701}",
                  modifiers: [.command, .option]),
-            item("Previous Tab", #selector(BrowserWindowController.selectPreviousTab(_:)), "\u{F702}",
+            item("Previous Tab", #selector(BrowserWindowController.selectPreviousTab(_:)), "\u{F700}",
                  modifiers: [.command, .option]),
-            item("Next Space", #selector(BrowserWindowController.selectNextSpace(_:)), "\u{F701}",
+            item("Next Space", #selector(BrowserWindowController.selectNextSpace(_:)), "\u{F703}",
                  modifiers: [.command, .option]),
-            item("Previous Space", #selector(BrowserWindowController.selectPreviousSpace(_:)), "\u{F700}",
+            item("Previous Space", #selector(BrowserWindowController.selectPreviousSpace(_:)), "\u{F702}",
                  modifiers: [.command, .option]),
             .separator()
         ]

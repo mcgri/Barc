@@ -98,7 +98,7 @@ struct BrowserSessionTests {
     @Test("Next and previous tab wrap around")
     func selectByOffsetWraps() {
         let session = TestSession.make().0
-        let a = session.activeSpace.tabs[0]
+        let a = session.newTab(url:url("https://a.example"))
         let b = session.newTab(url: url("https://b.example"))
 
         session.selectTab(a)

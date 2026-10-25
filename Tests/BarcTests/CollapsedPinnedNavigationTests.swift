@@ -36,13 +36,13 @@ struct CollapsedPinnedNavigationTests {
         let a = page("a",in:session),pin = page("pin",in:session),b = page("b",in:session)
         pin.setKeepsInSidebar(true);space.look.pinnedSectionCollapsed = true
         session.selectTab(pin);session.selectTab(offsetBy:1)
-        #expect(session.activeTab === b)
+        #expect(session.activeTab === a)
         session.selectTab(pin);session.selectTab(offsetBy:-1)
-        #expect(session.activeTab === a)
-        session.selectTab(pin);session.selectTab(offsetBy:2)
-        #expect(session.activeTab === a)
-        session.selectTab(pin);session.selectTab(offsetBy:-2)
         #expect(session.activeTab === b)
+        session.selectTab(pin);session.selectTab(offsetBy:2)
+        #expect(session.activeTab === b)
+        session.selectTab(pin);session.selectTab(offsetBy:-2)
+        #expect(session.activeTab === a)
     }
 
     @Test("Hidden sticky splits remain intact when traversal selects a Today tab")

@@ -1953,18 +1953,18 @@ final class BrowserSession {
         return tab
     }
 
-    /// 1-based, to match the Cmd-1 ... Cmd-9 menu items. Cmd-9 is the last tab.
-    /// Tab `number` as the sidebar counts them, so Cmd-3 is the third row
-    /// the user can see; a pinned site's tab is not listed and not counted.
-    /// Past the end, nine and above mean the last tab.
-    func selectTab(number: Int) {
-        let tabs = activeSpace.sidebarNavigationTabs
-        guard !tabs.isEmpty,number>0 else { return }
-        let index = tabs.indices.contains(number - 1) ? number - 1
-            : number >= 9 ? tabs.count - 1
-            : -1
-        guard tabs.indices.contains(index) else { return }
-        selectTab(tabs[index])
+    /// Numbered menus and selection share the same visible sidebar order.
+    var numberedSidebarItems:[SidebarNavigationItem] {
+        (settings.includesFavoritesInNumberedTabs ? activeSpace.pinnedSites.map(SidebarNavigationItem.favorite):[])
+            + activeSpace.sidebarNavigationTabs.map(SidebarNavigationItem.tab)
+    }
+
+    func selectTab(number:Int) {
+        let items = numberedSidebarItems
+        guard !items.isEmpty,number>0 else { return }
+        let index = items.indices.contains(number-1) ? number-1:number>=9 ? items.count-1:-1
+        guard items.indices.contains(index) else { return }
+        selectSidebarItem(items[index])
     }
 
     func moveTab(from source: Int, to destination: Int) {
