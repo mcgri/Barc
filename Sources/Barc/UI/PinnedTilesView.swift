@@ -1,4 +1,4 @@
-// Modified for Barc: compact Favorites layout, empty-state hint and stable tab drops, 2026-10-24.
+// Modified for Barc: compact Favorites layout, measured hint artwork and stable tab drops, 2026-10-25.
 import AppKit
 
 /// One pinned shortcut: a site, and the name it is announced by.
@@ -148,7 +148,9 @@ final class PinnedTilesView: NSView {
     override func layout() {
         super.layout()
         if tileViews.isEmpty {
-            emptyHint.frame = NSRect(x: 0, y: 0, width: bounds.width, height: Self.emptyHintHeight)
+            // The hint's outline reaches one point beyond the tile strip.
+            // Keep its reserved band unchanged so the Space caption stays put.
+            emptyHint.frame = NSRect(x: -1, y: 0, width: bounds.width + 2, height: Self.emptyHintHeight - 1)
             return
         }
         let items = tileViews
@@ -416,48 +418,66 @@ private final class EmptyFavoritesHint: NSView {
     var onDismiss: (() -> Void)?
     var isDropTarget = false { didSet { needsDisplay = true } }
     private let icon = NSImageView()
-    private let title = NSTextField(labelWithString: "Drag to add Favorites")
-    private let detail = NSTextField(wrappingLabelWithString: "Favorites keep your most used sites and apps close")
-    private let dismiss = IconButton(symbolName: "xmark", label: "Dismiss Favorites Hint", side: 22, symbolSize: 8)
+    private let title = SidebarLabel(labelWithString: "Drag to add Favorites")
+    private let detail = SidebarLabel(wrappingLabelWithString: "Favorites keep your most used sites and apps close")
+    private let dismiss = IconButton(symbolName: "xmark", label: "Dismiss Favorites Hint", side: 22, symbolSize: 9.5)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = true
         icon.image = NSImage(systemSymbolName: "star.circle.fill", accessibilityDescription: nil)
-        icon.symbolConfiguration = .init(pointSize: 20, weight: .regular)
-        icon.contentTintColor = .labelColor.withAlphaComponent(0.90)
+        icon.symbolConfiguration = .init(pointSize: 19, weight: .regular)
         icon.imageScaling = .scaleProportionallyDown
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.textColor = .labelColor.withAlphaComponent(0.70)
+        title.font = .systemFont(ofSize: 13, weight: .medium)
         title.alignment = .center
         title.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        detail.font = .systemFont(ofSize: 12)
-        detail.textColor = .labelColor.withAlphaComponent(0.55)
+        detail.font = .systemFont(ofSize: 11.5)
         detail.alignment = .center
         detail.maximumNumberOfLines = 2
         detail.setContentCompressionResistancePriority(.init(1), for: .horizontal)
-        dismiss.contentTintColor = .labelColor.withAlphaComponent(0.45)
+        refreshInk()
         dismiss.setClickHandler { [weak self] in self?.onDismiss?() }
         for view in [icon, title, detail, dismiss] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            icon.widthAnchor.constraint(equalToConstant: 20), icon.heightAnchor.constraint(equalToConstant: 20),
-            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            icon.widthAnchor.constraint(equalToConstant: 19), icon.heightAnchor.constraint(equalToConstant: 19),
+            icon.centerXAnchor.constraint(equalTo: centerXAnchor), icon.topAnchor.constraint(equalTo: topAnchor, constant: 11),
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10), title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 34),
+            title.topAnchor.constraint(equalTo: topAnchor, constant: 34.5),
             detail.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 24), detail.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -24),
-            detail.topAnchor.constraint(equalTo: topAnchor, constant: 54),
-            dismiss.topAnchor.constraint(equalTo: topAnchor, constant: 4), dismiss.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4)
+            detail.topAnchor.constraint(equalTo: topAnchor, constant: 55.5),
+            dismiss.topAnchor.constraint(equalTo: topAnchor, constant: 5), dismiss.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4.5)
         ])
         setAccessibilityRole(.group)
         setAccessibilityLabel("Empty Favorites")
     }
     required init?(coder: NSCoder) { fatalError("EmptyFavoritesHint is created in code only") }
     override var isFlipped: Bool { true }
+    private var isDark: Bool { effectiveAppearance.bestMatch(from:[.darkAqua,.aqua]) == .darkAqua }
+    private func refreshInk() {
+        // The frozen dark card supplies these ink levels. Light ink retains
+        // the former effective opacity, now drawn once rather than twice.
+        title.textColor = .labelColor.withAlphaComponent(isDark ? 0.90 : 0.91)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineSpacing = 1
+        detail.attributedStringValue = NSAttributedString(string:detail.stringValue,attributes:[
+            .font:NSFont.systemFont(ofSize:11.5),
+            .foregroundColor:NSColor.labelColor.withAlphaComponent(isDark ? 0.65 : 0.80),
+            .paragraphStyle:paragraph
+        ])
+        icon.contentTintColor = .labelColor.withAlphaComponent(isDark ? 0.95 : 0.90)
+        dismiss.contentTintColor = .labelColor.withAlphaComponent(isDark ? 0.65 : 0.45)
+        needsDisplay = true
+    }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        refreshInk()
+    }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.withAlphaComponent(isDropTarget ? 0.22 : 0.12).setFill()
+        NSColor.black.withAlphaComponent(isDropTarget ? 0.22 : (isDark ? 0.14 : 0.12)).setFill()
         let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 12, yRadius: 12)
         path.fill()
         path.lineWidth = 1
