@@ -2303,7 +2303,8 @@ final class BrowserSession {
                         return .init(id:page.id,page:saved)
                     },layout:layout,focusedMemberID:space.splits.preferredTab(containing:tab.id),
                     stickyMemberID:layout.tabIDs.first(where:space.splits.stickyTabIDs.contains))
-                let site = PinnedSite(url:members[0].url,title:members.map(\.displayTitle).joined(separator:" / "),split:destination)
+                let site = PinnedSite(url:members[0].url,title:members.map(\.displayTitle).joined(separator:" / "),split:destination,
+                    icon:space.splits.icon(containing:tab.id))
                 space.addPinnedSite(site)
                 for page in members {
                     page.setPinnedSiteID(site.id);page.setPinnedMemberID(page.id)
@@ -2314,7 +2315,7 @@ final class BrowserSession {
             }
             return
         }
-        let site = PinnedSite(url: tab.url, title: tab.displayTitle)
+        let site = PinnedSite(url: tab.url, title: tab.displayTitle,icon:tab.sidebarIcon)
         space.addPinnedSite(site)
         tab.setPinnedSiteID(site.id)
         space.promoteFavorite(tab)
@@ -2323,6 +2324,25 @@ final class BrowserSession {
     }
 
     func canFavorite(_ tab:Tab) -> Bool { favoriteUnit(for:tab) != nil }
+
+    @discardableResult
+    func setFavoriteIcon(_ icon:SpaceIcon,for id:UUID,in profile:BrowserProfile) -> Bool {
+        guard profiles.contains(where:{ $0 === profile }) else { return false }
+        return changes.batch {
+            guard profile.setFavoriteIcon(icon,for:id) else { return false }
+            let members = profile.favoriteTabs.filter { $0.pinnedSiteID == id }
+            let ids = Set(members.map(\.id))
+            if let first = members.first {
+                for space in spaces where space.profile === profile {
+                    if let layout = space.splits.layout(containing:first.id),Set(layout.tabIDs) == ids {
+                        space.splits.setIcon(icon,containing:first.id)
+                    }
+                }
+            }
+            changes.send(.structure);scheduleSave()
+            return true
+        }
+    }
 
     private func favoriteUnit(for tab:Tab) -> [Tab]? {
         let space = activeSpace
@@ -2341,8 +2361,10 @@ final class BrowserSession {
         }
     }
 
-    func removePinnedSite(_ site: PinnedSite) {
-        if let current = activeSpace.pinnedSites.first(where:{ $0.id == site.id }),current.split != nil {
+    func removePinnedSite(_ requested: PinnedSite) {
+        guard let site = activeSpace.pinnedSites.first(where:{ $0.id == requested.id }) else { return }
+        if site.split != nil {
+            let current = site
             changes.batch {
                 let space = activeSpace
                 restoreFavoriteSplit(current,select:false)
@@ -2364,6 +2386,7 @@ final class BrowserSession {
         // disappearing with a tile the user only meant to unpin.
         if let tab = activeSpace.tab(forPin: site.id) {
             activeSpace.profile.removeFavorite(tab)
+            tab.setSidebarIcon(site.icon)
             tab.setPinnedSiteID(nil)
             tab.setGroupID(nil)
             activeSpace.insert(tab, at: activeSpace.workspaceTabs.count)
@@ -2429,7 +2452,9 @@ final class BrowserSession {
                 members.append(page)
             }
         }
-        let collection = SplitCollection.restoring([saved.record],tabIDs:members.map(\.id))
+        var record = saved.record
+        record.icon = site.icon.isCustomized ? site.icon:nil
+        let collection = SplitCollection.restoring([record],tabIDs:members.map(\.id))
         // Replace stale arrangements in this Space, leaving other Space-only
         // pages available. The canonical Favorite destination remains intact.
         for member in members { space.splits.dissolve(containing:member.id) }
@@ -3128,7 +3153,7 @@ final class BrowserSession {
                         )
                     },
                     pinnedSites: space.isPrivate ? nil : space.pinnedSites.map {
-                        SessionSnapshot.Pinned(id: $0.id, url: $0.url, title: $0.title,split:$0.split)
+                        SessionSnapshot.Pinned(id: $0.id, url: $0.url, title: $0.title,split:$0.split,icon:$0.icon.isCustomized ? $0.icon:nil)
                     },
                     archiveHours: space.archiveHours,
                     // Written in the order archived, so the list restores the
@@ -3239,7 +3264,7 @@ final class BrowserSession {
             space.restore(
                 groups: groups,
                 pinnedSites: (stored.pinnedSites ?? []).map {
-                    PinnedSite(id: $0.id, url: $0.url, title: $0.title,split:$0.split)
+                    PinnedSite(id: $0.id, url: $0.url, title: $0.title,split:$0.split,icon:$0.icon ?? .automatic)
                 }
             )
 

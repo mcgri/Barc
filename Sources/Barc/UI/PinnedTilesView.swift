@@ -18,13 +18,15 @@ struct PinnedTile {
     /// competing logos.
     let isActive: Bool
     let favicon: PageFavicon?
+    let icon: SpaceIcon
 
-    init(id: String, title: String, url: URL? = nil, isActive: Bool = false, favicon: PageFavicon? = nil) {
+    init(id: String, title: String, url: URL? = nil, isActive: Bool = false, favicon: PageFavicon? = nil,icon:SpaceIcon = .automatic) {
         self.id = id
         self.title = title
         self.url = url
         self.isActive = isActive
         self.favicon = favicon
+        self.icon = icon
     }
 }
 
@@ -41,6 +43,7 @@ final class PinnedTilesView: NSView {
     var onSelect: ((String) -> Void)?
     /// A tile asked to be unpinned, identified by `PinnedTile.id`.
     var onRemove: ((String) -> Void)?
+    var onChangeIcon: ((String,NSView) -> Void)?
 
     private var tileViews: [PinnedTileView] = []
     private let emptyHint = EmptyFavoritesHint()
@@ -80,6 +83,10 @@ final class PinnedTilesView: NSView {
             let view = PinnedTileView(tile: tile, isPrivate: isPrivate)
             view.onClick = { [weak self] in self?.onSelect?(tile.id) }
             view.onRemove = { [weak self] in self?.onRemove?(tile.id) }
+            view.onChangeIcon = { [weak self,weak view] in
+                guard let view else { return }
+                self?.onChangeIcon?(tile.id,view)
+            }
             return view
         }
         for view in tileViews { addSubview(view, positioned: .below, relativeTo: emptyHint) }
@@ -251,6 +258,7 @@ private final class PinnedTileView: NSView {
     var onClick: (() -> Void)?
     /// A right-click on the tile asks to unpin it.
     var onRemove: (() -> Void)?
+    var onChangeIcon: (() -> Void)?
 
     /// The same view the sidebar rows use, which is the whole point: a pinned
     /// site has no web view to ask for its declared icons, and that is a case
@@ -259,6 +267,9 @@ private final class PinnedTileView: NSView {
     /// fetch and placeholder handling here would be a second fetcher for the
     /// sake of a tile.
     private let icon = FaviconImageView()
+    private let customIcon = NSImageView()
+    private let artwork: SpaceIcon
+    private let artworkTitle: String
     /// The brand ring. A conic gradient masked to the tile's outline, so the
     /// colours run around the edge rather than across it.
     private let ring = CAGradientLayer()
@@ -273,6 +284,8 @@ private final class PinnedTileView: NSView {
 
     init(tile: PinnedTile, isPrivate: Bool) {
         self.isActive = tile.isActive
+        self.artwork = tile.icon
+        self.artworkTitle = tile.title
         super.init(frame: .zero)
         // The strip sets this view's frame directly, so it is laid out by
         // frame rather than by constraints.
@@ -291,11 +304,16 @@ private final class PinnedTileView: NSView {
         applyRing(for: nil)
 
         addSubview(icon)
+        customIcon.translatesAutoresizingMaskIntoConstraints = false
+        customIcon.imageScaling = .scaleProportionallyUpOrDown
+        customIcon.setAccessibilityElement(false)
+        addSubview(customIcon)
+        refreshArtwork()
         // The icon arrives asynchronously, so the ring is coloured when it does
         // rather than once at build time.
         icon.onImageChanged = { [weak self] image in self?.applyRing(for: image) }
         updateHighlight()
-        if let url = tile.url {
+        if customIcon.isHidden,let url = tile.url {
             icon.show(for: url, in: nil, isPrivate: isPrivate, restored: tile.favicon)
         }
 
@@ -306,12 +324,34 @@ private final class PinnedTileView: NSView {
 
         NSLayoutConstraint.activate([
             icon.centerXAnchor.constraint(equalTo: centerXAnchor),
-            icon.centerYAnchor.constraint(equalTo: centerYAnchor)
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            customIcon.centerXAnchor.constraint(equalTo:centerXAnchor),
+            customIcon.centerYAnchor.constraint(equalTo:centerYAnchor),
+            customIcon.widthAnchor.constraint(equalToConstant:Style.Metrics.tileIconSide),
+            customIcon.heightAnchor.constraint(equalToConstant:Style.Metrics.tileIconSide)
         ])
     }
 
     required init?(coder: NSCoder) {
         fatalError("PinnedTileView is created in code only")
+    }
+
+    private func refreshArtwork() {
+        var image:NSImage?
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            let available:Bool = switch artwork {
+            case .automatic: false
+            case .emoji(let text): !text.isEmpty
+            case .symbol(let name): FolderSymbols.image(named:name) != nil
+            case .custom(let name): SpaceIconStore.shared.image(named:name) != nil
+            }
+            if available { image = artwork.image(color:Style.Colors.sidebarPrimaryText,title:artworkTitle,side:Style.Metrics.tileIconSide) }
+        }
+        customIcon.image = image;customIcon.isHidden = image == nil;icon.isHidden = image != nil
+    }
+
+    override func hitTest(_ point:NSPoint) -> NSView? {
+        super.hitTest(point) == nil ? nil:self
     }
 
     /// Thin enough to read as an outline rather than a frame, at the tile size
@@ -374,6 +414,7 @@ private final class PinnedTileView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        refreshArtwork()
         highlight?.refresh(appearance: effectiveAppearance)
     }
 
@@ -402,6 +443,12 @@ private final class PinnedTileView: NSView {
     /// tile is the way back off it.
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.allowsContextMenuPlugIns = false
+        if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
+        let change = NSMenuItem(title:"Change Icon…",action:#selector(changeIconFromMenu),keyEquivalent:"")
+        change.target = self;menu.addItem(change)
+        menu.addItem(.separator())
         let unpin = NSMenuItem(title: "Unpin", action: #selector(removeFromMenu), keyEquivalent: "")
         unpin.target = self
         unpin.image = NSImage(systemSymbolName: "pin.slash", accessibilityDescription: nil)
@@ -410,6 +457,7 @@ private final class PinnedTileView: NSView {
     }
 
     @objc private func removeFromMenu() { onRemove?() }
+    @objc private func changeIconFromMenu() { onChangeIcon?() }
 }
 
 /// A full-width, dismissible explanation instead of an empty Favorite tile.

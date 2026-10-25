@@ -16,12 +16,14 @@ struct PinnedSite: Identifiable, Equatable, Sendable {
     /// Shown as the tile's tooltip and used when a favicon is unavailable.
     var title: String
     var split: FavoriteSplit?
+    var icon: SpaceIcon
 
-    init(id: UUID = UUID(), url: URL, title: String, split:FavoriteSplit? = nil) {
+    init(id: UUID = UUID(), url: URL, title: String, split:FavoriteSplit? = nil, icon:SpaceIcon = .automatic) {
         self.id = id
         self.url = url
         self.title = title
         self.split = split
+        self.icon = icon
     }
 
     /// Two pins are "the same site" when host and path match, ignoring the

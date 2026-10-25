@@ -64,6 +64,7 @@ struct SessionSnapshot: Codable, Equatable {
         var stickyTabIndex: Int?
         var id: UUID? = nil
         var focusedTabIndex: Int? = nil
+        var icon: SpaceIcon? = nil
     }
 
     struct Space: Codable, Equatable {
@@ -230,6 +231,7 @@ struct SessionSnapshot: Codable, Equatable {
         var url: URL
         var title: String
         var split: FavoriteSplit? = nil
+        var icon: SpaceIcon? = nil
     }
 
     /// A browsing identity and its shared Favorites. Older profile records

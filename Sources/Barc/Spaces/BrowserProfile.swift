@@ -40,6 +40,13 @@ final class BrowserProfile: Identifiable {
         pinAliases = pinAliases.filter { $0.value != site.id }
     }
 
+    @discardableResult
+    func setFavoriteIcon(_ icon:SpaceIcon,for id:UUID) -> Bool {
+        guard let index = pinnedSites.firstIndex(where:{ $0.id == id }),pinnedSites[index].icon != icon else { return false }
+        pinnedSites[index].icon = icon
+        return true
+    }
+
     /// Used only to recognize the generated single-tile aliases in older imports.
     func tab(forPinnedAlias id:UUID) -> Tab? {
         guard let canonical = pinAliases[id] else { return nil }
@@ -105,7 +112,7 @@ final class BrowserProfile: Identifiable {
         case .ephemeral: .ephemeral
         }
         return .init(id: id, name: name, kind: kind, theme: nil,
-                     pinnedSites: identity.isPrivate ? nil : pinnedSites.map { .init(id: $0.id, url: $0.url, title: $0.title,split:$0.split) },
+                     pinnedSites: identity.isPrivate ? nil : pinnedSites.map { .init(id: $0.id, url: $0.url, title: $0.title,split:$0.split,icon:$0.icon.isCustomized ? $0.icon:nil) },
                      favoriteTabs: identity.isPrivate ? nil : favoriteTabs.map { $0.snapshot() },
                      importedFavoriteIDs: identity.isPrivate || importedFavoriteIDs.isEmpty ? nil : importedFavoriteIDs.sorted(),
                      preferences: preferences, hasCustomName: hasCustomName)
@@ -121,7 +128,7 @@ final class BrowserProfile: Identifiable {
         profile.hasCustomName = stored.hasCustomName ?? true
         profile.preferences = stored.preferences ?? ProfilePreferences()
         guard !identity.isPrivate else { return profile }
-        for pin in stored.pinnedSites ?? [] { profile.addPinnedSite(.init(id: pin.id, url: pin.url, title: pin.title,split:pin.split)) }
+        for pin in stored.pinnedSites ?? [] { profile.addPinnedSite(.init(id: pin.id, url: pin.url, title: pin.title,split:pin.split,icon:pin.icon ?? .automatic)) }
         profile.importedFavoriteIDs = Set(stored.importedFavoriteIDs ?? [])
         for tab in stored.favoriteTabs ?? [] { profile.adoptFavorite(Tab(restoring: tab, identity: identity)) }
         return profile
@@ -145,6 +152,7 @@ final class BrowserProfile: Identifiable {
             saved.focusedMemberID = new.focusedTabIndex.flatMap { saved.members.indices.contains($0) ? saved.members[$0].id:nil }
             saved.stickyMemberID = new.stickyTabIndex.flatMap { saved.members.indices.contains($0) ? saved.members[$0].id:nil }
             pinnedSites[index].split = saved
+            pinnedSites[index].icon = new.icon ?? .automatic
         }
     }
 }

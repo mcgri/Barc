@@ -11,6 +11,7 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
     private(set) var displayedEmoji: [SpaceEmojiCatalog.Entry] = SpaceEmojiCatalog.entries
     private let selected: SpaceIcon
     private let onChoose: (SpaceIcon) -> Void
+    private let contextLabel: String
     private let tabs = NSSegmentedControl(labels: ["Emoji", "Icon"], trackingMode: .selectOne, target: nil, action: nil)
     private let search = NSSearchField()
     private let trash = NSButton()
@@ -23,9 +24,10 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
     private var scrollObserver: AnyCancellable?
     private static let itemID = NSUserInterfaceItemIdentifier("Space glyph")
 
-    init(selected: SpaceIcon, onChoose: @escaping (SpaceIcon) -> Void) {
+    init(selected: SpaceIcon, label:String = "Space icon", onChoose: @escaping (SpaceIcon) -> Void) {
         self.selected = selected
         self.onChoose = onChoose
+        self.contextLabel = label
         if case .symbol = selected { mode = .icon } else { mode = .emoji }
         super.init(nibName: nil, bundle: nil)
         preferredContentSize = NSSize(width: 270, height: 270)
@@ -34,7 +36,7 @@ final class CompactSpaceIconPicker: NSViewController, NSCollectionViewDataSource
 
     override func loadView() {
         view = FlippedView(frame: NSRect(origin: .zero, size: preferredContentSize))
-        view.setAccessibilityLabel("Space icon")
+        view.setAccessibilityLabel(contextLabel)
         tabs.frame = NSRect(x: 64, y: 14, width: 114, height: 24)
         tabs.segmentStyle = .rounded
         tabs.setWidth(57, forSegment: 0)

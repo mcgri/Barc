@@ -7,6 +7,18 @@ struct SplitCollection: Equatable, Sendable {
     private(set) var stickyTabIDs: Set<UUID> = []
     private var identifiers: [UUID] = []
     private var focusedTabs: [UUID: UUID] = [:]
+    private var icons: [UUID: SpaceIcon] = [:]
+
+    func icon(containing tabID:UUID) -> SpaceIcon {
+        identifier(containing:tabID).flatMap { icons[$0] } ?? .automatic
+    }
+
+    @discardableResult
+    mutating func setIcon(_ icon:SpaceIcon,containing tabID:UUID) -> Bool {
+        guard let id = identifier(containing:tabID),icon != (icons[id] ?? .automatic) else { return false }
+        icons[id] = icon.isCustomized ? icon:nil
+        return true
+    }
 
     func identifier(containing tabID: UUID) -> UUID? {
         layouts.firstIndex(where: { $0.contains(tabID) }).map { identifiers[$0] }
@@ -55,14 +67,17 @@ struct SplitCollection: Equatable, Sendable {
         let insertion = touched.first ?? layouts.count
         let identifier = identifier(containing: unique[0]) ?? touched.first.map { identifiers[$0] } ?? UUID()
         let focus = focusedTabs[identifier] ?? unique[0]
+        let icon = icons[identifier]
         for index in touched.reversed() {
             focusedTabs[identifiers[index]] = nil
+            icons[identifiers[index]] = nil
             identifiers.remove(at: index)
             layouts.remove(at: index)
         }
         layouts.insert(result, at: insertion)
         identifiers.insert(identifier, at: insertion)
         focusedTabs[identifier] = focus
+        icons[identifier] = icon
         // A combined split has one sticky pane; keep the first group's choice.
         let sticky = result.tabIDs.first(where: stickyTabIDs.contains)
         stickyTabIDs.subtract(result.tabIDs)
@@ -96,13 +111,16 @@ struct SplitCollection: Equatable, Sendable {
         let insertion = touched.first ?? layouts.count
         let identifier = identifier(containing:target) ?? UUID()
         let focus = focusedTabs[identifier] ?? target
+        let icon = icons[identifier]
         let sticky = original?.tabIDs.first(where:stickyTabIDs.contains) ?? result.tabIDs.first(where:stickyTabIDs.contains)
         for index in touched.reversed() {
             focusedTabs[identifiers[index]] = nil
+            icons[identifiers[index]] = nil
             identifiers.remove(at:index); layouts.remove(at:index)
         }
         layouts.insert(result,at:insertion); identifiers.insert(identifier,at:insertion)
         focusedTabs[identifier] = focus
+        icons[identifier] = icon
         stickyTabIDs.subtract(result.tabIDs)
         if let sticky { stickyTabIDs.insert(sticky) }
         return true
@@ -133,6 +151,7 @@ struct SplitCollection: Equatable, Sendable {
         case .dissolved:
             stickyTabIDs.subtract(layouts[index].tabIDs)
             focusedTabs[identifiers[index]] = nil
+            icons[identifiers[index]] = nil
             identifiers.remove(at: index)
             layouts.remove(at: index)
         case .resized(let layout):
@@ -146,6 +165,7 @@ struct SplitCollection: Equatable, Sendable {
         guard let index = layouts.firstIndex(where: { $0.contains(id) }) else { return }
         stickyTabIDs.subtract(layouts[index].tabIDs)
         focusedTabs[identifiers[index]] = nil
+        icons[identifiers[index]] = nil
         identifiers.remove(at: index)
         layouts.remove(at: index)
     }
@@ -179,6 +199,7 @@ struct SplitCollection: Equatable, Sendable {
             let id = identifiers.contains(originalID) ? UUID() : originalID
             layouts.append(layout)
             identifiers.append(id)
+            icons[id] = source.icons[originalID]
             if let focus = source.preferredTab(containing:first).flatMap({ mapping[$0] }) {
                 focusedTabs[id] = focus
             }
@@ -199,7 +220,7 @@ struct SplitCollection: Equatable, Sendable {
             guard indices.count == layout.paneCount else { return nil }
             return SessionSnapshot.Split(layout: layout, tabIndices: indices,
                 stickyTabIndex: layout.tabIDs.first(where: stickyTabIDs.contains).flatMap { positions[$0] },
-                id: identifiers[index], focusedTabIndex: focusedTabs[identifiers[index]].flatMap { positions[$0] })
+                id: identifiers[index], focusedTabIndex: focusedTabs[identifiers[index]].flatMap { positions[$0] },icon:icons[identifiers[index]])
         }
         return saved.isEmpty ? nil : saved
     }
@@ -217,6 +238,7 @@ struct SplitCollection: Equatable, Sendable {
             result.layouts.append(layout)
             let id = record.id.flatMap { result.identifiers.contains($0) ? nil : $0 } ?? UUID()
             result.identifiers.append(id)
+            if let icon = record.icon,icon.isCustomized { result.icons[id] = icon }
             if let index = record.focusedTabIndex, record.tabIndices.contains(index), tabIDs.indices.contains(index) {
                 result.focusedTabs[id] = tabIDs[index]
             }

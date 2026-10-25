@@ -151,6 +151,20 @@ struct ArcFavoriteSplitImportTests {
         #expect(space.splits.layouts.isEmpty && space.pinnedSites.allSatisfy { $0.split == nil })
         #expect(space.tabs.map { $0.snapshot() } == before && session.archivedTabs.count == archiveCount)
     }
+    @Test("Upgrading flat Favorite groups preserves a locally chosen tile icon")
+    func legacyIconChoice() throws {
+        let source = try sourceFixture();defer { source.remove() }
+        let incoming = snapshots(source)[0],flat = legacy(incoming)
+        let session = TestSession.make().0
+        try session.applyArcSpaces([flat])
+        let owner = try #require(session.spaces.first { $0.id == incoming.id })
+        let site = try #require(owner.pinnedSites.first)
+        session.setFavoriteIcon(.emoji("🐮"),for:site.id,in:owner.profile)
+        try session.applyArcSpaces([incoming])
+        #expect(owner.pinnedSites.first { $0.id == site.id }?.icon == .emoji("🐮"))
+        #expect(owner.pinnedSites.allSatisfy { $0.split == nil })
+        #expect(owner.splits.layouts.isEmpty)
+    }
 }
 
 extension ArcImportFlowTests {
@@ -177,4 +191,6 @@ extension ArcImportFlowTests {
             #expect(count.imported == (repeated ? 0:1) && count.existing == (repeated ? 1:0))
         }
     }
+
+
 }

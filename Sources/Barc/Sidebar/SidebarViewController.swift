@@ -304,16 +304,23 @@ final class SidebarViewController: NSViewController {
             return tab.pinnedSiteID != nil
         }
         pinnedTiles.onSelect = { [weak self] id in
-            guard let self,
-                  let site = self.session.activeSpace.pinnedSites.first(where: { $0.id.uuidString == id })
-            else { return }
-            self.session.openPinnedSite(site)
+            guard let self,let target = favoriteTileTarget(id) else { return }
+            self.session.openPinnedSite(target.site)
         }
         pinnedTiles.onRemove = { [weak self] id in
-            guard let self,
-                  let site = self.session.activeSpace.pinnedSites.first(where: { $0.id.uuidString == id })
-            else { return }
-            self.session.removePinnedSite(site)
+            guard let self,let target = favoriteTileTarget(id) else { return }
+            self.session.removePinnedSite(target.site)
+        }
+        pinnedTiles.onChangeIcon = { [weak self] id,anchor in
+            guard let self,let target = favoriteTileTarget(id) else { return }
+            // Session updates replace individual tiles while the menu closes.
+            // The strip survives those updates and keeps the same coordinates.
+            let rect = pinnedTiles.convert(anchor.bounds,from:anchor)
+            DispatchQueue.main.async { [weak self] in
+                guard let self,pinnedTiles.window != nil,!pinnedTiles.isHiddenOrHasHiddenAncestor,
+                      let current = favoriteTileTarget(id) else { return }
+                showFavoriteIconPicker(for:current.site,in:target.profile,anchor:pinnedTiles,rect:rect)
+            }
         }
 
         diaFooter.onSelectSpace = { [weak self] id in
@@ -1094,19 +1101,40 @@ final class SidebarViewController: NSViewController {
         pinnedTiles.show(
             space.pinnedSites.map { site in
                 PinnedTile(
-                    id: site.id.uuidString,
+                    id: space.id.uuidString+"/"+space.profile.id.uuidString+"/"+site.id.uuidString,
                     title: site.title,
                     url: site.url,
                     // The tab the shortcut owns, not a URL comparison: the
                     // site navigates away from the pinned address immediately
                     // and the tile would stop recognising its own page.
                     isActive: activeID != nil && space.activeTab?.pinnedSiteID == site.id,
-                    favicon: space.tab(forPin: site.id)?.restoredFavicon
+                    favicon: space.tab(forPin: site.id)?.restoredFavicon,icon:site.icon
                 )
             },
             isPrivate: space.isPrivate,
             showsEmptyHint: !space.favoritesHintDismissed
         )
+    }
+
+    private func favoriteTileTarget(_ id:String) -> (profile:BrowserProfile,site:PinnedSite)? {
+        let parts = id.split(separator:"/")
+        guard parts.count == 3,previewSpace == nil,shownSpace === session.activeSpace,
+              parts[0] == shownSpace.id.uuidString,parts[1] == shownSpace.profile.id.uuidString,
+              let site = shownSpace.pinnedSites.first(where:{ $0.id.uuidString == parts[2] }) else { return nil }
+        return (shownSpace.profile,site)
+    }
+
+    private func showFavoriteIconPicker(for site:PinnedSite,in profile:BrowserProfile,anchor:NSView,rect:NSRect? = nil) {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = CompactSpaceIconPicker(selected:site.icon,label:"Favorite icon") {
+            [weak self,weak profile,weak popover] icon in
+            guard let self,let profile else { return }
+            session.setFavoriteIcon(icon,for:site.id,in:profile)
+            popover?.close()
+        }
+        tabIconPopover?.close();tabIconPopover = popover
+        popover.show(relativeTo:rect ?? anchor.bounds,of:anchor,preferredEdge:.minY)
     }
 
     private func canFavoriteTab(id: UUID) -> Bool {
@@ -1217,7 +1245,7 @@ final class SidebarViewController: NSViewController {
     private var shownRowsSpaceID: Space.ID?
     private var folderNameEdit: (id: UUID, space: Space, group: TabGroup, field: FolderNameEditor)?
     private var tabNameEdit: (id: UUID, space: Space, tab: Tab, field: FolderNameEditor)?
-    private var tabIconPopover: NSPopover?
+    private(set) var tabIconPopover: NSPopover?
 
     private func reloadTabs() {
         tableView.showSplitDropPreview(nil)
@@ -1949,6 +1977,10 @@ final class SidebarViewController: NSViewController {
     }
 
     private func showTabIconPicker(for tab: Tab, in owner: Space, anchor: NSView?) {
+        if let id = tab.pinnedSiteID,let site = owner.pinnedSites.first(where:{ $0.id == id }) {
+            showFavoriteIconPicker(for:site,in:owner.profile,anchor:anchor ?? tableView)
+            return
+        }
         let popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = CompactSpaceIconPicker(selected: tab.sidebarIcon) { [weak self, weak owner, weak tab, weak popover] icon in

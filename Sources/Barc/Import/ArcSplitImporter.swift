@@ -37,7 +37,7 @@ extension BrowserSession {
                     matchesSource($0.importedSourceID,source)
                 }
                 if peers.contains(where:{ $0.groupID != original.groupID || $0.keepsInSidebar != (original.keepsInSidebar == true)
-                    || $0.url != original.url || $0.customName != original.customName || $0.isLocked
+                    || $0.url != original.url || $0.customName != original.customName || $0.sidebarIcon.isCustomized || $0.isLocked
                     || $0.sidebarPosition != original.sidebarPosition || isInLiveFolder($0) }) { valid = false;break }
                 let current = space.tabs.first { $0.importedSourceID == source }
                     ?? space.profile.favoriteTabs.first { matchesSource($0.importedSourceID,source) }
@@ -53,13 +53,16 @@ extension BrowserSession {
                       !isInLiveFolder(current),space.splits.layout(containing:current.id) == nil,
                       isAliasCopy || current.sidebarPosition == original.sidebarPosition,
                       alias != nil,current.pinnedSiteID == nil || current.pinnedSiteID == alias?.pinnedSiteID else { valid = false;break }
-                if let old = alias?.pinnedSiteID { oldPins.insert(old) }
+                if let old = alias?.pinnedSiteID {
+                    guard space.pinnedSites.first(where:{ $0.id == old })?.icon.isCustomized != true else { valid = false;break }
+                    oldPins.insert(old)
+                }
                 // An older URL alias may have coalesced identical source panes.
                 // Keep its live page once and recreate the other destination.
                 found.append(claimed.insert(current.id).inserted ? current:nil)
             }
             guard valid else { space.importedSplitIDs.insert(split.id);continue }
-            space.addPinnedSite(.init(id:pin.id,url:pin.url,title:pin.title,split:split));addedFavorites += 1
+            space.addPinnedSite(.init(id:pin.id,url:pin.url,title:pin.title,split:split,icon:pin.icon ?? .automatic));addedFavorites += 1
             for (offset,original) in originals.enumerated() {
                 let page:Tab
                 if let existing = found[offset] {
