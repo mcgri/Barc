@@ -33,7 +33,7 @@ Workflow: scan once, implement this batch without intermediate builds or tests, 
 
 ## 5. Combined verification and real use
 - [x] T1. After all implementation changes, run the combined automated checks and fix actual failures as one verification phase.
-- [ ] T2. Build once, verify its signature, inspect rendered/native behavior in an isolated Barc run, and check saved user data.
-- [ ] T3. Compile one final findings list with completed fixes and concrete remaining differences. Do not claim exact parity from unit tests alone.
+- [x] T2. Build once, verify its signature, inspect rendered/native behavior in an isolated Barc run, and check saved user data.
+- [x] T3. Compile one final findings list with completed fixes and concrete remaining differences. Do not claim exact parity from unit tests alone.
 
-Combined automated checks passed: 2,314 tests in 364 suites, 90.133 seconds. Remaining source-comparison and account-dependent checks will be recorded in SIDEBAR-VERIFICATION.md after the isolated app review.
+Combined automated checks passed: 2,315 tests in 364 suites, 90.521 seconds. The isolated app review is complete. Remaining source-comparison and account-dependent checks are recorded in SIDEBAR-VERIFICATION.md.
