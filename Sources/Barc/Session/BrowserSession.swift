@@ -1227,39 +1227,43 @@ final class BrowserSession {
 
     /// Promotes a folder's contents into a Space with the same profile. Existing
     /// tabs keep their live page and nested folders keep their mixed ordering.
+    /// Publish after the new Space's roots and selected page are ready.
     @discardableResult
     func turnFolderIntoSpace(_ group: TabGroup) -> Space? {
-        guard !group.isLive, !group.isLocked,
-              let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
-        let contents = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs, parentID: group.id)
-        let tabs = FolderContents.tabs(in: group, space: source)
-        let selected = tabs.first { $0.id == source.activeTabID } ?? tabs.first
-        let target = Space(name: Space.clampName(group.name), identity: source.identity, profile: source.profile,
-                           theme: source.theme, border: source.border, look: source.look)
-        target.icon = group.icon.spaceIcon
-        spaces.append(target)
-        move(group, toSpace: target)
-        for (index, item) in contents.enumerated() {
-            switch item {
-            case .folder(let child): child.parentID = nil
-            case .tab(let tab): tab.setGroupID(nil); tab.setKeepsInSidebar(true)
+        return changes.batch {
+            guard !group.isLive, !group.isLocked,
+                  let source = spaces.first(where: { $0.group(withID: group.id) === group }) else { return nil }
+            let contents = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs, parentID: group.id)
+            let tabs = FolderContents.tabs(in: group, space: source)
+            let selected = tabs.first { $0.id == source.activeTabID } ?? tabs.first
+            let target = Space(name: Space.clampName(group.name), identity: source.identity, profile: source.profile,
+                               theme: source.theme, border: source.border, look: source.look)
+            target.icon = group.icon.spaceIcon
+            spaces.append(target)
+            move(group, toSpace: target)
+            for (index, item) in contents.enumerated() {
+                switch item {
+                case .folder(let child): child.parentID = nil
+                case .tab(let tab): tab.setGroupID(nil); tab.setKeepsInSidebar(true)
+                }
+                item.position = index
             }
-            item.position = index
+            // Detaching rather than deleting transfers ownership of a custom icon
+            // to the Space instead of removing its file.
+            target.detachGroup(group)
+            if let selected { target.setActiveTabID(selected.id) }
+            changes.send(.structure)
+            selectSpace(target)
+            if target.workspaceTabs.isEmpty { newTab() }
+            scheduleSave()
+            return target
         }
-        // Detaching rather than deleting transfers ownership of a custom icon
-        // to the Space instead of removing its file.
-        target.detachGroup(group)
-        if let selected { target.setActiveTabID(selected.id) }
-        changes.send(.structure)
-        selectSpace(target)
-        if target.workspaceTabs.isEmpty { newTab() }
-        scheduleSave()
-        return target
     }
 
     /// A local copy of a Space's sidebar in a folder. The source stays intact;
     /// Favorites remain profile-owned and are not copied into the folder.
     /// Destination tabs start unloaded in the destination's browsing identity.
+    /// Complete split groups retain their layout through explicit page bindings.
     @discardableResult
     func exportSpace(_ source: Space, intoFolderIn target: Space, iconStore: SpaceIconStore = .shared) throws -> TabGroup? {
         guard source !== target, spaces.contains(where: { $0 === source }),
@@ -1285,35 +1289,42 @@ final class BrowserSession {
         case .symbol(let value): root.setIcon(.symbol(value))
         case .custom: if let file = pictures[root.id] { root.setIcon(.custom(file)) }
         }
-        let roots = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs)
-        let rootPositions = Dictionary(uniqueKeysWithValues: roots.enumerated().map { ($0.element.id, $0.offset) })
-        let rootIDs = Set(ordered.filter { $0.depth == 0 }.map { $0.folder.id })
-        let siblings = SidebarOrder.items(groups: target.groups, tabs: target.listedTabs)
-        target.addGroup(root)
-        for entry in ordered {
-            let folder = entry.folder
-            // Existing deep trees remain intact. The nesting cap controls new
-            // folder creation and drops, not visibility of imported contents.
-            let parent = rootIDs.contains(folder.id) ? root.id : (folder.parentID.flatMap { ids[$0] } ?? root.id)
-            target.addGroup(TabGroup(id: ids[folder.id]!, name: folder.name, emoji: folder.emoji,
-                tint: folder.tint, appearance: folder.appearance, isCollapsed: folder.isCollapsed,
-                parentID: parent, symbolName: folder.symbolName, iconFileName: pictures[folder.id],
-                isLocked: folder.isLocked, sidebarPosition: rootPositions[folder.id] ?? folder.sidebarPosition,
-                badgeIcon: folder.badgeIcon, hasUserChosenIcon: folder.hasUserChosenIcon))
+        return changes.batch {
+            let roots = SidebarOrder.items(groups: source.groups, tabs: source.listedTabs)
+            let rootPositions = Dictionary(uniqueKeysWithValues: roots.enumerated().map { ($0.element.id, $0.offset) })
+            let rootIDs = Set(ordered.filter { $0.depth == 0 }.map { $0.folder.id })
+            let siblings = SidebarOrder.items(groups: target.groups, tabs: target.listedTabs)
+            let originalSplits = source.splits
+            var bindings: [UUID: UUID] = [:]
+            target.addGroup(root)
+            for entry in ordered {
+                let folder = entry.folder
+                // Existing deep trees remain intact. The nesting cap controls new
+                // folder creation and drops, not visibility of imported contents.
+                let parent = rootIDs.contains(folder.id) ? root.id : (folder.parentID.flatMap { ids[$0] } ?? root.id)
+                target.addGroup(TabGroup(id: ids[folder.id]!, name: folder.name, emoji: folder.emoji,
+                    tint: folder.tint, appearance: folder.appearance, isCollapsed: folder.isCollapsed,
+                    parentID: parent, symbolName: folder.symbolName, iconFileName: pictures[folder.id],
+                    isLocked: folder.isLocked, sidebarPosition: rootPositions[folder.id] ?? folder.sidebarPosition,
+                    badgeIcon: folder.badgeIcon, hasUserChosenIcon: folder.hasUserChosenIcon))
+            }
+            for tab in source.listedTabs where !tab.isSidebarPlaceholder {
+                var snapshot = tab.snapshot()
+                snapshot.groupID = tab.groupID.flatMap { ids[$0] } ?? root.id
+                if snapshot.groupID == root.id { snapshot.sidebarPosition = rootPositions[tab.id] }
+                snapshot.importedSourceID = nil
+                snapshot.pinnedSiteID = nil
+                snapshot.interactionState = nil
+                let copy = Tab(restoring: snapshot, identity: target.identity)
+                bindings[tab.id] = copy.id
+                insert(copy, into: target, at: target.workspaceTabs.count, select: false)
+            }
+            target.splits.copyCompleteGroups(from:originalSplits,mapping:bindings)
+            SidebarOrder.place(.folder(root), before: nil, in: siblings)
+            changes.send(.structure)
+            scheduleSave()
+            return root
         }
-        for tab in source.listedTabs where !tab.isSidebarPlaceholder {
-            var snapshot = tab.snapshot()
-            snapshot.groupID = tab.groupID.flatMap { ids[$0] } ?? root.id
-            if snapshot.groupID == root.id { snapshot.sidebarPosition = rootPositions[tab.id] }
-            snapshot.importedSourceID = nil
-            snapshot.pinnedSiteID = nil
-            snapshot.interactionState = nil
-            insert(Tab(restoring: snapshot, identity: target.identity), into: target, at: target.workspaceTabs.count, select: false)
-        }
-        SidebarOrder.place(.folder(root), before: nil, in: siblings)
-        changes.send(.structure)
-        scheduleSave()
-        return root
     }
 
     // MARK: - Closed tabs and windows
