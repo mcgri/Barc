@@ -194,7 +194,8 @@ final class BrowserSession {
         closedWindows = closedWindows.map { record in
             guard record.spaceID == space.id else { return record }
             let tabs = record.tabs.map { stored in var copy = stored; copy.interactionState = nil; return copy }
-            return ClosedWindow(id: record.id, title: record.title, spaceID: record.spaceID, tabs: tabs, closedAt: record.closedAt)
+            return ClosedWindow(id: record.id, title: record.title, spaceID: record.spaceID, tabs: tabs,
+                closedAt: record.closedAt, splits:record.splits,focusedTabIndex:record.focusedTabIndex)
         }
         for index in archivedTabs.indices where archivedTabs[index].spaceID == space.id {
             archivedTabs[index].snapshot.interactionState = nil
@@ -1360,19 +1361,26 @@ final class BrowserSession {
         let spaceID: Space.ID
         let tabs: [SessionSnapshot.Tab]
         let closedAt: Date
+        /// Complete units only, bound to positions in `tabs`, never URLs.
+        let splits: [SessionSnapshot.Split]?
+        let focusedTabIndex: Int?
 
         init(
             id: UUID = UUID(),
             title: String = "Window",
             spaceID: Space.ID,
             tabs: [SessionSnapshot.Tab],
-            closedAt: Date = Date()
+            closedAt: Date = Date(),
+            splits: [SessionSnapshot.Split]? = nil,
+            focusedTabIndex: Int? = nil
         ) {
             self.id = id
             self.title = title
             self.spaceID = spaceID
             self.tabs = tabs
             self.closedAt = closedAt
+            self.splits = splits
+            self.focusedTabIndex = focusedTabIndex
         }
 
         var tabCount: Int { tabs.count }
@@ -1425,7 +1433,13 @@ final class BrowserSession {
     func recordClosedWindow(title: String = "Window", tabs: [Tab], in space: Space) {
         guard !space.isPrivate, !tabs.isEmpty else { return }
         let snapshots = tabs.map { $0.snapshot() }
-        closedWindows.append(ClosedWindow(title: title, spaceID: space.id, tabs: snapshots))
+        let splits = space.splits.snapshot(tabIDs:tabs.map(\.id))
+        let selected = tabs.firstIndex { $0.id == space.activeTabID }
+        let splitFocus = selected.flatMap { index in
+            splits?.contains(where:{ $0.tabIndices.contains(index) }) == true ? index:nil
+        }
+        closedWindows.append(ClosedWindow(title:title,spaceID:space.id,tabs:snapshots,
+            splits:splits,focusedTabIndex:splitFocus))
         if closedWindows.count > Self.closedWindowLimit {
             closedWindows.removeFirst(closedWindows.count - Self.closedWindowLimit)
         }
@@ -1506,22 +1520,34 @@ final class BrowserSession {
     }
 
     private func restore(closedWindow closed: ClosedWindow) -> [Tab] {
-        let space = spaces.first { $0.id == closed.spaceID } ?? activeSpace
-        if space.id != activeSpaceID { selectSpace(space) }
-        var restoredTabs: [Tab] = []
-        for var snapshot in closed.tabs {
-            if let groupID = snapshot.groupID, space.group(withID: groupID) == nil {
-                snapshot.groupID = nil
+        changes.batch {
+            let space = spaces.first { $0.id == closed.spaceID } ?? activeSpace
+            if space.id != activeSpaceID { selectSpace(space) }
+            var restoredTabs: [Tab] = []
+            for var snapshot in closed.tabs {
+                if let groupID = snapshot.groupID, space.group(withID: groupID) == nil {
+                    snapshot.groupID = nil
+                }
+                snapshot.pinnedSiteID = nil
+                let tab = Tab(restoring: snapshot, identity: space.identity)
+                insert(tab, into: space, at: space.tabs.count, select: false)
+                restoredTabs.append(tab)
             }
-            snapshot.pinnedSiteID = nil
-            let tab = Tab(restoring: snapshot, identity: space.identity)
-            insert(tab, into: space, at: space.tabs.count, select: false)
-            restoredTabs.append(tab)
+            let groups = SplitCollection.restoring(closed.splits,tabIDs:restoredTabs.map(\.id))
+            space.splits.copyCompleteGroups(from:groups,
+                mapping:Dictionary(uniqueKeysWithValues:restoredTabs.map { ($0.id,$0.id) }))
+            let selected = closed.focusedTabIndex.flatMap { restoredTabs.indices.contains($0) ? restoredTabs[$0]:nil }
+                ?? restoredTabs.last
+            if let selected {
+                // Restoring a row must not replace a pane in an unrelated sticky split.
+                let focused = space.splits.preferredTab(containing:selected.id) ?? selected.id
+                space.setActiveTabID(focused)
+                space.splits.focus(focused)
+                changes.send(.structure)
+                changes.send(.activeTab)
+            }
+            return restoredTabs
         }
-        if let lastTab = restoredTabs.last {
-            selectTab(lastTab)
-        }
-        return restoredTabs
     }
 
     /// Reopens all recently closed tabs and windows.
