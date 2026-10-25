@@ -22,6 +22,54 @@ permissions:
   contents: write
 
 jobs:
+  prepare:
+    name: Select signing mode
+    runs-on: ubuntu-latest
+    outputs:
+      signed: ${{ steps.mode.outputs.signed }}
+    steps:
+      - id: mode
+        env:
+          CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ -n "$CERT_P12" && -n "$CERT_PASSWORD" && -n "$APPLE_ID" && -n "$APPLE_APP_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  unsigned:
+    name: Build and publish unnotarized installers
+    needs: prepare
+    if: needs.prepare.outputs.signed != 'true'
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
+        with:
+          xcode-version: latest-stable
+      - name: Use the committed icon
+        run: touch Resources/Barc.icns
+      - name: Build universal installers and verify their contents
+        run: Tools/package-unsigned-release.sh "${GITHUB_REF_NAME#v}"
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
+        with:
+          name: Barc ${{ github.ref_name }}
+          body_path: build/release/RELEASE-NOTES.md
+          files: |
+            build/release/Barc-*-universal.dmg
+            build/release/Barc-*-universal.pkg
+            build/release/SHA256SUMS.txt
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: false
+
   # One job per architecture variant, run at the same time. The slow part of a
   # release is notarisation -- Apple's queue, which this repository does not
   # control -- and doing the universal and Apple Silicon halves in sequence
@@ -33,6 +81,8 @@ jobs:
   # artifacts. Nothing is shared, so nothing has to be synchronised.
   build:
     name: Build ${{ matrix.variant }}
+    needs: prepare
+    if: needs.prepare.outputs.signed == 'true'
     runs-on: macos-26
     # No timeout-minutes on purpose: GitHub's own six-hour job limit is the only
     # cap. Notarisation waits on Apple, which has no guaranteed ceiling, and a
@@ -224,10 +274,9 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/installer.p12" "$RUNNER_TEMP/Barc.app.zip"
 
-  # Reached only once both variants are notarized and stapled, so an
-  # unnotarised build can never become a release, and a release is never
-  # published with half its downloads missing. Linux: this job only moves
-  # files that are already signed.
+  # The signed path publishes only once both variants are notarized and
+  # stapled. The unsigned path above publishes its own clearly labeled release.
+  # Linux: this job only moves files that are already signed.
   publish:
     name: Publish the GitHub Release
     needs: build

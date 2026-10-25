@@ -9,6 +9,14 @@ Original browser: [Kylmora source code](https://github.com/kylmora/kylmora) and 
 
 Barc started with Kylmora's source code and full Git history, preserving the original work and its recorded changes. Barc's changes continue from Kylmora commit [`08059591cfc740d3f5f94622a3674ad360abb378`](https://github.com/kylmora/kylmora/commit/08059591cfc740d3f5f94622a3674ad360abb378). The original README is retained unchanged in [UPSTREAM.md](UPSTREAM.md) as historical documentation; its downloads, services and branding describe Kylmora.
 
+## Download and install
+
+Download [Barc 0.0.1](https://github.com/mcgri/Barc/releases/tag/v0.0.1) for **Apple Silicon or Intel Macs running macOS 14 or later**.
+
+- Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
+- Version 0.0.1 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Browser profiles and migration data are not included. Import your own data after opening Barc.
+
 ## Build and run
 
 Requires macOS 14 or later and a Swift 6 toolchain.
@@ -24,7 +32,13 @@ The app is built at `build/Barc.app` with Barc's B ribbon icon and its own appli
 make test
 ```
 
-Local builds are ad-hoc signed. Signed and notarized releases need Barc's own signing credentials and release configuration.
+Local builds are ad-hoc signed. To create universal `.dmg` and `.pkg` installers locally:
+
+```sh
+Tools/package-unsigned-release.sh 0.0.1
+```
+
+The output is in `build/release/`, with checksums and release notes. Version tags trigger the release workflow. It uses signed/notarized packaging when Barc's signing credentials are configured; otherwise it publishes installers explicitly marked as unnotarized.
 
 ## Import from Arc
 
