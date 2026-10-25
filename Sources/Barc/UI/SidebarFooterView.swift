@@ -4,6 +4,8 @@ import AppKit
 @MainActor
 final class SidebarFooterView: NSView {
     static let height: CGFloat = SpaceDockLayout.height
+    var canDropOnSpace:((UUID,NSPasteboard,NSDragOperation) -> Bool)?
+    var onDropOnSpace:((UUID,NSPasteboard,NSDragOperation) -> Bool)?
     var onSelectSpace: ((UUID) -> Void)?
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
     var spaceMenuProvider: ((UUID, NSView) -> NSMenu)?
@@ -33,6 +35,8 @@ final class SidebarFooterView: NSView {
             guard let self, let menu = addMenuProvider?() else { return }
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: addButton.bounds.maxY), in: addButton)
         }
+        dock.canDropOnSpace = { [weak self] in self?.canDropOnSpace?($0,$1,$2) == true }
+        dock.onDropOnSpace = { [weak self] in self?.onDropOnSpace?($0,$1,$2) == true }
         dock.onSelect = { [weak self] in self?.onSelectSpace?($0) }
         dock.onChangeIcon = { [weak self] in self?.onChangeIcon?($0, $1) }
         dock.menuProvider = { [weak self] id, anchor in self?.spaceMenuProvider?(id, anchor) ?? NSMenu() }

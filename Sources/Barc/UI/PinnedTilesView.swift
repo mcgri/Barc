@@ -36,6 +36,12 @@ struct PinnedTile {
 /// it temporarily returns as a drop target while a sidebar tab is dragged.
 @MainActor
 final class PinnedTilesView: NSView {
+    var dragItemProvider:((String) -> NSPasteboardItem?)?
+    var onDragStateChange:((Bool) -> Void)?
+    var canDropPayload:((NSPasteboard,NSDragOperation) -> Bool)?
+    var onDropPayload:((NSPasteboard,NSDragOperation,Int) -> Bool)?
+    var dropColor:NSColor = .controlAccentColor
+    private let dropMarker = NSView()
     var onDismissHint: (() -> Void)?
     var canDropTab: ((UUID) -> Bool)?
     var onDropTab: ((UUID) -> Bool)?
@@ -47,6 +53,7 @@ final class PinnedTilesView: NSView {
     var onRename: ((String,NSView) -> Void)?
 
     private var tileViews: [PinnedTileView] = []
+    private var draggingTile:PinnedTileView?
     private let emptyHint = EmptyFavoritesHint()
     private var showsEmptyHint = true
     private var tabDragInProgress = false
@@ -57,7 +64,8 @@ final class PinnedTilesView: NSView {
 
         emptyHint.onDismiss = { [weak self] in self?.onDismissHint?() }
         addSubview(emptyHint)
-        registerForDraggedTypes([SidebarTabDrag.type])
+        registerForDraggedTypes([SidebarTabDrag.type,SidebarTabDrag.favoriteType])
+        dropMarker.wantsLayer = true;dropMarker.isHidden = true;addSubview(dropMarker)
 
         setAccessibilityRole(.group)
         setAccessibilityLabel("Pinned shortcuts")
@@ -83,6 +91,11 @@ final class PinnedTilesView: NSView {
         tileViews = tiles.map { tile in
             let view = PinnedTileView(tile: tile, isPrivate: isPrivate)
             view.onClick = { [weak self] in self?.onSelect?(tile.id) }
+            view.dragItemProvider = { [weak self] in self?.dragItemProvider?(tile.id) }
+            view.onDragStateChange = { [weak self,weak view] dragging in
+                self?.draggingTile = dragging ? view:nil
+                self?.onDragStateChange?(dragging)
+            }
             view.onRemove = { [weak self] in self?.onRemove?(tile.id) }
             view.onRename = { [weak self,weak view] in
                 guard let view else { return };self?.onRename?(tile.id,view)
@@ -121,17 +134,43 @@ final class PinnedTilesView: NSView {
         return onDropTab?(id) == true
     }
 
-    override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        let accepts = canAcceptDrop(from: sender.draggingPasteboard)
-        emptyHint.isDropTarget = accepts
-        return accepts ? .move : []
+    func dropIndex(at point:NSPoint) -> Int {
+        for (index,tile) in tileViews.enumerated() {
+            if point.y<tile.frame.minY || (point.y<tile.frame.maxY && point.x<tile.frame.midX) { return index }
+        }
+        return tileViews.count
     }
-    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation { draggingEntered(sender) }
-    override func draggingExited(_ sender: (any NSDraggingInfo)?) { emptyHint.isDropTarget = false }
-    override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool { canAcceptDrop(from: sender.draggingPasteboard) }
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        defer { emptyHint.isDropTarget = false }
-        return acceptDrop(from: sender.draggingPasteboard)
+
+    private func dropOperation(_ sender:any NSDraggingInfo) -> NSDragOperation {
+        let mask = sender.draggingSourceOperationMask
+        let operation:NSDragOperation = mask.contains(.move) ? .move:mask.contains(.copy) ? .copy:[]
+        guard !operation.isEmpty else { return [] }
+        let accepts = canDropPayload?(sender.draggingPasteboard,operation) ?? canAcceptDrop(from:sender.draggingPasteboard)
+        return accepts ? operation:[]
+    }
+
+    override func draggingEntered(_ sender:any NSDraggingInfo) -> NSDragOperation { draggingUpdated(sender) }
+    override func draggingUpdated(_ sender:any NSDraggingInfo) -> NSDragOperation {
+        let operation = dropOperation(sender)
+        emptyHint.isDropTarget = !operation.isEmpty
+        dropMarker.isHidden = operation.isEmpty || tileViews.isEmpty
+        if !dropMarker.isHidden {
+            let index = dropIndex(at:convert(sender.draggingLocation,from:nil))
+            let tile = tileViews[min(index,tileViews.count-1)]
+            let x = index<tileViews.count ? tile.frame.minX-3:tile.frame.maxX+1
+            dropMarker.frame = NSRect(x:min(max(0,x),max(0,bounds.width-2)),y:tile.frame.minY,width:2,height:tile.frame.height)
+            dropMarker.layer?.backgroundColor = dropColor.cgColor
+        }
+        return operation
+    }
+    override func draggingExited(_ sender:(any NSDraggingInfo)?) { emptyHint.isDropTarget = false;dropMarker.isHidden = true }
+    override func prepareForDragOperation(_ sender:any NSDraggingInfo) -> Bool { !dropOperation(sender).isEmpty }
+    override func performDragOperation(_ sender:any NSDraggingInfo) -> Bool {
+        defer { emptyHint.isDropTarget = false;dropMarker.isHidden = true }
+        let operation = dropOperation(sender)
+        guard !operation.isEmpty else { return false }
+        if let onDropPayload { return onDropPayload(sender.draggingPasteboard,operation,dropIndex(at:convert(sender.draggingLocation,from:nil))) }
+        return acceptDrop(from:sender.draggingPasteboard)
     }
 
     // MARK: - Layout
@@ -258,7 +297,11 @@ enum TileGrid {
 /// A single filled tile. Private because nothing outside the strip should be
 /// able to place one on its own and get the spacing wrong.
 @MainActor
-private final class PinnedTileView: NSView {
+private final class PinnedTileView: NSView,NSDraggingSource {
+    var dragItemProvider:(() -> NSPasteboardItem?)?
+    var onDragStateChange:((Bool) -> Void)?
+    private var pressEvent:NSEvent?
+    private var didDrag = false
     var onClick: (() -> Void)?
     /// A right-click on the tile asks to unpin it.
     var onRemove: (() -> Void)?
@@ -433,9 +476,36 @@ private final class PinnedTileView: NSView {
     /// The squeeze the tile gives under a click. See `SpringPress`.
     private lazy var press = SpringPress(view: self)
 
-    override func mouseDown(with event: NSEvent) {
+    override func mouseDown(with event:NSEvent) {
+        pressEvent = event;didDrag = false
         if acceptsSpringPress { press.flick() }
-        onClick?()
+    }
+
+    override func mouseDragged(with event:NSEvent) {
+        guard !didDrag,let start = pressEvent,
+              hypot(event.locationInWindow.x-start.locationInWindow.x,event.locationInWindow.y-start.locationInWindow.y)>=4,
+              let item = dragItemProvider?() else { return }
+        didDrag = true;onDragStateChange?(true)
+        let dragging = NSDraggingItem(pasteboardWriter:item)
+        let bitmap = bitmapImageRepForCachingDisplay(in:bounds)
+        let image = NSImage(size:bounds.size)
+        if let bitmap { cacheDisplay(in:bounds,to:bitmap);image.addRepresentation(bitmap) }
+        dragging.setDraggingFrame(bounds,contents:image)
+        beginDraggingSession(with:[dragging],event:event,source:self)
+    }
+
+    override func mouseUp(with event:NSEvent) {
+        let click = pressEvent != nil && !didDrag && bounds.contains(convert(event.locationInWindow,from:nil))
+        pressEvent = nil
+        if click { onClick?() }
+    }
+
+    func draggingSession(_ session:NSDraggingSession,sourceOperationMaskFor context:NSDraggingContext) -> NSDragOperation {
+        context == .withinApplication ? [.copy,.move]:.copy
+    }
+    func ignoreModifierKeys(for session:NSDraggingSession) -> Bool { false }
+    func draggingSession(_ session:NSDraggingSession,endedAt screenPoint:NSPoint,operation:NSDragOperation) {
+        pressEvent = nil;didDrag = false;onDragStateChange?(false)
     }
 
     override func accessibilityPerformPress() -> Bool {

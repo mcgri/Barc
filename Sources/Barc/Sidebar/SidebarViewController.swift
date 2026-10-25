@@ -60,6 +60,7 @@ final class SidebarViewController: NSViewController {
     /// Table view displaying tabs and groups.
     var tabListTableView: NSTableView { tableView }
 
+    var onTabDragStateChange:((Bool) -> Void)?
     var onNewTab: (() -> Void)?
     var onChooseSplitPage: (() -> Void)?
     var onCustomizePage: ((Tab,String) -> Void)?
@@ -297,6 +298,17 @@ final class SidebarViewController: NSViewController {
             let space = shownSpace
             session.dismissFavoritesHint(in:space)
         }
+        pinnedTiles.dragItemProvider = { [weak self] id in
+            guard let self,let target = favoriteTileTarget(id) else { return nil }
+            let item = NSPasteboardItem()
+            item.setString(target.site.id.uuidString,forType:SidebarTabDrag.favoriteType)
+            item.setString(shownSpace.id.uuidString,forType:SidebarTabDrag.ownerType)
+            item.setString(target.site.url.absoluteString,forType:.URL)
+            return item
+        }
+        pinnedTiles.onDragStateChange = { [weak self] dragging in self?.onTabDragStateChange?(dragging) }
+        pinnedTiles.canDropPayload = { [weak self] pasteboard,operation in self?.canDropOnFavorites(pasteboard,operation:operation) == true }
+        pinnedTiles.onDropPayload = { [weak self] pasteboard,operation,index in self?.dropOnFavorites(pasteboard,operation:operation,index:index) == true }
         pinnedTiles.canDropTab = { [weak self] id in self?.canFavoriteTab(id: id) == true }
         pinnedTiles.onDropTab = { [weak self] id in
             guard let self, canFavoriteTab(id: id), let tab = session.activeSpace.tabs.first(where: { $0.id == id }) else { return false }
@@ -337,6 +349,8 @@ final class SidebarViewController: NSViewController {
             }
         }
 
+        diaFooter.canDropOnSpace = { [weak self] id,board,operation in self?.canDropOnSpace(id,board:board,operation:operation) == true }
+        diaFooter.onDropOnSpace = { [weak self] id,board,operation in self?.dropOnSpace(id,board:board,operation:operation) == true }
         diaFooter.onSelectSpace = { [weak self] id in
             guard let self, let space = self.session.spaces.first(where: { $0.id == id }) else { return }
             self.session.selectSpace(space)
@@ -567,7 +581,7 @@ final class SidebarViewController: NSViewController {
         view.menu = menu
         // Rows from this list, and addresses from anywhere: a link dragged
         // off a page or out of the address bar becomes a tab where it lands.
-        tableView.registerForDraggedTypes([SidebarTabDrag.type, Self.tabRowType, Self.groupRowType, .URL])
+        tableView.registerForDraggedTypes([SidebarTabDrag.favoriteType, SidebarTabDrag.type, Self.tabRowType, Self.groupRowType, .URL])
         tableView.setDraggingSourceOperationMask([.copy,.move], forLocal: true)
 
         scrollView.documentView = tableView
@@ -1112,6 +1126,7 @@ final class SidebarViewController: NSViewController {
     private func refreshPinnedTiles() {
         let space = shownSpace
         let activeID = space.activeTab?.id
+        pinnedTiles.dropColor = space.color
         pinnedTiles.show(
             space.pinnedSites.map { site in
                 PinnedTile(
@@ -1128,6 +1143,96 @@ final class SidebarViewController: NSViewController {
             isPrivate: space.isPrivate,
             showsEmptyHint: !space.favoritesHintDismissed
         )
+    }
+
+    private func favoriteDrag(in pasteboard:NSPasteboard) -> (Space,PinnedSite)? {
+        guard let items = pasteboard.pasteboardItems,items.count == 1,
+              let raw = items[0].string(forType:SidebarTabDrag.favoriteType),let id = UUID(uuidString:raw),
+              let owner = items[0].string(forType:SidebarTabDrag.ownerType),let ownerID = UUID(uuidString:owner),
+              let source = session.spaces.first(where:{ $0.id == ownerID }),
+              let site = source.pinnedSites.first(where:{ $0.id == id }) else { return nil }
+        return (source,site)
+    }
+
+    private func workspaceDrag(in pasteboard:NSPasteboard) -> (Space,[Tab])? {
+        guard let items = pasteboard.pasteboardItems,!items.isEmpty else { return nil }
+        let owners = Set(items.compactMap { $0.string(forType:SidebarTabDrag.ownerType) })
+        guard owners.count == 1,let raw = owners.first,let id = UUID(uuidString:raw),
+              let source = session.spaces.first(where:{ $0.id == id }) else { return nil }
+        var tabs:[Tab] = [],seen:Set<UUID> = []
+        for item in items {
+            guard let raw = item.string(forType:SidebarTabDrag.type),let id = UUID(uuidString:raw),
+                  let tab = source.workspaceTabs.first(where:{ $0.id == id }) else { return nil }
+            if seen.insert(id).inserted { tabs.append(tab) }
+        }
+        return (source,tabs)
+    }
+
+    private func canDropOnFavorites(_ pasteboard:NSPasteboard,operation:NSDragOperation) -> Bool {
+        guard shownSpace === session.activeSpace,previewSpace == nil else { return false }
+        if let (source,site) = favoriteDrag(in:pasteboard) {
+            if source.profile === shownSpace.profile { return operation == .move }
+            return shownSpace.pinnedSites.count<12 && (site.split != nil || !shownSpace.pinnedSites.contains(where:{ $0.matches(site.url) }))
+                && source.profile.favoriteTabs.filter { $0.pinnedSiteID == site.id }.allSatisfy { !$0.isLocked }
+                && site.split?.members.allSatisfy { $0.page.isLocked != true } != false
+                && session.canReceiveFavorite(site.id,from:source,into:shownSpace,copy:operation == .copy)
+        }
+        guard let (source,tabs) = workspaceDrag(in:pasteboard) else { return false }
+        return session.canFavoriteSidebarTabs(tabs,from:source,into:shownSpace)
+    }
+
+    private func dropOnFavorites(_ pasteboard:NSPasteboard,operation:NSDragOperation,index:Int) -> Bool {
+        guard canDropOnFavorites(pasteboard,operation:operation) else { return false }
+        if let (source,site) = favoriteDrag(in:pasteboard) {
+            if source.profile === shownSpace.profile {
+                guard let old = shownSpace.pinnedSites.firstIndex(where:{ $0.id == site.id }) else { return false }
+                session.movePinnedSite(from:old,to:index);return true
+            }
+            return session.changes.batch {
+                let pages = session.receiveFavorite(site.id,from:source,into:shownSpace,copy:operation == .copy)
+                guard let first = pages.first else { return false }
+                session.pin(first)
+                guard let id = first.pinnedSiteID,let old = shownSpace.pinnedSites.firstIndex(where:{ $0.id == id }) else { return false }
+                session.movePinnedSite(from:old,to:index);return true
+            }
+        }
+        guard let (source,tabs) = workspaceDrag(in:pasteboard) else { return false }
+        return session.favoriteSidebarTabs(tabs,from:source,into:shownSpace,copy:operation == .copy,at:index)
+    }
+
+    private func canDropOnSpace(_ id:UUID,board:NSPasteboard,operation:NSDragOperation) -> Bool {
+        guard let target = session.spaces.first(where:{ $0.id == id }) else { return false }
+        if let (source,site) = favoriteDrag(in:board) {
+            return session.canReceiveFavorite(site.id,from:source,into:target,copy:operation == .copy)
+        }
+        guard let (source,tabs) = workspaceDrag(in:board) else { return false }
+        let ids = Set(tabs.flatMap { source.splits.layout(containing:$0.id)?.tabIDs ?? [$0.id] })
+        return ids.allSatisfy { id in source.workspaceTabs.first(where:{ $0.id == id }).map { !$0.isLocked && !session.isInLiveFolder($0) } == true }
+    }
+
+    private func dropOnSpace(_ id:UUID,board:NSPasteboard,operation:NSDragOperation) -> Bool {
+        guard canDropOnSpace(id,board:board,operation:operation),let target = session.spaces.first(where:{ $0.id == id }) else { return false }
+        return session.changes.batch {
+            session.selectSpace(target)
+            let pages:[Tab]
+            if let (source,site) = favoriteDrag(in:board) {
+                pages = session.receiveFavorite(site.id,from:source,into:target,copy:operation == .copy)
+                guard !pages.isEmpty,session.moveSidebarTabs(pages,to:target.tabs.count,group:nil,before:nil,retained:false) else { return false }
+            } else if let (source,tabs) = workspaceDrag(in:board) {
+                if source === target {
+                    guard let first = tabs.first else { return false }
+                    if operation == .copy {
+                        return session.duplicateSidebarTabs(tabs,to:target.tabs.count,group:nil,before:nil,retained:first.isSidebarRetained)
+                    }
+                    let selected = source.splits.preferredTab(containing:first.id).flatMap { id in source.tabs.first { $0.id == id } } ?? first
+                    session.selectTab(selected);return true
+                }
+                pages = session.receiveSidebarTabs(tabs,from:source,into:target,copy:operation == .copy)
+            } else { return false }
+            guard let first = pages.first else { return false }
+            let selected = target.splits.preferredTab(containing:first.id).flatMap { id in target.tabs.first { $0.id == id } } ?? first
+            session.selectTab(selected);return true
+        }
     }
 
     private func favoriteTileTarget(_ id:String) -> (profile:BrowserProfile,site:PinnedSite)? {
@@ -3302,17 +3407,18 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
                    willBeginAt screenPoint: NSPoint, forRowIndexes rowIndexes: IndexSet) {
-        pinnedTiles.setTabDragInProgress(true)
+        pinnedTiles.setTabDragInProgress(true);onTabDragStateChange?(true)
     }
 
     func tableView(_ tableView: NSTableView, draggingSession session: NSDraggingSession,
                    endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        pinnedTiles.setTabDragInProgress(false)
+        pinnedTiles.setTabDragInProgress(false);onTabDragStateChange?(false)
         self.tableView.showSplitDropPreview(nil)
     }
 
     /// What is being dragged, or nil for something this list does not take.
     private enum DropPayload {
+        case favorite(Space,PinnedSite)
         case tabs([Tab])
         case link(URL)
         case group(TabGroup)
@@ -3321,6 +3427,11 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     private func dropPayload(from info: any NSDraggingInfo) -> DropPayload? {
         let pasteboard = info.draggingPasteboard
         let items = pasteboard.pasteboardItems ?? []
+        if items.contains(where:{ $0.types.contains(SidebarTabDrag.favoriteType) }) {
+            guard let (source,site) = favoriteDrag(in:pasteboard),
+                  session.canReceiveFavorite(site.id,from:source,into:session.activeSpace,copy:!info.draggingSourceOperationMask.contains(.move)) else { return nil }
+            return .favorite(source,site)
+        }
         if items.contains(where: { $0.types.contains(Self.groupRowType) }) {
             guard items.count == 1, let raw = items[0].string(forType:Self.groupRowType),
                   let id = UUID(uuidString:raw), let group = session.activeSpace.group(withID:id) else { return nil }
@@ -3356,7 +3467,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
 
     private func allowedDropOperation(for payload:DropPayload, source:NSDragOperation) -> NSDragOperation {
         switch payload {
-        case .tabs:
+        case .tabs,.favorite:
             if source.contains(.move) { return .move }
             return source.contains(.copy) ? .copy : []
         case .group:
@@ -3431,7 +3542,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 } else {
                     zonePayload = .tab(tabs.first(where: { $0.groupID != folder.id }) ?? tab)
                 }
-            case .link: zonePayload = .link
+            case .link,.favorite: zonePayload = .link
             // A dragged group reorders the groups; it is handled before this is
             // ever reached, and never files itself into a folder.
             case .group: return nil
@@ -3469,6 +3580,11 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
     private func isTabSplitDrop(onto target: SidebarSplitDropTarget, payload: DropPayload) -> Bool {
         let targetTab = target.tab
         switch payload {
+        case .favorite(let source,let site):
+            guard source.profile !== session.activeSpace.profile || targetTab.pinnedSiteID != site.id else { return false }
+            let count = site.split?.members.count ?? 1
+            let existing = session.activeSpace.splits.layout(containing:targetTab.id)?.paneCount ?? 1
+            return existing+count<=SplitLayout.maximumPanes
         case .tabs(let tabs):
             guard !tabs.contains(where: { tab in
                 tab.id == targetTab.id || session.activeSpace.splits.layout(containing:tab.id)?.contains(targetTab.id) == true
@@ -3561,9 +3677,14 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             tableView.setDropRow(max(0, row), dropOperation: .above)
             return .move
         }
-        if case .tabs = payload, operation == .copy {
-            guard dropDestination(info,payload:payload,row:row,operation:.above) != nil else { return [] }
-            return .copy
+        if operation == .copy {
+            switch payload {
+            case .tabs,.favorite:
+                guard dropDestination(info,payload:payload,row:row,operation:.above) != nil else { return [] }
+                tableView.setDropRow(row,dropOperation:.above)
+                return .copy
+            default:break
+            }
         }
         if dropOperation == .on, let target = splitDropTarget(at:row,info:info),
            isTabSplitDrop(onto:target,payload:payload) {
@@ -3604,6 +3725,20 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 return session.moveSidebarTabs(pages,to:destination.plan.tabIndex,group:group,before:destination.before,retained:destination.retained)
             }
         }
+        if case .favorite(let origin,let site) = payload {
+            let destination = dropDestination(info,payload:payload,row:row,operation:dropOperation)
+            let splitTarget = dropOperation == .on && operation != .copy ? splitDropTarget(at:row,info:info):nil
+            guard destination != nil || splitTarget != nil else { return false }
+            if let splitTarget, !isTabSplitDrop(onto:splitTarget,payload:payload) { return false }
+            return session.changes.batch {
+                let pages = session.receiveFavorite(site.id,from:origin,into:session.activeSpace,copy:operation == .copy)
+                guard !pages.isEmpty else { return false }
+                if let splitTarget { return session.splitSidebarTabs(pages,beside:splitTarget.tab,on:splitTarget.side) }
+                guard let destination else { return false }
+                let group = destination.plan.groupID.flatMap { session.activeSpace.group(withID:$0) }
+                return session.moveSidebarTabs(pages,to:destination.plan.tabIndex,group:group,before:destination.before,retained:destination.retained)
+            }
+        }
         // A group drag reorders the top-level groups rather than moving a tab.
         if case .group(let dragged) = payload {
             if dragged.parentID == nil {
@@ -3626,7 +3761,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 return session.splitSidebarTabs(tabs,beside:target.tab,on:target.side)
             case .link(let url):
                 return session.openSidebarLink(url,splitting:target.tab,on:target.side)
-            case .group:
+            case .group,.favorite:
                 break
             }
         }
@@ -3642,7 +3777,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         case .link(let url):
             return session.openSidebarLink(url,to:destination.plan.tabIndex,group:group,
                                            before:destination.before,retained:destination.retained)
-        case .group:
+        case .group,.favorite:
             // Handled above, before the tab destination is resolved.
             return true
         }

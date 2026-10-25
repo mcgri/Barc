@@ -1216,6 +1216,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// performs one.
     private func wireCommandBar() {
         commandBar.install(in: root.view, centeredIn: content.view)
+        sidebar.onTabDragStateChange = { [weak self] dragging in
+            guard let self else { return }
+            if dragging { compact.controller.addReason(.movingTab,to:.sidebar) }
+            else { compact.controller.removeReason(.movingTab,from:.sidebar) }
+        }
         commandBar.sidebarInteractionView = sidebar.view
         commandBar.onSidebarInteraction = { [weak self] in
             guard let self,compact.controller.state.isEnabled else { return }

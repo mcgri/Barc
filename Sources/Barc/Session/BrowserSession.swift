@@ -1161,6 +1161,123 @@ final class BrowserSession {
         }
     }
 
+    func canReceiveFavorite(_ id:UUID,from source:Space,into target:Space,copy:Bool) -> Bool {
+        guard spaces.contains(where:{ $0 === source }),spaces.contains(where:{ $0 === target }),
+              let site = source.pinnedSites.first(where:{ $0.id == id }),site.split?.isValid != false else { return false }
+        let members = source.profile.favoriteTabs.filter { $0.pinnedSiteID == id }
+        return copy || (site.split?.members.allSatisfy { $0.page.isLocked != true } != false
+            && members.allSatisfy { !$0.isLocked && !isInLiveFolder($0) })
+    }
+
+    /// A Favorite drag names the profile-owned destination, including an unopened
+    /// tile. A move removes that destination and retains its live pages in the
+    /// chosen workspace; a copy leaves the source destination intact.
+    @discardableResult
+    func receiveFavorite(_ id:UUID,from source:Space,into target:Space,copy:Bool) -> [Tab] {
+        guard canReceiveFavorite(id,from:source,into:target,copy:copy),
+              let site = source.pinnedSites.first(where:{ $0.id == id }) else { return [] }
+        return changes.batch {
+            let members:[Tab]
+            var arrangement = SplitCollection()
+            if let split = site.split {
+                members = split.members.map { member in
+                    if let page = source.profile.favoriteTabs.first(where:{ $0.pinnedSiteID == id && $0.pinnedMemberID == member.id }) { return page }
+                    var saved = member.page;saved.pinnedSiteID = id;saved.pinnedMemberID = member.id;saved.groupID = nil
+                    let page = Tab(restoring:saved,identity:source.identity)
+                    insert(page,into:source,at:source.workspaceTabs.count,select:false);return page
+                }
+                if let first = members.first,let layout = source.splits.layout(containing:first.id),Set(layout.tabIDs) == Set(members.map(\.id)) {
+                    arrangement = source.splits
+                } else {
+                    var record = split.record;record.icon = site.icon.isCustomized ? site.icon:nil
+                    arrangement = SplitCollection.restoring([record],tabIDs:members.map(\.id))
+                }
+            } else {
+                let page:Tab
+                if let existing = source.tab(forPin:id) { page = existing }
+                else {
+                    page = Tab(url:site.url,identity:source.identity)
+                    _ = TabNameStore.shared.rename(page.id,to:site.title);page.setSidebarIcon(site.icon);page.setPinnedSiteID(id)
+                    insert(page,into:source,at:source.workspaceTabs.count,select:false)
+                }
+                members = [page]
+            }
+            var bindings:[UUID:UUID] = [:],placed:[Tab] = []
+            if !copy {
+                source.removePinnedSite(site)
+                for owner in spaces where owner.profile === source.profile {
+                    for page in members { owner.splits.dissolve(containing:page.id) }
+                }
+            }
+            for page in members {
+                let destination:Tab
+                if !copy,source.profile === target.profile {
+                    source.profile.removeFavorite(page)
+                    page.setPinnedSiteID(nil);page.setPinnedMemberID(nil);page.setGroupID(nil)
+                    if site.split == nil { page.setSidebarIcon(site.icon) }
+                    destination = page
+                } else {
+                    var saved = page.snapshot()
+                    saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.groupID = nil;saved.importedSourceID = nil
+                    if source.profile !== target.profile { saved.interactionState = nil }
+                    destination = Tab(restoring:saved,identity:target.identity)
+                    if site.split == nil { destination.setSidebarIcon(site.icon) }
+                    if !copy { source.profile.removeFavorite(page);forget(page) }
+                }
+                if site.split == nil { _ = TabNameStore.shared.rename(destination.id,to:site.title) }
+                insert(destination,into:target,at:target.workspaceTabs.count,select:false)
+                bindings[page.id] = destination.id;placed.append(destination)
+            }
+            target.splits.copyCompleteGroups(from:arrangement,mapping:bindings)
+            if !copy { repairSelections(for:source.profile) }
+            changes.send(.structure);changes.send(.activeTab);scheduleSave()
+            return placed
+        }
+    }
+
+    func canFavoriteSidebarTabs(_ requested:[Tab],from source:Space,into target:Space) -> Bool {
+        guard target === activeSpace,spaces.contains(where:{ $0 === source }),!requested.isEmpty,
+              requested.allSatisfy({ page in source.workspaceTabs.contains { $0 === page } }) else { return false }
+        var units:Set<UUID> = [],seen:Set<UUID> = []
+        var plannedSingles = target.pinnedSites.filter { $0.split == nil }
+        for page in requested {
+            let ids = source.splits.layout(containing:page.id)?.tabIDs ?? [page.id]
+            if units.insert(source.splits.identifier(containing:page.id) ?? page.id).inserted {
+                guard let first = ids.first.flatMap({ id in source.workspaceTabs.first { $0.id == id } }) else { return false }
+                if ids.count == 1 {
+                    guard !plannedSingles.contains(where:{ $0.matches(first.url) }) else { return false }
+                    plannedSingles.append(.init(url:first.url,title:""))
+                }
+            }
+            for id in ids where seen.insert(id).inserted {
+                guard let member = source.workspaceTabs.first(where:{ $0.id == id }),!member.isLocked,
+                      !member.isSidebarPlaceholder,!isInLiveFolder(member) else { return false }
+            }
+        }
+        return target.pinnedSites.count+units.count<=12
+    }
+
+    @discardableResult
+    func favoriteSidebarTabs(_ requested:[Tab],from source:Space,into target:Space,copy:Bool,at index:Int) -> Bool {
+        guard canFavoriteSidebarTabs(requested,from:source,into:target) else { return false }
+        return changes.batch {
+            var seen:Set<UUID> = []
+            let members = requested.flatMap { source.splits.layout(containing:$0.id)?.tabIDs ?? [$0.id] }
+                .filter { seen.insert($0).inserted }.compactMap { id in source.tabs.first { $0.id == id } }
+            let incoming = source === target ? (copy ? duplicateTabs(members):members)
+                :receiveSidebarTabs(members,from:source,into:target,copy:copy)
+            guard incoming.count == members.count else { return false }
+            let before = Set(target.pinnedSites.map(\.id))
+            var units:Set<UUID> = []
+            for page in incoming where units.insert(target.splits.identifier(containing:page.id) ?? page.id).inserted { pin(page) }
+            let added = target.pinnedSites.filter { !before.contains($0.id) }.map(\.id)
+            for (offset,id) in added.enumerated() {
+                if let old = target.pinnedSites.firstIndex(where:{ $0.id == id }) { movePinnedSite(from:old,to:min(index+offset,target.pinnedSites.count-1)) }
+            }
+            return incoming.allSatisfy { $0.pinnedSiteID != nil }
+        }
+    }
+
     @discardableResult
     func receiveSidebarTabs(_ requested:[Tab],from source:Space,into target:Space,copy:Bool) -> [Tab] {
         guard source !== target,spaces.contains(where:{ $0 === source }),spaces.contains(where:{ $0 === target }),

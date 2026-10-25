@@ -75,3 +75,13 @@ Scan complete against saved query captures, native source evidence and Arc's pub
 - [x] D6. After all implementation, run the combined tests and inspect one built app, then update the consolidated remaining list.
 
 Sidebar destination verification: the combined suite passed 2,344 tests in 369 suites in 96.072 seconds. After the final modifier-mask normalization, all 39 shortcut/sidebar regression checks passed in 0.635 seconds. Build 237, `0.1.64-139-g3fefe81`, passed strict signature verification and the native keyboard, numbered split, Space-focus and provider-navigation checks. Remaining differences stay consolidated in SIDEBAR-VERIFICATION.md.
+
+## Favorite drag and transfer batch
+
+Scan complete. Arc documents dragging a Favorite into Pinned/Today to unfavorite it, and Option-drag duplication. Current tile sources do not start native drags; sidebar moves reject Favorites and the strip only reads the first selected tab. Implement this batch before verification.
+
+- [ ] F1. Add stable, owner-scoped native Favorite tile drag sources with click/drag separation and normal copy/move masks.
+- [ ] F2. Accept Favorite drops into Pinned, Today, folders and compatible split rows, preserving complete units and their name/icon/layout.
+- [ ] F3. Convert shared Favorites to workspace pages for a move; preserve the Favorite for a copy and maintain profile boundaries when crossing profiles.
+- [ ] F4. Handle Favorite reorder and complete multi-row drops into the Favorites strip, respecting source masks and validating the entire payload before mutation.
+- [ ] F5. Run combined model/native delegate checks and release pointer review, audit saved data and consolidate the remaining differences. Do not claim a physical Option-drag unless the tool can actually hold that modifier during a drag.

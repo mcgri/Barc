@@ -26,6 +26,9 @@ enum SidebarReview {
         try? html.replacingOccurrences(of:"Browser sidebar review",with:"Favorite review page").write(to:favoritePage,atomically:true,encoding:.utf8)
         let owner = session.activeSpace
         owner.addPinnedSite(.init(url:favoritePage,title:"Review Favorite"))
+        let secondFavorite = AppPaths.supportDirectory.appending(path:"favorite-two.html")
+        try? html.replacingOccurrences(of:"Browser sidebar review",with:"Second Favorite page").write(to:secondFavorite,atomically:true,encoding:.utf8)
+        owner.addPinnedSite(.init(url:secondFavorite,title:"Second Favorite"))
         session.rename(owner,to:"Personal")
         let main = session.newTab(url:page);session.rename(main,to:"Sidebar review")
         for (index,name) in ["Example Cloud Sign-in","Instances | Example | region-one","Example Accounts","Sample reporting"].enumerated() {
@@ -35,6 +38,7 @@ enum SidebarReview {
         let a = session.newTab(url:page,select:false),b = session.newTab(url:page,select:false)
         session.rename(a,to:"Research");session.rename(b,to:"Notes")
         session.splitTabs([a,b]);session.renameSplit(containing:a.id,in:owner,to:"Research pair")
+        session.pin(a)
         for name in ["Work","Projects"] {
             if let profile = session.addProfile(named:name) { _ = session.addSpace(named:name,profile:profile) }
         }

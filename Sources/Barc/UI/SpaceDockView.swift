@@ -43,6 +43,8 @@ enum SpaceDockLayout {
 
 @MainActor
 final class SpaceDockView: NSView {
+    var canDropOnSpace:((UUID,NSPasteboard,NSDragOperation) -> Bool)?
+    var onDropOnSpace:((UUID,NSPasteboard,NSDragOperation) -> Bool)?
     var onSelect: ((UUID) -> Void)?
     var onChangeIcon: ((UUID, IconMenu.Choice) -> Void)?
     var menuProvider: ((UUID, NSView) -> NSMenu)?
@@ -121,6 +123,8 @@ final class SpaceDockView: NSView {
             let button = previous[item.id] ?? SpaceDockButton(id: item.id)
             button.configure(item, selected: item.id == selectedID)
             button.onSelect = { [weak self] in self?.onSelect?(item.id) }
+            button.canDrop = { [weak self] in self?.canDropOnSpace?(item.id,$0,$1) == true }
+            button.onDrop = { [weak self] in self?.onDropOnSpace?(item.id,$0,$1) == true }
             button.onChangeIcon = { [weak self] choice in self?.onChangeIcon?(item.id, choice) }
             button.spaceMenuProvider = { [weak self, weak button] in
                 guard let self, let button else { return nil }
@@ -248,6 +252,9 @@ private final class SpaceDockDocumentView: NSView {
 
 @MainActor
 final class SpaceDockButton: NSButton {
+    var canDrop:((NSPasteboard,NSDragOperation) -> Bool)?
+    var onDrop:((NSPasteboard,NSDragOperation) -> Bool)?
+    private var dragHoverTask:Task<Void,Never>?
     override var isFlipped: Bool { false }
     let id: UUID
     var onSelect: (() -> Void)?
@@ -264,6 +271,7 @@ final class SpaceDockButton: NSButton {
     init(id: UUID) {
         self.id = id
         super.init(frame: .zero)
+        registerForDraggedTypes([SidebarTabDrag.type,SidebarTabDrag.favoriteType])
         isBordered = false
         title = ""
         imagePosition = .noImage
@@ -342,6 +350,32 @@ final class SpaceDockButton: NSButton {
             }
         }()
         glyph.alphaValue = (isSelectedSpace ? 1 : inactiveOpacity) * (isEnabled ? 1 : 0.5)
+    }
+
+    private func dropOperation(_ info:any NSDraggingInfo) -> NSDragOperation {
+        let mask = info.draggingSourceOperationMask
+        let operation:NSDragOperation = mask.contains(.move) ? .move:mask.contains(.copy) ? .copy:[]
+        return !operation.isEmpty && canDrop?(info.draggingPasteboard,operation) == true ? operation:[]
+    }
+    override func draggingEntered(_ sender:any NSDraggingInfo) -> NSDragOperation {
+        let operation = dropOperation(sender)
+        dragHoverTask?.cancel()
+        if !operation.isEmpty,!isSelectedSpace {
+            dragHoverTask = Task { [weak self] in
+                do { try await Task.sleep(for:.milliseconds(300)) } catch { return }
+                guard let self,!Task.isCancelled,window != nil else { return }
+                onSelect?()
+            }
+        }
+        return operation
+    }
+    override func draggingUpdated(_ sender:any NSDraggingInfo) -> NSDragOperation { dropOperation(sender) }
+    override func draggingExited(_ sender:(any NSDraggingInfo)?) { dragHoverTask?.cancel();dragHoverTask = nil }
+    override func prepareForDragOperation(_ sender:any NSDraggingInfo) -> Bool { !dropOperation(sender).isEmpty }
+    override func performDragOperation(_ sender:any NSDraggingInfo) -> Bool {
+        dragHoverTask?.cancel();dragHoverTask = nil
+        let operation = dropOperation(sender)
+        return !operation.isEmpty && onDrop?(sender.draggingPasteboard,operation) == true
     }
 
     @objc private func selectSpace() { onSelect?() }
