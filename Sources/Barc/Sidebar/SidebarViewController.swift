@@ -191,6 +191,8 @@ final class SidebarViewController: NSViewController {
     /// its views part-way through applying the update, when an index means one
     /// thing before the batch and another after it.
     private var pendingEntrances: Set<SidebarRow.Identity> = []
+    private var motionObservation: DisplayOptionsObservation?
+    private var isRestoringDisplaySelection = false
 
     init(session: BrowserSession) {
         self.session = session
@@ -647,6 +649,26 @@ final class SidebarViewController: NSViewController {
             }
         }
 
+        motionObservation = DisplayOptionsObservation { [weak self] in
+            guard let self, self.reducesMotion else { return }
+            self.applyRestImmediately()
+            self.pendingEntrances = []
+            let scroll = self.tableView.enclosingScrollView
+            let origin = scroll?.contentView.bounds.origin
+            let selection = self.tableView.selectedRowIndexes
+            self.isRestoringDisplaySelection = true
+            self.tableView.reloadData()
+            self.tableView.selectRowIndexes(selection, byExtendingSelection: false)
+            self.isRestoringDisplaySelection = false
+            self.refreshSelectionAppearance()
+            if let scroll, let origin {
+                scroll.contentView.scroll(to: origin)
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+            self.positionFolderNameEditor()
+            self.positionTabNameEditor()
+        }
+
         // The footer's Task Manager button, switched on or off in Settings
         // while the window is open.
         NotificationCenter.default.addObserver(
@@ -760,7 +782,7 @@ final class SidebarViewController: NSViewController {
     /// Reduce Motion is a request not to slide things across the screen. The
     /// switch still happens; it just arrives rather than travels.
     private var reducesMotion: Bool {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        Style.Motion.isReduced
     }
 
     /// A switch from rest -- a click on a dot -- takes about a
@@ -778,7 +800,8 @@ final class SidebarViewController: NSViewController {
     /// colour: the wash moves from this profile's colour towards the
     /// neighbour's as the neighbour comes in.
     func applySwipe(translation: CGFloat, crossfade: CGFloat) {
-        guard !reducesMotion, let content = switchingContent else { return }
+        guard !reducesMotion else { applyRestImmediately();return }
+        guard let content = switchingContent else { return }
         lastDragTime = ProcessInfo.processInfo.systemUptime
         content.wantsLayer = true
         content.layer?.removeAnimation(forKey: Self.slideKey)
@@ -860,7 +883,8 @@ final class SidebarViewController: NSViewController {
     /// The swipe was abandoned, or it ran off the end of the row. Spring back
     /// to where it started.
     func cancelSwipe() {
-        guard !reducesMotion, let content = switchingContent else { return }
+        guard !reducesMotion else { applyRestImmediately();return }
+        guard let content = switchingContent else { return }
         lastDragTime = 0
         dragWatchdog?.cancel()
         dragWatchdog = nil
@@ -977,6 +1001,7 @@ final class SidebarViewController: NSViewController {
     /// after any switch. A drag that is still live is left alone; one that has
     /// not moved for half a second has lost its end event and is abandoned.
     private func ensureContentAtRest() {
+        if reducesMotion { applyRestImmediately();return }
         guard !isSwitching, outgoingStill == nil, let content = switchingContent,
               let layer = content.layer, layer.animation(forKey: Self.slideKey) == nil,
               layer.affineTransform().tx != 0
@@ -1051,6 +1076,9 @@ final class SidebarViewController: NSViewController {
     private static let slideKey = "barc.slide"
 
     private func applyRestImmediately() {
+        isSwitching = false
+        lastDragTime = 0
+        dragWatchdog?.cancel();dragWatchdog = nil
         discardStill()
         discardNeighbourStill()
         guard let content = switchingContent else { return }
@@ -1431,6 +1459,7 @@ final class SidebarViewController: NSViewController {
     /// misdraws, and a dragged tab is a reorder.
     private func applyRowChanges(from before: [SidebarRow.Identity], to after: [SidebarRow.Identity]) {
         pendingEntrances = []
+        guard !reducesMotion else { tableView.reloadData();return }
 
         let removed: IndexSet
         let inserted: IndexSet
@@ -3333,7 +3362,16 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         else if let cell = cell as? SplitRowView { cell.activate(at:point,keepingCurrentPage:keep) }
     }
 
+    private func refreshSelectionAppearance() {
+        let selected = tableView.selectedRowIndexes
+        for index in rows.indices {
+            (tableView.view(atColumn:0,row:index,makeIfNecessary:false) as? TabRowView)?.isSelected = selected.contains(index)
+            (tableView.view(atColumn:0,row:index,makeIfNecessary:false) as? SplitRowView)?.isSelected = selected.contains(index)
+        }
+    }
+
     func tableViewSelectionDidChange(_ notification: Notification) {
+        guard !isRestoringDisplaySelection else { return }
         // A click that lands on nothing selectable -- the empty space below the
         // list, a folder header, the New Tab row -- makes `NSTableView` clear
         // its selection. The tab in front has not changed, so the sidebar must
@@ -3352,12 +3390,7 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
             return
         }
 
-        let selectedIndexes = tableView.selectedRowIndexes
-        for index in rows.indices {
-            let cell = tableView.view(atColumn: 0, row: index, makeIfNecessary: false) as? TabRowView
-            cell?.isSelected = selectedIndexes.contains(index)
-            (tableView.view(atColumn:0,row:index,makeIfNecessary:false) as? SplitRowView)?.isSelected = selectedIndexes.contains(index)
-        }
+        refreshSelectionAppearance()
         let targetRow = tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow
         guard rows.indices.contains(targetRow) else { return }
         let target: Tab?

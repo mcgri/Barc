@@ -58,6 +58,7 @@ final class SpaceDockView: NSView {
     private nonisolated(unsafe) var animationTimer: Timer?
     private var lastAnimationTime: TimeInterval = 0
     private var targetIconSizes: [CGFloat] = []
+    private var motionObservation: DisplayOptionsObservation?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -81,6 +82,7 @@ final class SpaceDockView: NSView {
         ])
         setAccessibilityRole(.group)
         setAccessibilityLabel("Spaces")
+        motionObservation = DisplayOptionsObservation { [weak self] in self?.arrange(animated: false) }
     }
 
     required init?(coder: NSCoder) { fatalError("Created in code only") }
@@ -187,7 +189,8 @@ final class SpaceDockView: NSView {
     /// One non-spring animation follows the latest target without restarting on every mouse event.
     /// Passing elapsed time also lets tests replay rapid pointer movement deterministically.
     func advanceMagnification(by elapsed: TimeInterval) {
-        let blend: CGFloat = Style.Motion.isReduced ? 1 : 1 - exp(-max(0, elapsed) / 0.045)
+        guard !Style.Motion.isReduced else { arrange(animated: false);return }
+        let blend: CGFloat = 1 - exp(-max(0, elapsed) / 0.045)
         var settled = true
         for (button, target) in zip(buttons, targetIconSizes) {
             var size = button.iconSize + (target - button.iconSize) * blend

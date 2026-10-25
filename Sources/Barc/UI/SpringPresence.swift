@@ -1,4 +1,4 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: settle interrupted presence motion when reduced, 2026-10-25.
 import AppKit
 import QuartzCore
 
@@ -39,9 +39,7 @@ enum SpringPresence {
         guard !Style.Motion.isReduced else {
             // Reduce Motion asks for no travel, not for no arrival: the view
             // still has to end up visible, so only the movement is dropped.
-            layer.removeAnimation(forKey: key)
-            layer.transform = CATransform3DIdentity
-            view.alphaValue = 1
+            settle(view, alpha: 1)
             completion?()
             return
         }
@@ -100,7 +98,7 @@ enum SpringPresence {
     static func slideIn(_ view: NSView, from offset: CGVector, fading: Bool = false) {
         view.wantsLayer = true
         guard !Style.Motion.isReduced, let layer = view.layer else {
-            view.alphaValue = 1
+            settle(view, alpha: 1)
             return
         }
 
@@ -138,7 +136,7 @@ enum SpringPresence {
     /// which is where a caller removes it from its superview.
     static func disappear(_ view: NSView, falling: CGFloat, completion: @escaping () -> Void) {
         guard !Style.Motion.isReduced, let layer = view.layer else {
-            view.alphaValue = 0
+            settle(view, alpha: 0)
             completion()
             return
         }
@@ -164,6 +162,15 @@ enum SpringPresence {
         } completionHandler: {
             MainActor.assumeIsolated { finish() }
         }
+    }
+
+    private static func settle(_ view: NSView, alpha: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        view.layer?.removeAnimation(forKey: key)
+        view.layer?.transform = CATransform3DIdentity
+        view.alphaValue = alpha
+        CATransaction.commit()
     }
 
     /// A scale about the layer's centre, with a vertical offset applied after

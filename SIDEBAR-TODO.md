@@ -100,3 +100,13 @@ Scan complete. Compare Chromium's published omnibox/parser behavior while keepin
 - [x] A6. Run the combined suite once implementation is complete, inspect one release app, audit saved data and consolidate remaining differences.
 
 Address classification verification: **2,370 tests in 372 suites passed**, 94.576 seconds. After the final empty-port/custom-scheme correction, **90 affected search/address tests in 11 suites passed**, 0.809 seconds. The broader suite was not rerun after that final boundary correction. Build **241**, `0.1.64-143-gb1772a0`, compiled in 74.32 seconds and passed strict signature verification. Native release review confirmed pasted URL navigation, path-space encoding, an IPv6 address result and fixed input placement across four, two and seven results. Saved user data remained byte-for-byte unchanged. Remaining checks stay consolidated in SIDEBAR-VERIFICATION.md.
+
+## Sidebar motion transition batch
+
+The frozen unnamed-split measurements already match row height, inset, caption height and caption placement; named-split reference coverage remains incomplete. Scan found concrete reduced-motion transition defects. Implement the collected motion fixes before combined testing.
+
+- [ ] M1. Suppress native table insertion/removal movement as well as cell entrance springs when Reduce Motion is enabled.
+- [ ] M2. Reset a displaced or animating Space sidebar immediately on a reduced-motion preference notification or cancelled gesture; preserve the selected Space and its pages.
+- [ ] M3. Stop dock magnification and rebuild its resting sizes on a preference change, including changes during an active interpolation.
+- [ ] M4. Clear stale presence transforms when an arrival, slide or departure resolves without motion.
+- [ ] M5. Verify the changed transition paths and full suite together, review one built app, audit user data and update the consolidated remaining list. Keep a real macOS preference-toggle session distinct from tests that override the setting.
