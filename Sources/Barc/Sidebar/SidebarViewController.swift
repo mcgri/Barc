@@ -2758,9 +2758,13 @@ final class SidebarViewController: NSViewController {
         let owner = shownSpace
         func add(_ title:String,enabled:Bool = true,action:@escaping ()->Void) {
             let target = SidebarMenuAction { [weak self,weak owner] in
-                guard let self,let owner,session.spaces.contains(where:{ $0 === owner }),
-                      owner.splits.identifier(containing:split.anchor.id) == split.id else { return }
-                action()
+                // A native menu still owns focus while its action runs. Wait
+                // until tracking ends before opening an editor or popover.
+                DispatchQueue.main.async { [weak self,weak owner] in
+                    guard let self,let owner,session.spaces.contains(where:{ $0 === owner }),
+                          owner.splits.identifier(containing:split.anchor.id) == split.id else { return }
+                    action()
+                }
             }
             let item = NSMenuItem(title:title,action:#selector(SidebarMenuAction.run),keyEquivalent:"")
             item.target = target;item.representedObject = target;item.isEnabled = enabled;menu.addItem(item)

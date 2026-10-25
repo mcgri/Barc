@@ -104,6 +104,30 @@ struct SidebarBatchTests {
         #expect(source.splits.name(containing:a.id) == nil && a.customName == "Pane 1")
     }
 
+    @Test("Split menu rename opens after tracking and still targets the original unit")
+    func menuRename() async throws {
+        _ = NSApplication.shared
+        let session = TestSession.make().0,owner = session.activeSpace
+        let a = page(session,1),b = page(session,2)
+        session.splitTabs([a,b]);session.renameSplit(containing:a.id,in:owner,to:"Research")
+        let sidebar = SidebarViewController(session:session)
+        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:228,height:800),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.isReleasedWhenClosed = false;defer { window.close() }
+        let host = UITestSupport.host(sidebar.view,width:228,height:800)
+        sidebar.view.bottomAnchor.constraint(equalTo:host.bottomAnchor).isActive = true
+        window.contentView = host;host.layoutSubtreeIfNeeded()
+        let menu = sidebar.makeRowMenu(at:sidebar.tabListTableView.selectedRow)
+        let item = try #require(menu.items.first { $0.title == "Rename…" })
+        #expect(NSApp.sendAction(try #require(item.action),to:item.target,from:item))
+        #expect(!UITestSupport.descendants(of:sidebar.view).contains { $0 is FolderNameEditor })
+        await withCheckedContinuation { c in DispatchQueue.main.async { c.resume() } }
+        let field = try #require(UITestSupport.descendants(of:sidebar.view).compactMap { $0 as? FolderNameEditor }.first)
+        #expect(field.stringValue == "Research" && field.accessibilityLabel() == "Split name")
+        field.stringValue = "Committed from menu";field.commit()
+        #expect(owner.splits.name(containing:a.id) == "Committed from menu")
+        #expect(a.customName == "Pane 1" && b.customName == "Pane 2")
+    }
+
     @Test("A Favorite rename belongs to its profile and updates sibling split layouts")
     func favoriteName() throws {
         let session = TestSession.make().0,source = session.activeSpace
