@@ -62,6 +62,7 @@ final class SidebarViewController: NSViewController {
 
     var onNewTab: (() -> Void)?
     var onChooseSplitPage: (() -> Void)?
+    var onCustomizePage: ((Tab,String) -> Void)?
 
     /// Told which space is in front, so the window can wash the strip beside
     /// the page card with its colour and draw its border as well. The sidebar
@@ -1890,6 +1891,7 @@ final class SidebarViewController: NSViewController {
     func makeTabMenu(for tab: Tab, anchor: NSView? = nil) -> NSMenu {
         let owner = session.sidebarOwner(of: tab)
         let retained = tab.isSidebarRetained
+        let customizeHost = session.customizablePageHost(for:tab)
         let addingSplit = owner?.activeTab === tab
         let canSplit: Bool
         if let owner, let current = owner.activeTab {
@@ -1908,8 +1910,9 @@ final class SidebarViewController: NSViewController {
         return TabOptionsMenu.make(retained: retained, muted: tab.isMuted, canMute: tab.isPlayingAudio || tab.isMuted,
             canRemove: retained ? !tab.isLocked : canArchive(.tab), canSplit: canSplit, addingSplit: addingSplit,
             canReplacePinnedURL: (tab.pinnedPageURL ?? tab.url) != tab.url,
+            canCustomize:customizeHost != nil,
             owner: owner, destinations: session.sidebarSpaces, canArchiveOther: canArchive(.other),
-            canArchiveAbove: canArchive(.above), canArchiveBelow: canArchive(.below), extended: makeExtendedTabMenu(for: tab)) {
+            canArchiveAbove: canArchive(.above), canArchiveBelow: canArchive(.below)) {
             [weak self, weak tab, weak owner, weak anchor] action in
             guard let self, let tab, let owner, session.spaces.contains(where: { $0 === owner }),
                   owner.tabs.contains(where: { $0 === tab }) else { return }
@@ -1923,6 +1926,9 @@ final class SidebarViewController: NSViewController {
                 case .icon: showTabIconPicker(for: tab, in: owner, anchor: anchor)
                 case .rename: beginNamingTab(tab, in: owner)
                 case .mute: if tab.isPlayingAudio || tab.isMuted { tab.toggleMute() }
+                case .customize:
+                    guard let customizeHost,session.customizablePageHost(for:tab) == customizeHost else { return }
+                    onCustomizePage?(tab,customizeHost)
                 case .split: session.selectSpace(owner); splitTab(tab)
                 case .duplicate: session.selectSpace(owner); session.duplicate(tab)
                 case .move(let id):

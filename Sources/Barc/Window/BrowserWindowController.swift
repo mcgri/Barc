@@ -137,6 +137,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         wireTopBar()
         sidebar.onNewTab = { [weak self] in self?.newTab(nil) }
         sidebar.onChooseSplitPage = { [weak self] in self?.splitSideBySide(nil) }
+        sidebar.onCustomizePage = { [weak self] tab,host in self?.openBoostEditor(for:tab,expectedHost:host) }
         sidebar.onLibraryChange = { [weak self] visible, category in self?.applyLibraryLayout(visible: visible, category: category) }
         sidebar.onLibraryOpen = { [weak self] in self?.openLibraryEntry($0) }
         DownloadManager.shared.showLibrary = { [weak self] in
@@ -1034,10 +1035,18 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     }
 
     func openBoostEditor() {
-        guard let tab = session.activeTab,
-              let host = tab.displayURL.host?.lowercased(),
-              let webView = tab.currentWebView else { return }
-        let editor = BoostEditorViewController(host: host, webView: webView)
+        guard let tab = session.activeTab,let host = session.customizablePageHost(for:tab) else { return }
+        openBoostEditor(for:tab,expectedHost:host)
+    }
+
+    private func openBoostEditor(for tab:Tab,expectedHost:String) {
+        guard session.customizablePageHost(for:tab) == expectedHost,
+              let window,window.attachedSheet == nil,content.presentedViewControllers?.isEmpty != false else { return }
+        let matchingView:WKWebView? = tab.currentWebView.flatMap { view in
+            guard let url = view.url,SiteSettings.normalise(url.host() ?? "") == expectedHost else { return nil }
+            return view
+        }
+        let editor = BoostEditorViewController(url:tab.displayURL,webView:matchingView)
         content.presentAsSheet(editor)
     }
 

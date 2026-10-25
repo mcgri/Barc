@@ -10,6 +10,15 @@ extension BrowserSession {
         return spaces.first { $0.tabs.contains(where: { $0 === tab }) }
     }
 
+    /// Customization targets the selected website, never a background or PDF page.
+    func customizablePageHost(for tab:Tab) -> String? {
+        guard activeSpace.activeTab === tab,tab.document == nil,
+              let scheme = tab.displayURL.scheme?.lowercased(),["http","https"].contains(scheme),
+              let rawHost = tab.displayURL.host() else { return nil }
+        let host = SiteSettings.normalise(rawHost)
+        return host.isEmpty ? nil:host
+    }
+
     /// Space pins and profile-wide Favorites are different destinations.
     func canChangeSidebarPin(_ tab: Tab) -> Bool {
         sidebarPinUnit(for:tab) != nil

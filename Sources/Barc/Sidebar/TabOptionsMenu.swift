@@ -4,14 +4,14 @@ import AppKit
 @MainActor
 enum TabOptionsMenu {
     enum Action {
-        case copyLink, icon, rename, mute, split, duplicate, newSpace
+        case copyLink, icon, rename, mute, customize, split, duplicate, newSpace
         case archive, archiveOther, archiveAbove, archiveBelow, removePin, replacePinnedURL, editPinnedURL
         case move(UUID)
     }
     static func make(retained: Bool, muted: Bool, canMute: Bool, canRemove: Bool, canSplit: Bool, addingSplit: Bool,
-                     canReplacePinnedURL: Bool, owner: Space?, destinations: [Space],
+                     canReplacePinnedURL: Bool, canCustomize:Bool, owner: Space?, destinations: [Space],
                      canArchiveOther: Bool, canArchiveAbove: Bool, canArchiveBelow: Bool,
-                     extended: NSMenu?, perform: @escaping (Action) -> Void) -> NSMenu {
+                     perform: @escaping (Action) -> Void) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
         menu.allowsContextMenuPlugIns = false
@@ -27,17 +27,13 @@ enum TabOptionsMenu {
             (parent ?? menu).addItem(item)
             return item
         }
-        add("Copy Link", .copyLink)
-        if let extended {
-            let advanced = NSMenuItem(title: "More Tab Actions", action: nil, keyEquivalent: "")
-            advanced.submenu = extended
-            advanced.isAlternate = true; advanced.keyEquivalentModifierMask = .option
-            menu.addItem(advanced)
-        }
+        let copy = add("Copy Link", .copyLink)
+        copy.keyEquivalent = "c";copy.keyEquivalentModifierMask = [.command,.shift]
         menu.addItem(.separator())
         add("Change Icon…", .icon)
         add("Rename…", .rename)
         add(muted ? "Unmute" : "Mute", .mute, enabled: canMute)
+        if canCustomize { add("Customize Page…", .customize) }
         if retained {
             let edit = NSMenuItem(title: "Edit Pinned Page", action: nil, keyEquivalent: "")
             let options = NSMenu(); options.autoenablesItems = false

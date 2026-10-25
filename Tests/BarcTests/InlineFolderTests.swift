@@ -1,3 +1,4 @@
+// Modified for Barc: inline folder creation through the current multiple-tab menu, 2026-10-25.
 import AppKit
 import Testing
 @testable import Barc
@@ -167,16 +168,16 @@ struct InlineFolderTests {
         #expect(field.superview == nil)
     }
 
-    @Test("Creating a folder with selected tabs uses the same inline editor")
+    @Test("Creating folders from a multiple-tab selection uses the same inline editor")
     func foldersWithTabs() async throws {
         let session = TestSession.make().0
         let a = session.newTab(url: URL(string: "https://folder-fixture.invalid/a")!)
         let b = session.newTab(url: URL(string: "https://folder-fixture.invalid/b")!)
         let (sidebar, window) = host(session); defer { window.close() }
-        try await perform("New Folder with Tab", in: sidebar.makeTabMenu(for: a))
+        try await perform("New Folder with 2 Tabs", in: sidebar.makeMultiTabMenu(for: [a, b]))
         let first = try #require(a.groupID.flatMap { session.activeSpace.group(withID: $0) })
         let field = try editor(sidebar); type("First", into: field); field.commit()
-        #expect(first.name == "First" && b.groupID == nil)
+        #expect(first.name == "First" && a.groupID == first.id && b.groupID == first.id)
         try await perform("New Folder with 2 Tabs", in: sidebar.makeMultiTabMenu(for: [a, b]))
         let second = try #require(b.groupID.flatMap { session.activeSpace.group(withID: $0) })
         #expect(second !== first && a.groupID == second.id)
