@@ -105,8 +105,10 @@ Address classification verification: **2,370 tests in 372 suites passed**, 94.57
 
 The frozen unnamed-split measurements already match row height, inset, caption height and caption placement; named-split reference coverage remains incomplete. Scan found concrete reduced-motion transition defects. Implement the collected motion fixes before combined testing.
 
-- [ ] M1. Suppress native table insertion/removal movement as well as cell entrance springs when Reduce Motion is enabled.
-- [ ] M2. Reset a displaced or animating Space sidebar immediately on a reduced-motion preference notification or cancelled gesture; preserve the selected Space and its pages.
-- [ ] M3. Stop dock magnification and rebuild its resting sizes on a preference change, including changes during an active interpolation.
-- [ ] M4. Clear stale presence transforms when an arrival, slide or departure resolves without motion.
-- [ ] M5. Verify the changed transition paths and full suite together, review one built app, audit user data and update the consolidated remaining list. Keep a real macOS preference-toggle session distinct from tests that override the setting.
+- [x] M1. Suppress native table insertion/removal movement as well as cell entrance springs when Reduce Motion is enabled.
+- [x] M2. Reset a displaced or animating Space sidebar immediately on a reduced-motion preference notification or cancelled gesture; preserve the selected Space and its pages.
+- [x] M3. Stop dock magnification and rebuild its resting sizes on a preference change, including changes during an active interpolation.
+- [x] M4. Clear stale presence transforms when an arrival, slide or departure resolves without motion.
+- [x] M5. Verify the changed transition paths and full suite together, review one built app, audit user data and update the consolidated remaining list. Keep a real macOS preference-toggle session distinct from tests that override the setting.
+
+Motion transition verification: **2,379 tests in 373 suites passed**, 91.327 seconds, including every source correction in this batch. Build **243**, `0.1.64-145-g59ef390`, compiled in 74.02 seconds and passed strict signature verification. The isolated release review verified ordinary Space switching/return, New Tab, local navigation and tab insertion/removal. Reduced-motion transitions use native views and native workspace notifications with a test setting override; an actual macOS preference-toggle session remains unverified. Saved user data remained byte-for-byte unchanged. Remaining source comparisons and manual checks stay consolidated in SIDEBAR-VERIFICATION.md.

@@ -1,6 +1,6 @@
 # Sidebar batch findings
 
-2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `b1772a0`, including typed-address fixup and destination identity corrections. Current release: **build 241**. Full Arc parity remains unproven.
+2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `59ef390`, including interrupted sidebar motion and display-change context corrections. Current release: **build 243**. Full Arc parity remains unproven.
 
 ## Completed fixes
 
@@ -112,6 +112,24 @@ Final release: **build 241**, `0.1.64-143-gb1772a0`, compiled in 74.32 seconds. 
 
 Native review verified that `https:/example.com/a b` becomes the actual `https://example.com/a%20b` destination, an IPv6 input receives a globe/navigation result, and the input stays at the same position as four recent rows become two address/search rows and then seven query/prediction rows. The review used a separately identified copy with sample data, then closed it. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No sharing/social features, remote push or hosted environment changes were made.
 
+## Sidebar motion transitions: build 243
+
+- Reduced motion now suppresses native table insertion/removal movement as well as cell entrance springs. A structure change still updates the list and selection immediately.
+- The sidebar and dock observe the workspace's display-option notification through an observation object that unregisters with its owner. Enabling reduced motion cancels an active sidebar journey, removes its snapshots, resets its displacement and clears the switch/watchdog state. Cancelled or subsequent swipe events also restore rest immediately.
+- Dock interpolation rebuilds its targets at resting size when motion becomes reduced. A stationary hovered icon also resets on notification; re-enabling motion retains the same click targets and pointer position.
+- Reduced presence operations remove their earlier presence animation and reset the model transform before applying the requested final visibility. Arrival/departure callbacks still complete.
+- A preference-only redraw preserves scroll position, multi-row selection and the active page. Combined verification exposed that table reload cleared selection; restoration now suppresses page-selection side effects and refreshes the row appearance afterward.
+
+The observation uses Apple's documented [workspace display notification](https://developer.apple.com/documentation/appkit/nsworkspace/accessibilitydisplayoptionsdidchangenotification) and [Reduce Motion property](https://developer.apple.com/documentation/appkit/nsworkspace/accessibilitydisplayshouldreducemotion). The automated checks post the native notification and use a test override for the setting. They do not establish that a real system preference toggle has been exercised.
+
+The existing frozen unnamed-split comparison supports the current row-height, inset and caption-placement choices. Its one-pixel inner-corner threshold difference and incomplete named-split reference remain explicit; this batch makes no new exact-pixel or source-animation-timing claim.
+
+Combined suite: **2,379 tests in 373 suites passed**, 91.327 seconds. All source changes and the selection correction are included. Checks cover observer lifetime, interrupted presence operations, a moving and stationary dock, cancelled/subsequent swipe events, an in-flight Space switch, viewport/multi-selection preservation and reduced row insertion/removal. A failing fixture was also corrected to compare the original tab identities rather than assume the fixture began empty.
+
+Final release: **build 243**, `0.1.64-145-g59ef390`, compiled in 74.02 seconds. Strict signature verification passed. The bundle is `build/Barc.app`.
+
+Native release review verified ordinary Space switching and return, New Tab with a local site-search destination, tab insertion/removal and the settled sidebar rendering. It used a separately identified copy with local sample pages; that copy is closed. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No sharing/social features, remote push or hosted environment changes were made.
+
 ## Remaining to-do list
 
 These are remaining differences or verification gaps within the requested areas. They are not claims of completed parity.
@@ -136,7 +154,7 @@ These are remaining differences or verification gaps within the requested areas.
 ### Appearance and motion
 
 - [ ] Compare animation timing, blur/material strength and grain side by side from saved captures. Both appearances render, but exact perceptual parity is not established.
-- [ ] Check reduced-motion behavior with the macOS preference enabled during ordinary use. Changed controls use the existing motion implementation; a physical preference-toggle session remains to be observed.
+- [ ] Check reduced-motion behavior with the macOS preference enabled during ordinary use. Build 243 covers interrupted motion, native notification delivery, row updates and context preservation in automated native-view checks. An actual system preference-toggle session remains unverified.
 
 ### Live folders
 
