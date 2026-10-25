@@ -25,12 +25,11 @@ actor SearchSuggestions {
 
     /// Endpoint definitions follow the public engine definitions at
     /// https://chromium.googlesource.com/external/search_engines_data/+/refs/heads/main/definitions/prepopulated_engines.json
-    static func request(for query:String,engine:SearchEngine) -> URLRequest? {
+    static func request(for query:String,engine:SearchEngine,explicitSearch:Bool = false) -> URLRequest? {
         let text = query.trimmingCharacters(in:.whitespacesAndNewlines)
-        // Address paths, credentials and pasted multi-line material stay local.
         guard !text.isEmpty,text.utf16.count<=200,
-              !text.contains(where:{ "@/\\:?&#=".contains($0) }),
-              !text.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains) else { return nil }
+              !text.unicodeScalars.contains(where:CharacterSet.controlCharacters.contains),
+              explicitSearch || !isAddressPotentiallyPrivate(text) else { return nil }
         let base:String,key:String
         switch engine.id {
         case SearchEngine.duckDuckGo.id:base = "https://duckduckgo.com/ac/";key = "q"
@@ -49,8 +48,30 @@ actor SearchSuggestions {
         return request
     }
 
-    func suggestions(for query:String,engine:SearchEngine) async -> [String] {
-        guard let request = Self.request(for:query,engine:engine),!Task.isCancelled else { return [] }
+    /// Mirrors Chromium's distinction between query punctuation and URL parts,
+    /// using Barc's navigation classification. Keyword/site mode is an explicit
+    /// search, while default-engine suggestions must not disclose private URLs.
+    /// https://github.com/chromium/chromium/blob/main/components/omnibox/browser/search_provider.cc
+    static func isAddressPotentiallyPrivate(_ text:String) -> Bool {
+        if let url = URLResolver.navigationURL(text),
+           let parts = URLComponents(url:url,resolvingAgainstBaseURL:false) {
+            guard let scheme = parts.scheme?.lowercased(),["http","https","ftp"].contains(scheme) else { return true }
+            if parts.user != nil || parts.password != nil || parts.port != nil || parts.query != nil || parts.fragment != nil { return true }
+            return scheme == "https" && !parts.percentEncodedPath.isEmpty
+        }
+        // Do not misclassify ordinary multiword questions such as "why: now?"
+        // or "cats & dogs" as URLs merely because they contain punctuation.
+        guard !text.contains(where: \.isWhitespace) else {
+            return text.contains("://") || ["file:","data:","javascript:","blob:"].contains { text.lowercased().hasPrefix($0) }
+        }
+        if text.contains("@") || text.hasPrefix("/") || text.hasPrefix("\\") { return true }
+        if text.hasPrefix("?"),text.contains("=") { return true }
+        // Unknown/custom schemes and incomplete credential-like inputs are local.
+        return URLComponents(string:text)?.scheme != nil
+    }
+
+    func suggestions(for query:String,engine:SearchEngine,explicitSearch:Bool = false) async -> [String] {
+        guard let request = Self.request(for:query,engine:engine,explicitSearch:explicitSearch),!Task.isCancelled else { return [] }
         do {
             let (data,response) = try await session.data(for:request)
             guard !Task.isCancelled,let response = response as? HTTPURLResponse,response.statusCode == 200,

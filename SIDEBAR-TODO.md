@@ -51,3 +51,12 @@ The preceding batch is verified in build 228. This batch closes remaining search
 - [x] Q7. Run one combined verification phase after implementation, including actual native marked-text composition, scrolling, delayed predictions, site mode and ownership; then inspect a built app and update the remaining list.
 
 Search follow-up combined suite passed: 2,329 tests in 366 suites, 94.566 seconds. Live anonymous endpoint checks passed for DuckDuckGo, Google and Bing; Google's declared Latin-1 responses are decoded correctly. Native release review is complete in build 231. Confirmed follow-up differences are consolidated in SIDEBAR-VERIFICATION.md.
+
+## Search interaction batch
+
+Scan complete. Implement these together before running the combined suite and owned app review. Arc remains untouched.
+
+- [ ] R1. Let native sidebar pointer clicks reach their controls while search is open. Dismiss before normal event dispatch, preserving the original click and context-menu/drag behavior.
+- [ ] R2. Keep search rows and the query preview as magnifying glasses after an engine favicon has been cached; preserve actual page favicons.
+- [ ] R3. Accept punctuation in ordinary question predictions. Keep address credentials, secure paths and local schemes out of default-engine requests; recognize an explicitly chosen site/keyword search.
+- [ ] R4. Run one combined automated/native review, check input stability and saved data, and consolidate remaining differences.

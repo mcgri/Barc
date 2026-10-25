@@ -40,6 +40,23 @@ struct SearchPredictionTests {
         let custom = try #require(SearchEngine.custom(name:"Other",address:"https://other.invalid/?q=%s",keyword:"o"))
         #expect(SearchSuggestions.request(for:"river",engine:custom) == nil)
     }
+    @Test("Ordinary punctuation is searchable while private URL parts stay local")
+    func punctuationAndAddresses() throws {
+        for query in ["weather?","cats & dogs","why: now?","C# tutorial","C++ / Rust","2+2=4","@ home","https", "example.com"] {
+            let request = try #require(SearchSuggestions.request(for:query,engine:.google))
+            #expect(URLComponents(url:request.url!,resolvingAgainstBaseURL:false)?.queryItems?.first { $0.name == "q" }?.value == query)
+        }
+        for query in ["https://example.com/private","example.com/private","https://example.com/?token=secret",
+                      "http://user:password@example.com","http://example.com:8080","example.com#account",
+                      "file:///Users/test/Documents/report","file:/Users/test/report", "data:text/plain,local",
+                      "custom://local/secret","user:password@server", "localhost:3000", "/private/path", "\\private\\path"] {
+            #expect(SearchSuggestions.request(for:query,engine:.google) == nil, "\(query)")
+        }
+        #expect(SearchSuggestions.request(for:"http://example.com/public",engine:.google) != nil)
+        // A chosen site's keyword explicitly asks that engine to search the term.
+        #expect(SearchSuggestions.request(for:"https://example.com/private",engine:.google,explicitSearch:true) != nil)
+        #expect(SearchSuggestions.request(for:"words\nother",engine:.google,explicitSearch:true) == nil)
+    }
     @Test("The native transport returns deduplicated predictions without cookies or credentials")
     func transport() async {
         let configuration = URLSessionConfiguration.ephemeral

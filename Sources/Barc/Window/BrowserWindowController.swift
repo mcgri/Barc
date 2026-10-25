@@ -1216,6 +1216,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// performs one.
     private func wireCommandBar() {
         commandBar.install(in: root.view, centeredIn: content.view)
+        commandBar.sidebarInteractionView = sidebar.view
         commandBar.ownerTokenProvider = { [weak self] in
             guard let self else { return "" }
             return "\(session.activeSpace.id):\(session.activeSpace.profile.id)"
@@ -1227,7 +1228,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         }
         commandBar.onCancel = { [weak self] in self?.cancelSplitSelection() }
         commandBar.resultImageProvider = { [weak self] result in
-            guard let self else { return nil }
+            guard let self,result.kind != .search else { return nil }
             switch result.action {
             case .switchToTab(let id):
                 guard let tab = self.session.spaces.lazy.flatMap(\.tabs).first(where: { $0.id == id }) else { return nil }
@@ -1331,7 +1332,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             let quick = site == nil ? URLResolver.quickSearch(query,engines:Settings.shared.searchEngines):nil
             let engine = site ?? quick?.engine ?? defaultEngine
             let term = quick?.query ?? query
-            let predictions = await client.suggestions(for:term,engine:engine)
+            let predictions = await client.suggestions(for:term,engine:engine,explicitSearch:site != nil || quick != nil)
             guard !Task.isCancelled,session.activeSpace === space,space.profile === profile,
                   Settings.shared.suggestionSources.searchEngine,
                   session.searchEngine(for:space) == defaultEngine else { return local }

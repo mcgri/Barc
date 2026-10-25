@@ -66,6 +66,9 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     var ownerTokenProvider: (() -> String)?
     private var openingOwner:String?
     private(set) var siteSearchEngine:SearchEngine?
+    /// The sidebar stays interactive while the launcher owns the rest of the window.
+    weak var sidebarInteractionView:NSView?
+    private nonisolated(unsafe) var sidebarPointerMonitor:Any?
     var resultImageProvider: ((CommandResult) -> NSImage?)?
     var onClose: (() -> Void)?
     var onCancel: (() -> Void)?
@@ -1005,6 +1008,36 @@ final class CommandBar: NSView, NSTextFieldDelegate {
     }
 
     // MARK: - Events
+
+    deinit {
+        if let sidebarPointerMonitor { NSEvent.removeMonitor(sidebarPointerMonitor) }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let sidebarPointerMonitor { NSEvent.removeMonitor(sidebarPointerMonitor) }
+        sidebarPointerMonitor = nil
+        guard window != nil else { return }
+        // Dismiss before AppKit hit-tests the original event. Returning that
+        // event preserves button tracking, context menus and the start of a drag.
+        sidebarPointerMonitor = NSEvent.addLocalMonitorForEvents(matching:[.leftMouseDown,.rightMouseDown,.otherMouseDown]) { [weak self] event in
+            MainActor.assumeIsolated { self?.prepareSidebarInteraction(event) }
+            return event
+        }
+    }
+
+    func prepareSidebarInteraction(_ event:NSEvent) {
+        guard isOpen,event.window === window,
+              [.leftMouseDown,.rightMouseDown,.otherMouseDown].contains(event.type),
+              let sidebar = sidebarInteractionView,sidebar.window === window,
+              !sidebar.isHiddenOrHasHiddenAncestor,
+              sidebar.visibleRect.intersection(sidebar.bounds).contains(sidebar.convert(event.locationInWindow,from:nil)),
+              !shadowHost.bounds.contains(shadowHost.convert(event.locationInWindow,from:nil)) else { return }
+        close()
+        // Closing a compact editor can reparent its sidebar. Resolve layout now
+        // so AppKit targets the visible control rather than a stale overlay.
+        window?.contentView?.layoutSubtreeIfNeeded()
+    }
 
     /// A click that lands on the bar and not on the panel is a click outside
     /// the panel, because the panel is the only thing on it.

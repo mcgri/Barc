@@ -31,6 +31,28 @@ struct URLEditorTests {
         return output as Data
     }
 
+    @Test("Search rows keep magnifying glasses when the engine's page icon is available")
+    func searchImages() throws {
+        let session = TestSession.make().0
+        let url = try #require(SearchEngine.duckDuckGo.url(for:"weather?"))
+        var engineSite = BrowserTopSite(url:url,title:"Engine page")
+        engineSite.favicon = .init(pageURL:url,data:try png(.red))
+        session.activeSpace.profile.preferences.arcTopSites = [engineSite]
+        let controller = BrowserWindowController(session:session);defer { close(controller) }
+        let bar = try command(controller)
+        let page = CommandResult(id:"engine-page",kind:.history,title:"Engine page",subtitle:"",symbolName:"globe",action:.openURL(url),score:0)
+        #expect(bar.resultImageProvider?(page) != nil)
+        let literal = try #require(CommandSearch.row(query:"weather?",engine:.duckDuckGo))
+        let searches = CommandSearch.adding(["weather? tomorrow"],query:"weather?",engine:.duckDuckGo,to:[literal])
+        for result in searches {
+            #expect(result.symbolName == "magnifyingglass" && bar.resultImageProvider?(result) == nil)
+        }
+        bar.openNewTab(recentResults:[]);bar.setResults(searches);bar.moveSelection(by:1)
+        let images = UITestSupport.descendants(of:bar).compactMap { $0 as? NSImageView }
+        #expect(!images.isEmpty && images.allSatisfy { $0.image == nil || $0.image?.isTemplate == true })
+        bar.close()
+    }
+
     @Test("Command-L centres a selected full URL while clicking Address opens the sidebar popup")
     func twoEntrypoints() throws {
         _ = NSApplication.shared
