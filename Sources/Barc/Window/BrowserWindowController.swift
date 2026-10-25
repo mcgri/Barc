@@ -2915,7 +2915,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case #selector(resetActivePin(_:)):
             return session.activeTab.map(session.canResetSidebarPin) ?? false
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
-            return session.activeSpace.tabs.count > 1
+            return session.canSelectAdjacentTab
         case #selector(selectNextSpace(_:)), #selector(selectPreviousSpace(_:)):
             return session.sidebarSpaces.count > 1
         default: return true

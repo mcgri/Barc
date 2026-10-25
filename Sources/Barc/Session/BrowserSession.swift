@@ -1854,7 +1854,8 @@ final class BrowserSession {
 
         // If the space has an active split with a sticky pane, replace the unsticky pane
         // so the user can browse tabs while keeping the stuck pane pinned on screen.
-        if let layout = space.splits.layout(containing: space.activeTabID),
+        if let current = space.activeTab,!space.isInCollapsedPinnedSection(current),
+           let layout = space.splits.layout(containing: current.id),
            let stickyID = layout.tabIDs.first(where: space.splits.stickyTabIDs.contains),
            space.splits.layout(containing: tab.id) == nil,
            tab.id != stickyID,
@@ -1910,15 +1911,6 @@ final class BrowserSession {
             : -1
         guard tabs.indices.contains(index) else { return }
         selectTab(tabs[index])
-    }
-
-    func selectTab(offsetBy offset: Int) {
-        let tabs = activeSpace.tabs
-        guard tabs.count > 1,
-              let current = activeSpace.activeTabID,
-              let index = tabs.firstIndex(where: { $0.id == current }) else { return }
-        let wrapped = (index + offset % tabs.count + tabs.count) % tabs.count
-        selectTab(tabs[wrapped])
     }
 
     func moveTab(from source: Int, to destination: Int) {
