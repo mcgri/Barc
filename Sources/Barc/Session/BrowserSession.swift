@@ -255,12 +255,23 @@ final class BrowserSession {
                 guard existing !== space.profile else { continue }
                 let activeFavorite = space.activeTab?.pinnedSiteID == nil ? nil : space.activeTab
                 let incomingFavorites = space.profile.favoriteTabs
+                let originalSplits = space.splits
+                var bindings = Dictionary(uniqueKeysWithValues:space.workspaceTabs.map { ($0.id,$0.id) })
                 existing.mergeFavorites(from: space.profile)
                 space.useProfile(existing)
                 // Coalesce identical old copies. If a copy was on another
                 // page or had different notes, keep it as an ordinary tab.
-                for tab in incomingFavorites { space.insert(tab, at: space.workspaceTabs.count) }
-                if let pinID = activeFavorite?.pinnedSiteID, let tab = existing.favoriteTabs.first(where: { $0.pinnedSiteID == pinID }) { space.setActiveTabID(tab.id) }
+                for tab in incomingFavorites {
+                    space.insert(tab, at: space.workspaceTabs.count)
+                    let canonical = tab.pinnedSiteID.flatMap { id in
+                        existing.favoriteTabs.first { $0.pinnedSiteID == id && $0.pinnedMemberID == tab.pinnedMemberID }
+                    }
+                    bindings[tab.id] = canonical?.id ?? tab.id
+                }
+                var rebound = SplitCollection()
+                rebound.copyCompleteGroups(from:originalSplits,mapping:bindings)
+                space.splits = rebound
+                if let active = activeFavorite,let id = bindings[active.id] { space.setActiveTabID(id) }
             } else { profiles.append(space.profile) }
         }
         let liveIDs = Set(allTabs.map(\.id))
@@ -3328,6 +3339,10 @@ final class BrowserSession {
     /// Repeated URLs are legitimate separate tabs and must survive the import.
     @discardableResult
     func applyArcSpaces(_ incoming: [SessionSnapshot.Space]) throws -> (tabs: Int, archived: Int, spaces: Int, folders: Int, favorites: Int) {
+        try changes.batch { try applyArcSpaceRecords(incoming) }
+    }
+
+    private func applyArcSpaceRecords(_ incoming:[SessionSnapshot.Space]) throws -> (tabs:Int,archived:Int,spaces:Int,folders:Int,favorites:Int) {
         var addedTabs = 0
         var addedArchived = 0
         var addedSpaces = 0
@@ -3369,7 +3384,9 @@ final class BrowserSession {
                           let badge = group.badgeIcon else { continue }
                     current.badgeIcon = badge
                 }
-                for pin in built.pinnedSites {
+                let upgraded = prepareArcFavoriteSplits(stored,into:space)
+                addedTabs += upgraded.tabs;addedFavorites += upgraded.favorites
+                for pin in built.pinnedSites where pin.split == nil {
                     let before = space.pinnedSites.count
                     space.addPinnedSite(pin)
                     addedFavorites += space.pinnedSites.count - before
@@ -3518,6 +3535,13 @@ final class BrowserSession {
             if space.activeTabID == tab.id { changes.send(.activeTab) }
         }
         scheduleSave()
+    }
+
+    /// Imports use the same delegate/subscription ownership as ordinary inserts.
+    func restoreImportedTab(_ snapshot:SessionSnapshot.Tab,into space:Space) -> Tab {
+        let tab = Tab(restoring:snapshot,identity:space.identity)
+        adopt(tab);space.insert(tab,at:space.workspaceTabs.count)
+        return tab
     }
 
     private func adopt(_ tab: Tab) {

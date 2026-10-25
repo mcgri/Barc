@@ -71,15 +71,45 @@ enum ArcSpaceBuilder {
                 }
             }
             var splits:[SessionSnapshot.Split] = [],splitSelections:[String:Int] = [:],claimed:Set<Int> = []
+            func splitPrefix(_ favorite:Bool) -> String {
+                prefix+(favorite ? "/profile/"+space.profile+"/favorite":"/space/"+space.id)
+            }
+            func splitKey(_ candidate:(id:String,favorite:Bool)) -> String {
+                splitPrefix(candidate.favorite)+"/split/"+candidate.id
+            }
             for candidate in splitRoots {
                 splitSelections[candidate.id] = ArcSplitBuilder.focusedIndex(root:candidate.id,
                     items:sidebar.items,children:children,tabIndices:tabIndices)
             }
-            for candidate in splitRoots where !candidate.favorite {
+            for candidate in splitRoots {
                 guard let built = ArcSplitBuilder.build(root:candidate.id,items:sidebar.items,children:children,
-                    tabIndices:tabIndices,prefix:prefix+"/space/"+space.id),
-                      built.record.tabIndices.allSatisfy({ tabs[$0].pinnedSiteID == nil }),
+                    tabIndices:tabIndices,prefix:splitPrefix(candidate.favorite)),
+                      let groupID = built.record.id,
+                      built.record.tabIndices.allSatisfy({ candidate.favorite
+                          ? tabs[$0].pinnedSiteID != nil && tabs[$0].groupID == nil
+                          : tabs[$0].pinnedSiteID == nil }),
                       claimed.isDisjoint(with:built.record.tabIndices) else { continue }
+                if candidate.favorite {
+                    let pinID = ArcImportID.uuid(splitKey(candidate)+"/pin")
+                    let members = zip(built.record.layout.tabIDs,built.record.tabIndices).map { member,index -> FavoriteSplit.Member in
+                        var saved = tabs[index]
+                        saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.interactionState = nil
+                        return .init(id:member,page:saved)
+                    }
+                    let focusedMember = zip(built.record.layout.tabIDs,built.record.tabIndices)
+                        .first { $0.1 == built.focusedIndex }?.0
+                    let destination = FavoriteSplit(id:groupID,members:members,layout:built.record.layout,
+                        focusedMemberID:focusedMember,stickyMemberID:nil)
+                    let oldIDs = Set(built.record.tabIndices.compactMap { tabs[$0].pinnedSiteID })
+                    let position = pins.firstIndex { oldIDs.contains($0.id) } ?? pins.count
+                    pins.removeAll { oldIDs.contains($0.id) }
+                    pins.insert(.init(id:pinID,url:members[0].page.url,
+                        title:members.map { $0.page.customName ?? $0.page.title ?? $0.page.url.host() ?? "Tab" }.joined(separator:" / "),
+                        split:destination),at:min(position,pins.count))
+                    for (member,index) in zip(built.record.layout.tabIDs,built.record.tabIndices) {
+                        tabs[index].pinnedSiteID = pinID;tabs[index].pinnedMemberID = member
+                    }
+                }
                 splits.append(built.record)
                 splitSelections[candidate.id] = built.focusedIndex
                 claimed.formUnion(built.record.tabIndices)
@@ -100,6 +130,10 @@ enum ArcSpaceBuilder {
             if let selected {
                 for index in splits.indices where splits[index].tabIndices.contains(selected) {
                     splits[index].focusedTabIndex = selected
+                    if let pin = pins.firstIndex(where:{ $0.split?.id == splits[index].id }),
+                       let member = zip(splits[index].layout.tabIDs,splits[index].tabIndices).first(where:{ $0.1 == selected })?.0 {
+                        pins[pin].split?.focusedMemberID = member
+                    }
                 }
             }
             let snapshot = SessionSnapshot.Space(
@@ -109,13 +143,10 @@ enum ArcSpaceBuilder {
                 archiveHours: 0, archivedTabs: archives, bookmarkFolder: "From Arc/" + space.name,
                 icon: space.emoji.map { .emoji($0) } ?? space.symbolName.map { .symbol($0) },
                 splits:splits.isEmpty ? nil:splits,importedSplitIDs:splits.isEmpty ? nil:splits.compactMap(\.id))
-            func splitKey(_ candidate:(id:String,favorite:Bool)) -> String {
-                prefix+(candidate.favorite ? "/profile/"+space.profile+"/favorite-split/":"/space/"+space.id+"/split/")+candidate.id
-            }
             let supported = Set(splits.compactMap(\.id))
             output.append(Built(profile:space.profile,sourceSpaceID:space.id,snapshot:snapshot,
                 sourceSplitKeys:splitRoots.map(splitKey),unsupportedSplitKeys:splitRoots.filter {
-                    $0.favorite || !supported.contains(ArcImportID.uuid(splitKey($0)))
+                    !supported.contains(ArcImportID.uuid(splitKey($0)))
                 }.map(splitKey)))
         }
         if options.sidebar {

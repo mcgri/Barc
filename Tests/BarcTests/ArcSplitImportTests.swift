@@ -6,7 +6,7 @@ import Testing
 @Suite("Arc split sidebar import", .serialized)
 @MainActor
 struct ArcSplitImportTests {
-    fileprivate func source(axis:String = "horizontal",weights:Any = [Any](),nested:Bool = false,
+    func source(axis:String = "horizontal",weights:Any = [Any](),nested:Bool = false,
                         favorite:Bool = false,pinned:Bool = false) throws -> ArcSourceSnapshot {
         let root = try ArcImportBench.directory()
         let leaves = nested ? ["a","b","c","d"]:["a","b"]
@@ -87,7 +87,7 @@ struct ArcSplitImportTests {
         }
     }
 
-    @Test("Unsupported weights and Favorite units retain every page and report an ungrouped source unit")
+    @Test("Unsupported weights and malformed Favorite units retain every page and report an ungrouped source unit")
     func unsupported() throws {
         let invalid:[Any] = [["a",0.4], ["a",0.4,"a",0.6], ["a":true,"b":1], ["a":0,"b":1], "unknown"]
         for weights in invalid {
@@ -97,7 +97,7 @@ struct ArcSplitImportTests {
             #expect(incoming.sourceSplitCount == 1 && incoming.unsupportedSplits == 1)
             #expect(incoming.snapshot.activeTabIndex == 1)
         }
-        let source = try source(favorite:true);defer { source.remove() }
+        let source = try source(axis:"unknown",favorite:true);defer { source.remove() }
         let incoming = try built(source)
         #expect(incoming.snapshot.tabs.count == 2 && incoming.snapshot.splits == nil && incoming.unsupportedSplits == 1)
     }
@@ -206,10 +206,10 @@ struct ArcSplitImportTests {
 }
 
 extension ArcImportFlowTests {
-    @Test("Split reporting distinguishes migrated layouts from unsupported Favorite units")
+    @Test("Split reporting distinguishes supported layouts from malformed Favorite units")
     func splitLayoutReport() async throws {
         for favorite in [false,true] {
-            let source = try ArcSplitImportTests().source(favorite:favorite)
+            let source = try ArcSplitImportTests().source(axis:favorite ? "unknown":"horizontal",favorite:favorite)
             defer { source.remove() }
             try FileManager.default.createDirectory(at:source.root.appending(path:"User Data/Default"),withIntermediateDirectories:true)
             let (session,store) = TestSession.make()
@@ -226,7 +226,7 @@ extension ArcImportFlowTests {
             let profile = try #require(report.profiles.first)
             let count = try #require(profile.counts["Split layouts"])
             #expect(count.source == 1 && count.verified == (favorite ? 0:1))
-            #expect(count.skipped == (favorite ? 1:0) && profile.notes.contains { $0.contains("Favorite split units") })
+            #expect(count.skipped == (favorite ? 1:0) && profile.notes.contains { $0.contains("Split-wide names") })
         }
     }
 }

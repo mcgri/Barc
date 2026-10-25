@@ -40,6 +40,12 @@ final class BrowserProfile: Identifiable {
         pinAliases = pinAliases.filter { $0.value != site.id }
     }
 
+    /// Used only to recognize the generated single-tile aliases in older imports.
+    func tab(forPinnedAlias id:UUID) -> Tab? {
+        guard let canonical = pinAliases[id] else { return nil }
+        return favoriteTabs.first { $0.pinnedSiteID == canonical }
+    }
+
     func movePinnedSite(from source: Int, to destination: Int) {
         guard pinnedSites.indices.contains(source) else { return }
         let site = pinnedSites.remove(at: source)
