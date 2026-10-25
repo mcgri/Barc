@@ -1,6 +1,6 @@
 # Sidebar batch findings
 
-2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `5db18d7`, including search-interaction changes in `e2bb808`. Current release: **build 234**. Full Arc parity remains unproven.
+2026-10-25. Scope: the five areas in SIDEBAR-TODO.md, plus search. Current source: `3fefe81`, including sidebar destination changes in `e187198`. Current release: **build 237**. Full Arc parity remains unproven.
 
 ## Completed fixes
 
@@ -65,6 +65,22 @@ Native review in build 233 confirmed one-click expanded New Tab, an immediate si
 
 All review copies are closed. Saved session, preferences, boosts and live-folder files still match the pre-batch hashes exactly. Arc's windows were untouched. No social/sharing features, remote push or hosted environment changes were made.
 
+## Sidebar navigation and search destinations: build 237
+
+- Next/previous tab now uses sidebar visual order rather than creation/storage order. Open Favorite tiles come first, each workspace split occupies one destination, and a named split retains its name in the numbered menu. Collapsed Pinned entries retain a path back into the visible list.
+- Numbered menus and their actions use the same list. Favorites are included by default; a Shortcuts checkbox can exclude them. Explicit numbered selection can open an unopened Favorite, while ordinary cycling visits open destinations. This follows the default inclusion described in [Arc's October 6, 2022 notes](https://resources.arc.net/hc/en-us/articles/20498417809815-Arc-for-macOS-2022-Release-Notes).
+- Command-Option-Up/Down traverses tabs, matching [Arc's documented sidebar-order shortcut](https://resources.arc.net/hc/en-us/articles/25619402657303-How-Do-You-Switch-Between-Tabs-Quickly-on-Arc-Desktop). Space traversal uses the horizontal arrow pair. The dispatcher handles these before page key handling, ignores native Function/Numeric Pad/Caps Lock flags, and respects remapped, cleared and chord bindings. Horizontal Space-arrow fidelity still needs a source reference.
+- Google `NAVIGATION` and `PERSONALIZED_NAVIGATION` suggestions now become validated HTTP/HTTPS destinations, with their optional descriptions. The list avoids repeating a destination already represented by a local tab/history row. Query predictions remain searches with magnifying glasses. The protocol distinction is documented in [Chromium's suggestion parser](https://github.com/chromium/chromium/blob/main/components/omnibox/browser/search_suggestion_parser.cc).
+- Space suggestions now say `Focus on …`, remain available for the current Space, and precede a similarly named website in the saved source case. The current-Space behavior and priority follow the existing frozen source evidence; they do not establish complete Chromium ranking parity.
+
+Combined suite: **2,344 tests in 369 suites passed**, 96.072 seconds. The final modifier-mask normalization was then checked with **39 shortcut/sidebar tests in 9 suites**, 0.635 seconds. These cover native arrow flags and remaps, visual order, split units, numbered menu labels/selection, unopened Favorites, the Shortcuts preference, provider descriptions, unsafe navigation rejection, deduplication and direct Return destinations. The broader suite was not rerun after that final normalization; the focused suite covers its changed shortcut path.
+
+Final release: **build 237**, `0.1.64-139-g3fefe81`, compiled in 71.78 seconds. Strict signature verification passed. The bundle is `build/Barc.app`.
+
+Native review found that menu traversal worked while modified arrows did not act with page focus. The dispatcher correction is included in the final build. Build 237 then verified Command-1 opening a Favorite, Command-Option-Down moving to the first workspace row, Up returning to the Favorite, Right/Left switching Work/Personal, Command-7 selecting the named split, and one Down press wrapping from that complete split to the Favorite. The final Google website suggestion displayed a globe, previewed `github.com`, and Return opened GitHub directly. Typing the current Space name selected `Focus on Personal` first. The rendered result list was inspected.
+
+Both owned review copies are closed. Saved session, preferences, boosts and live-folder files still match their pre-batch hashes exactly. Arc's windows were untouched. No social/sharing features, remote push or hosted environment changes were made.
+
 ## Remaining to-do list
 
 These are remaining differences or verification gaps within the requested areas. They are not claims of completed parity.
@@ -73,7 +89,7 @@ These are remaining differences or verification gaps within the requested areas.
 
 - [ ] Compare ranking against Arc across a larger saved query set. The local ranker has corrected prefix behavior, but exact Chromium scoring is not established.
 - [ ] Compare partial URL classification against Chromium, including incomplete schemes, credentials and forced queries. Ordinary punctuation and the private-address cases below now have regression coverage; identical classification for every intermediate input is not established.
-- [ ] Compare richer provider result types and ranking metadata with Arc. The current list adds plain query predictions; exact Chromium scoring and all navigation/entity result types are not reproduced.
+- [ ] Compare richer provider result types and ranking metadata with Arc. Plain query and typed website predictions are implemented. Exact Chromium scoring, rich entity/answer annotations, complete provider metadata and source-specific URL-label formatting are not reproduced.
 - [ ] Check Japanese/Chinese composition with a real input method. Native marked-text composition is now exercised with real AppKit text-input APIs; a human input-method session has not been observed.
 - [ ] Compare placement and truncation during full-screen transitions and at unusually large accessibility text sizes. Ordinary resizing and both appearances are covered.
 
@@ -82,7 +98,8 @@ These are remaining differences or verification gaps within the requested areas.
 - [ ] Compare a named split's precise typography, icon spacing, hover controls and menu ordering against a saved Arc reference. The available reference does not establish every named-unit detail.
 - [ ] Complete a physical Option-drag and drag-out comparison for Favorites. Moving a shared Favorite across Spaces through the new workspace-transfer path is deliberately refused; workspace split transfers and copies are supported.
 - [ ] Check all modifier-drag combinations and cross-window gestures with the pointer. Model/native drop checks cover ownership and complete-unit behavior, but not every physical gesture.
-- [ ] Establish Arc's exact Favorite keyboard-cycle contract. Numbered visible workspace rows are corrected; a claim of identical Favorite traversal needs a reference capture.
+- [ ] Compare the remaining per-shortcut Favorite-inclusion and ninth-item options against the source. The documented default inclusion, visual-order cycle, named-unit numbering and actual modified-arrow dispatch are implemented and verified.
+- [ ] Verify the source's Space-arrow defaults from a saved reference. Barc uses horizontal Space traversal to keep the documented vertical tab pair distinct; exact source-default equivalence for the horizontal pair is not yet established.
 
 ### Appearance and motion
 

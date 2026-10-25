@@ -67,9 +67,11 @@ Final search-interaction verification: 2,334 tests in 367 suites passed in 94.43
 
 Scan complete against saved query captures, native source evidence and Arc's published keyboard documentation. Implement this collected batch before testing.
 
-- [ ] D1. Cycle through sidebar visual order, including one destination per split and open Favorite tile; preserve escape from collapsed Pinned entries.
-- [ ] D2. Use the same visible destination order for numbered menus and their actions. Include Favorites by default, with a Shortcuts preference to exclude them.
-- [ ] D3. Match documented Command-Option-Up/Down tab traversal; separate Space traversal onto the horizontal arrow pair.
-- [ ] D4. Decode provider navigation suggestions as validated web destinations, retain provider descriptions, and deduplicate against existing local destinations. Query predictions remain searches with magnifying glasses.
-- [ ] D5. Match the saved Space-focus action wording, offer the current Space when named, and prioritize a matching Space action as observed in the source capture.
-- [ ] D6. After all implementation, run the combined tests and inspect one built app, then update the consolidated remaining list.
+- [x] D1. Cycle through sidebar visual order, including one destination per split and open Favorite tile; preserve escape from collapsed Pinned entries.
+- [x] D2. Use the same visible destination order for numbered menus and their actions. Include Favorites by default, with a Shortcuts preference to exclude them.
+- [x] D3. Match documented Command-Option-Up/Down tab traversal; separate Space traversal onto the horizontal arrow pair.
+- [x] D4. Decode provider navigation suggestions as validated web destinations, retain provider descriptions, and deduplicate against existing local destinations. Query predictions remain searches with magnifying glasses.
+- [x] D5. Match the saved Space-focus action wording, offer the current Space when named, and prioritize a matching Space action as observed in the source capture.
+- [x] D6. After all implementation, run the combined tests and inspect one built app, then update the consolidated remaining list.
+
+Sidebar destination verification: the combined suite passed 2,344 tests in 369 suites in 96.072 seconds. After the final modifier-mask normalization, all 39 shortcut/sidebar regression checks passed in 0.635 seconds. Build 237, `0.1.64-139-g3fefe81`, passed strict signature verification and the native keyboard, numbered split, Space-focus and provider-navigation checks. Remaining differences stay consolidated in SIDEBAR-VERIFICATION.md.
