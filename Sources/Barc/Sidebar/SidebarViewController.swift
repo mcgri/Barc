@@ -1596,6 +1596,13 @@ final class SidebarViewController: NSViewController {
 
     /// The one place a `Tab` becomes the plain values a `TabRowView` takes.
     private func configure(_ cell: TabRowView, with tab: Tab, depth: Int) {
+        let owner = shownSpace
+        cell.onRename = { [weak self,weak owner,weak tab] in
+            guard let self,let owner,let tab,!isLibraryVisible,previewSpace == nil,
+                  shownSpace === owner,session.activeSpace === owner,
+                  session.spaces.contains(where:{ $0 === owner }),owner.tabs.contains(where:{ $0 === tab }) else { return }
+            beginNamingTab(tab,in:owner)
+        }
         // The same leading inset the group headers use, so a tab that belongs
         // to no folder lines up with a top-level folder rather than sitting
         // four points further out and running its pill into the sidebar edge.

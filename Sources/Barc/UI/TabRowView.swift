@@ -108,6 +108,7 @@ final class TabRowView: NSTableCellView {
     /// Close button clicked. When `nil` the button never appears, which is what
     /// a row that is not a closable tab wants.
     var onClose: (() -> Void)?
+    var onRename: (() -> Void)?
 
     /// Toggle mute clicked for playing audio.
     var onToggleMute: (() -> Void)?
@@ -686,8 +687,8 @@ final class TabRowView: NSTableCellView {
         return self
     }
 
-    /// The press is flicked rather than held, and the event is passed on
-    /// untouched.
+    /// Double-clicking the title starts inline naming. Other presses are
+    /// flicked rather than held, and passed on unchanged.
     ///
     /// Selecting a tab is the table view's job, and it is the table that
     /// decides whether this press is a selection or the start of a reorder
@@ -695,6 +696,14 @@ final class TabRowView: NSTableCellView {
     /// squeeze is therefore feedback only: it says the click landed, and makes
     /// no claim about what the click turned out to mean.
     override func mouseDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command,.control,.option,.shift])
+        if event.type == .leftMouseDown,event.clickCount == 2,modifiers.isEmpty,
+           let window,event.windowNumber == window.windowNumber,
+           !isHiddenOrHasHiddenAncestor,!isEditingName,
+           nameEditorFrame(in:self).contains(convert(event.locationInWindow,from:nil)),let onRename {
+            onRename()
+            return
+        }
         if acceptsSpringPress { press.flick() }
         super.mouseDown(with: event)
     }
@@ -708,6 +717,8 @@ final class TabRowView: NSTableCellView {
         // rebound, nor arrive still squeezed.
         press.reset()
         onClose = nil
+        onRename = nil
+        isEditingName = false
         // Whatever this cell shows next arrives already correct rather than
         // fading out of the previous row's selection.
         isFresh = true
