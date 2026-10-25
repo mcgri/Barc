@@ -20,6 +20,58 @@ struct SplitChooserTests {
         controller.window?.delegate = nil; controller.window?.close()
     }
 
+    @Test("The sole page's sidebar Add Split View opens and cancels the transient chooser")
+    func solePageSidebarMenu() async throws {
+        _ = NSApplication.shared
+        let (session,store) = TestSession.make()
+        defer { try? FileManager.default.removeItem(at:store.fileURL) }
+        let placeholder = try #require(session.activeTab)
+        let source = session.newTab(url:url("sole-sidebar-source"))
+        session.closeTab(placeholder)
+        #expect(session.activeSpace.tabs.count == 1)
+        let controller = BrowserWindowController(session:session)
+        defer { cleanup(controller) }
+        let root = try #require(controller.window?.contentView)
+        let sidebar = try #require(UITestSupport.descendants(of:root).compactMap { $0.nextResponder as? SidebarViewController }.first)
+        let item = try #require(sidebar.makeTabMenu(for:source).items.first { $0.title == "Add Split View" })
+        #expect(item.isEnabled)
+        let before = session.snapshot()
+        #expect(NSApp.sendAction(try #require(item.action),to:item.target,from:item))
+        await withCheckedContinuation { c in DispatchQueue.main.async { c.resume() } }
+        let command = try bar(controller)
+        #expect(command.isOpen && command.isSplitMode && empty(controller) != nil)
+        let after = session.snapshot()
+        let openedChanges = try changedFields(before,after)
+        // Focusing the preview refreshes the existing page's activity time.
+        // Every saved field other than that one timestamp must stay intact.
+        let activityField = "session.spaces[0].tabs[0].lastActiveAt"
+        #expect(openedChanges.allSatisfy { $0 == activityField }, "Changed fields: \(openedChanges)")
+        #expect(session.activeSplit == nil)
+        command.cancelOperation(nil)
+        #expect(!command.isOpen && empty(controller) == nil)
+        let closedChanges = try changedFields(before,session.snapshot())
+        #expect(closedChanges.allSatisfy { $0 == activityField }, "Changed fields: \(closedChanges)")
+        session.saveNow()
+        let saved = try #require(try store.load())
+        #expect(saved.spaces[0].tabs.count == 1 && saved.spaces[0].tabs[0].url == source.url)
+        #expect(saved.spaces[0].splits == nil)
+    }
+
+    private func changedFields(_ a:SessionSnapshot,_ b:SessionSnapshot) throws -> [String] {
+        func diff(_ a:Any,_ b:Any,_ path:String) throws -> [String] {
+            if let a = a as? [String:Any],let b = b as? [String:Any] {
+                return try Set(a.keys).union(b.keys).sorted().flatMap { key in
+                    try diff(a[key] ?? NSNull(),b[key] ?? NSNull(),path+"."+key)
+                }
+            }
+            if let a = a as? [Any],let b = b as? [Any],a.count == b.count {
+                return try a.indices.flatMap { try diff(a[$0],b[$0],path+"[\($0)]") }
+            }
+            return try JSONSerialization.data(withJSONObject:[a],options:.sortedKeys) == JSONSerialization.data(withJSONObject:[b],options:.sortedKeys) ? []:[path]
+        }
+        return try diff(JSONSerialization.jsonObject(with:JSONEncoder().encode(a)),JSONSerialization.jsonObject(with:JSONEncoder().encode(b)),"session")
+    }
+
     @Test("Opening and Escape show then remove an empty pane without adding a tab or saved layout")
     func previewAndCancel() throws {
         _ = NSApplication.shared

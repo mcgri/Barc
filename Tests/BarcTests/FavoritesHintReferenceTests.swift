@@ -8,7 +8,12 @@ import Testing
 struct FavoritesHintReferenceTests {
     @Test("The empty Favorites card renders its title, explanation and dismiss action")
     func hint() throws {
+        _ = NSApplication.shared
         let host = NSView(frame:NSRect(x:0,y:0,width:228,height:116))
+        let window = NSWindow(contentRect:host.bounds,styleMask:.borderless,backing:.buffered,defer:true)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.contentView = nil;window.close() }
         host.appearance = NSAppearance(named:.darkAqua)
         host.wantsLayer = true
         host.layer!.backgroundColor = NSColor(deviceRed:118/255,green:100/255,blue:100/255,alpha:1).cgColor
@@ -22,6 +27,20 @@ struct FavoritesHintReferenceTests {
             bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0))
         bitmap.size = host.bounds.size
         host.cacheDisplay(in:host.bounds,to:bitmap)
+        if let directory = ProcessInfo.processInfo.environment["BARC_HINT_CAPTURE_DIR"] {
+            let output = URL(fileURLWithPath:directory).appending(path:"hint.png")
+            try #require(bitmap.representation(using:.png,properties:[:])).write(to:output)
+            try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:output.path)
+            let frames = UITestSupport.descendants(of:pins).map { view -> [String:Any] in
+                let rect = view.convert(view.bounds,to:host)
+                return ["type":String(describing:type(of:view)),"x":rect.minX,"y":rect.minY,
+                    "width":rect.width,"height":rect.height,"hidden":view.isHiddenOrHasHiddenAncestor,
+                    "appearance":view.effectiveAppearance.name.rawValue]
+            }
+            let metadata = URL(fileURLWithPath:directory).appending(path:"frames.json")
+            try JSONSerialization.data(withJSONObject:frames,options:[.prettyPrinted,.sortedKeys]).write(to:metadata)
+            try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:metadata.path)
+        }
         // Frozen Source ink, relative to the card's top rather than its
         // unverified absolute window position. Measured at 2x backing scale.
         let captions:[(NSRect,NSRect)] = [
@@ -31,7 +50,7 @@ struct FavoritesHintReferenceTests {
             (NSRect(x:390,y:32,width:37,height:35),NSRect(x:403,y:45,width:15,height:15))
         ]
         for (region,expected) in captions {
-            let actual = ink(bitmap,in:region)
+            let actual = try #require(ink(bitmap,in:region), "No bright ink in \(region)")
             #expect(actual == expected)
         }
         let fields = UITestSupport.textFields(in:pins)
@@ -42,11 +61,6 @@ struct FavoritesHintReferenceTests {
         pins.onDismissHint = { dismissals += 1 }
         dismiss.performClick(nil)
         #expect(dismissals == 1)
-        if let directory = ProcessInfo.processInfo.environment["BARC_HINT_CAPTURE_DIR"] {
-            let output = URL(fileURLWithPath:directory).appending(path:"hint.png")
-            try #require(bitmap.representation(using:.png,properties:[:])).write(to:output)
-            try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:output.path)
-        }
         // Dynamic appearance must update the attributed wrapping label too.
         // Light text retains its prior effective opacity; only dark ink has
         // a measured Source reference.
@@ -63,7 +77,7 @@ struct FavoritesHintReferenceTests {
         #expect(pins.intrinsicContentSize.height == 96)
     }
 
-    private func ink(_ bitmap:NSBitmapImageRep,in region:NSRect) -> NSRect {
+    private func ink(_ bitmap:NSBitmapImageRep,in region:NSRect) -> NSRect? {
         var samples:[(x:Int,y:Int,value:CGFloat)] = []
         for y in Int(region.minY)..<Int(region.maxY) {
             for x in Int(region.minX)..<Int(region.maxX) {
@@ -74,8 +88,8 @@ struct FavoritesHintReferenceTests {
         let levels = samples.map(\.value).sorted(),background = levels[levels.count/2]
         let peak = levels.last!-background
         let points = samples.filter { $0.value-background > peak*0.45 }
-        let x0 = points.map(\.x).min()!, x1 = points.map(\.x).max()!
-        let y0 = points.map(\.y).min()!, y1 = points.map(\.y).max()!
+        guard let x0 = points.map(\.x).min(),let x1 = points.map(\.x).max(),
+              let y0 = points.map(\.y).min(),let y1 = points.map(\.y).max() else { return nil }
         return NSRect(x:x0,y:y0,width:x1-x0+1,height:y1-y0+1)
     }
 

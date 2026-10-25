@@ -51,6 +51,8 @@ struct SidebarTabActionsTests {
         let session = TestSession.make().0
         let tab = session.newTab(url: url("pinned"))
         let folder = session.createGroup(named: "Folder", containing: [tab])
+        // The frozen retained-tab menu was opened on a background page.
+        session.newTab(url:url("current"))
         let sidebar = SidebarViewController(session: session)
         let menu = sidebar.makeTabMenu(for: tab)
         let titles = menu.items.filter { !$0.isAlternate }.map { $0.isSeparatorItem ? "-" : $0.title }

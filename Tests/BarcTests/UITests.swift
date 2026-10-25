@@ -1138,7 +1138,7 @@ struct SidebarContextMenuTests {
         let menu = sidebar.makeTabMenu(for: tab)
         let titles = menu.items.filter { !$0.isAlternate }.map { $0.isSeparatorItem ? "-" : $0.title }
         #expect(titles == ["Copy Link", "-", "Change Icon…", "Rename…", "Mute", "-",
-                           "Open in Split View", "Duplicate", "Move to", "-", "Archive Tab", "Archive Tabs Below"])
+                           "Add Split View", "Duplicate", "Move to", "-", "Archive Tab", "Archive Tabs Below"])
         #expect(menu.items.allSatisfy { $0.image == nil })
         #expect(menu.items.first { $0.title == "Archive Other Tabs" }?.isAlternate == true)
         #expect(menu.items.first { $0.title == "Archive Tabs Above" }?.isAlternate == true)

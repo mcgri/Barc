@@ -1,4 +1,4 @@
-// Modified for Barc: Arc's compact ordinary and retained tab menus, 2026-10-24.
+// Modified for Barc: Arc's compact tab menus and active/background split actions, 2026-10-25.
 import AppKit
 
 @MainActor
@@ -8,7 +8,7 @@ enum TabOptionsMenu {
         case archive, archiveOther, archiveAbove, archiveBelow, removePin, replacePinnedURL, editPinnedURL
         case move(UUID)
     }
-    static func make(retained: Bool, muted: Bool, canMute: Bool, canRemove: Bool, canSplit: Bool,
+    static func make(retained: Bool, muted: Bool, canMute: Bool, canRemove: Bool, canSplit: Bool, addingSplit: Bool,
                      canReplacePinnedURL: Bool, owner: Space?, destinations: [Space],
                      canArchiveOther: Bool, canArchiveAbove: Bool, canArchiveBelow: Bool,
                      extended: NSMenu?, perform: @escaping (Action) -> Void) -> NSMenu {
@@ -46,7 +46,7 @@ enum TabOptionsMenu {
             edit.submenu = options; menu.addItem(edit)
         }
         menu.addItem(.separator())
-        add("Open in Split View", .split, enabled: canSplit)
+        add(addingSplit ? "Add Split View" : "Open in Split View", .split, enabled: canSplit)
         add("Duplicate", .duplicate)
         let move = NSMenuItem(title: "Move to", action: nil, keyEquivalent: "")
         let spaces = NSMenu(); spaces.autoenablesItems = false

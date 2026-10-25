@@ -1890,11 +1890,23 @@ final class SidebarViewController: NSViewController {
     func makeTabMenu(for tab: Tab, anchor: NSView? = nil) -> NSMenu {
         let owner = session.sidebarOwner(of: tab)
         let retained = tab.isSidebarRetained
+        let addingSplit = owner?.activeTab === tab
+        let canSplit: Bool
+        if let owner, let current = owner.activeTab {
+            if addingSplit {
+                canSplit = owner.splits.layout(containing:current.id)?.isFull != true
+            } else {
+                // Plan with complete groups, just as the eventual join does.
+                // A single active page can instead open a transient empty pane.
+                var proposed = owner.splits
+                canSplit = proposed.join([current.id,tab.id],grid:.sideBySide)
+            }
+        } else { canSplit = false }
         let canArchive: (BrowserSession.SidebarArchiveScope) -> Bool = { [session] scope in
             owner.map { !session.sidebarArchiveCandidates(relativeTo: tab, in: $0, scope: scope).isEmpty } ?? false
         }
         return TabOptionsMenu.make(retained: retained, muted: tab.isMuted, canMute: tab.isPlayingAudio || tab.isMuted,
-            canRemove: retained ? !tab.isLocked : canArchive(.tab), canSplit: (owner?.tabs.count ?? 0) > 1,
+            canRemove: retained ? !tab.isLocked : canArchive(.tab), canSplit: canSplit, addingSplit: addingSplit,
             canReplacePinnedURL: (tab.pinnedPageURL ?? tab.url) != tab.url,
             owner: owner, destinations: session.sidebarSpaces, canArchiveOther: canArchive(.other),
             canArchiveAbove: canArchive(.above), canArchiveBelow: canArchive(.below), extended: makeExtendedTabMenu(for: tab)) {
