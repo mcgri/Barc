@@ -106,9 +106,13 @@ final class WebContainerView: NSView {
         current = webView
 
         guard let webView else { return }
-        webView.translatesAutoresizingMaskIntoConstraints = false
+        // Web Inspector docks a sibling below/beside this view and resizes
+        // both with frames. Edge constraints would repeatedly stretch the
+        // page back over the console, fighting WebKit's resize notifications.
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
         addSubview(webView, positioned: .below, relativeTo: errorPage)
-        pin(webView)
         reveal(webView)
         window?.makeFirstResponder(webView)
     }

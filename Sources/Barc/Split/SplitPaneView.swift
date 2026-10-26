@@ -128,14 +128,13 @@ final class SplitPaneView: NSView {
             self.webView?.removeFromSuperview()
             self.webView = webView
 
-            webView.translatesAutoresizingMaskIntoConstraints = false
+            // The native inspector resizes this page and its docked sibling.
+            // Keep frame ownership with WebKit instead of pinning the page
+            // across space which the console is using.
+            webView.translatesAutoresizingMaskIntoConstraints = true
+            webView.autoresizingMask = [.width, .height]
+            webView.frame = bounds
             addSubview(webView, positioned: .below, relativeTo: unsplitButton)
-            NSLayoutConstraint.activate([
-                webView.topAnchor.constraint(equalTo: topAnchor),
-                webView.leadingAnchor.constraint(equalTo: leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: trailingAnchor),
-                webView.bottomAnchor.constraint(equalTo: bottomAnchor)
-            ])
         }
         if document !== documentView {
             documentView?.removeFromSuperview()
