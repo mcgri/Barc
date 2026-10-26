@@ -50,7 +50,7 @@ final class MemoryHTTPFixture: @unchecked Sendable {
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=fixture.bin\r\nContent-Length: \(Self.downloadBytes)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(header.utf8) + Data(repeating: 65, count: 1024), completion: .contentProcessed { _ in })
             } else {
-                let draft = text.hasPrefix("GET /dirty ") ? "<textarea id='childDraft'></textarea><script>childDraft.value='A cross-origin draft';</script>" : ""
+                let draft = text.hasPrefix("GET /dirty ") ? "<textarea id='childDraft'></textarea><script>childDraft.value='A cross-origin draft';childDraft.dispatchEvent(new Event('input',{bubbles:true}));</script>" : ""
                 let html = "<!doctype html><html><head><title>Memory HTTP fixture</title></head><body style='height:12000px'><p id='httpReady'>Loopback fixture</p>\(draft)</body></html>"
                 let body = Data(html.utf8)
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"

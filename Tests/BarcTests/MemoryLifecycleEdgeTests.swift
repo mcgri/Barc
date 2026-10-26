@@ -93,7 +93,7 @@ struct HibernationSafetyEdgeTests {
         let first = session.adoptGlancedTab(firstView,after:session.activeTab)
         let draftView = try await MemoryTestPage.make(identity:session.activeSpace.identity,html:"<textarea id='draft'></textarea>")
         let draft = session.adoptGlancedTab(draftView,after:first)
-        _ = try await draftView.evaluateJavaScript("draft.value='Protected'; true")
+        _ = try await draftView.evaluateJavaScript("draft.value='Protected'; draft.dispatchEvent(new Event('input', {bubbles:true})); true")
         #expect(session.splitTabs([first,draft]))
         var time:TimeInterval = 0
         let driver = TabSuspender(session:session,settings:settings(),uptime:{time},additionalVisibleProfiles:{[]})
@@ -139,7 +139,7 @@ struct HiddenPanelHibernationTests {
         store.add(panel:panel)
         let view = try await MemoryTestPage.make(identity:.standard,html:"<textarea id='draft'>Draft</textarea>")
         controller.adoptWebView(view,for:panel)
-        _ = try await view.evaluateJavaScript("draft.value='Keep this note'; true")
+        _ = try await view.evaluateJavaScript("draft.value='Keep this note'; draft.dispatchEvent(new Event('input', {bubbles:true})); true")
         store.isOpen = false
         await controller.hibernateHiddenPanels(after:60,now:3600)
         #expect(controller.cachedWebView(for:panel.id) === view)

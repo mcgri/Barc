@@ -52,12 +52,13 @@ struct LivePageHibernationTests {
         #expect(await MemoryTestPage.safe(view), "Only navigation clears the old draft protection")
     }
 
-    @Test("Property-only form edits and rich editors remain protected")
-    func programmaticAndRichDrafts() async throws {
+    @Test("Autofill input events and edits to existing rich text remain protected")
+    func autofillAndRichDrafts() async throws {
         let view = try await MemoryTestPage.make(html: "<input id='email'>")
-        _ = try await view.evaluateJavaScript("email.value='unsubmitted@example.invalid'; true")
+        _ = try await view.evaluateJavaScript("email.value='unsubmitted@example.invalid'; email.dispatchEvent(new Event('input', {bubbles:true})); true")
         #expect(!(await MemoryTestPage.safe(view)))
-        try await MemoryTestPage.load(view, html: "<div contenteditable='true'>An editor with unverified save state</div>")
+        try await MemoryTestPage.load(view, html: "<div id='editor' contenteditable='true'>Saved rich text</div>")
+        _ = try await view.evaluateJavaScript("editor.dispatchEvent(new Event('beforeinput', {bubbles:true})); editor.textContent='An unsaved change'; editor.dispatchEvent(new Event('input', {bubbles:true})); true")
         #expect(!(await MemoryTestPage.safe(view)))
     }
 
@@ -65,7 +66,7 @@ struct LivePageHibernationTests {
     func frameDraft() async throws {
         let view = try await MemoryTestPage.make(html: "<iframe srcdoc=\"<textarea id='draft'></textarea>\"></iframe>")
         #expect(await MemoryTestPage.safe(view))
-        _ = try await view.evaluateJavaScript("const d=document.querySelector('iframe').contentDocument; d.getElementById('draft').value='child draft'; true")
+        _ = try await view.evaluateJavaScript("const d=document.querySelector('iframe').contentDocument; const editor=d.getElementById('draft'); editor.value='child draft'; editor.dispatchEvent(new Event('input', {bubbles:true})); true")
         #expect(!(await MemoryTestPage.safe(view)))
     }
 

@@ -48,3 +48,16 @@ The updated application is `build/Barc.app`. The installed copy was not replaced
 WebKit controls process reuse and cache reclamation. Hibernation releases eligible live pages while preserving profile storage. Pages with protected or uncertain work remain awake. The implementation makes no fixed RAM-saving promise for arbitrary websites and no network-dependent wake-time guarantee.
 
 Existing unrelated working changes were preserved. No hosted environment variables, production settings, profile data, or credentials were changed for this work.
+
+## Follow-up after 0.0.4: untouched application pages
+
+The installed version reported an unfinished form or draft for an idle ClickUp task after its ordinary background-tab deadline. The user confirmed that the page had only been viewed. Live inspection identified the protection reason, but the page inspector and computer controls timed out before the triggering field could be identified.
+
+Two minimal real-WebKit fixtures reproduced false protection: untouched populated rich text, and controls populated by application scripts whose current values differ from their HTML defaults. The guard now tracks editing events and takes pre-edit baselines, rather than treating existing text as a draft. Unrelated custom events outside an editor no longer create permanent protection. Selected files, edited and detached drafts, unsaved deletions, calls and uploads retain their protections. Script-only editor changes without editing events cannot be distinguished from loading saved data; Keep Awake remains available for such applications.
+
+Validation of this follow-up:
+
+- Both minimal reproductions failed before the fix and passed after it.
+- Eight added tests cover untouched rich text, application hydration, view-only focus, custom events, pre-edit baselines, reverting choices, unsaved deletions and automatic sleep at both configured deadlines. Parameterized cases cover input, textarea and rich-editor deletions separately.
+- The full run exercised 2,467 tests in 391 suites. 2,466 passed; the previously observed scroll-restoration timing case failed. An isolated rerun passed all seven memory integration and real one-minute scheduler tests, including scroll restoration.
+- The optimized local app built successfully and passed strict signature verification. Live ClickUp sleep and post-sleep memory have not yet been verified with this follow-up installed.

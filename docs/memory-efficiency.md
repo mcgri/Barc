@@ -10,7 +10,7 @@ Checks run on one coalesced timer and on application activation. Sleeping begins
 
 Automatic hibernation defers for:
 
-- Edited forms, selected files, and rich editors whose saved state is uncertain, including child frames.
+- Edited forms and rich editors, selected files, and editing activity whose state is uncertain, including child frames.
 - Calls, camera/microphone capture, screen sharing, live connection or capture setup, and picture-in-picture.
 - Uploads, active downloads, and failed downloads that still need their original page to resume.
 - Keep Awake and never-sleep site rules, locked tabs, and automatic-refresh dashboards.
@@ -20,7 +20,9 @@ These protections also apply under critical memory pressure. Every loaded pane i
 
 Normal background media still follows the existing pause-on-switch behavior. Calls and picture-in-picture have an exception so their audio can continue while another profile is in view.
 
-Form detection keeps edit state in memory and sends activity and protection codes. It does not collect or persist field contents. A submit event alone does not prove an editor saved its draft. An initially empty composer that is cleared, or a form choice returned to its original state, can qualify again without navigation. Unfinished and detached drafts, unsaved deletions and uncertain editor state remain protected. The existing Keep Awake and per-site rules remain available.
+Form detection keeps edit state in memory and sends activity and protection codes. It does not collect or persist field contents. Existing editable text and controls populated by website scripts are not evidence of a draft. The guard tracks input, change and before-input events, taking a baseline before editing when available. This prevents saved task titles and descriptions from keeping an untouched application awake indefinitely. Unrelated custom events outside an editor do not mark the document as edited. Selected files remain protected without an input event.
+
+A submit event alone does not prove an editor saved its draft. An initially empty composer that is cleared, or a form choice returned to its pre-edit state, can qualify again without navigation. Unfinished and detached drafts, unsaved deletions and uncertain editor state remain protected. A site that changes an editor solely through scripts without delivering editing events cannot be distinguished from a site loading saved data; the existing Keep Awake and per-site rules are available for these applications.
 
 ## Sleeping and waking
 

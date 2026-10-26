@@ -173,8 +173,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     }
 
     /// No field values cross the bridge or enter persistence. Protect current
-    /// drafts, including detached editors, but let explicitly cleared editors
-    /// sleep. A submit event alone is never evidence that work was saved.
+    /// edits, including detached editors, but let untouched application data and
+    /// explicitly cleared composers sleep. A submit event does not prove a save.
     static let draftsScript = #"""
     (() => {
       const bridge = window.webkit.messageHandlers.barcDraftGuard;
@@ -182,20 +182,33 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       const edited = new Set(), defaults = new WeakMap();
       let unknownEdit = false;
       const report = event => bridge.postMessage({token, event});
+      const editorFor = event => event.target instanceof Element
+        ? event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]') : null;
       const rich = el => !el.matches('input, textarea, select');
       const hasContent = el => !!(el.textContent.trim() || el.querySelector('img, video, audio, object, embed, canvas, svg, input[type="file"]'));
-      function initialState(el) {
-        if (rich(el)) return !hasContent(el);
+      function initialState(el, beforeEdit = false) {
+        // An input-only rich-editor event has an unknown original state.
+        // Keep even an empty deletion protected without a pre-edit observation.
+        if (rich(el)) return beforeEdit && !hasContent(el);
         if (el.tagName === 'SELECT') {
-          const selected = Array.from(el.options, (o, i) => o.defaultSelected ? i : -1).filter(i => i >= 0);
+          const selected = Array.from(el.options, (o, i) => (beforeEdit ? o.selected : o.defaultSelected) ? i : -1).filter(i => i >= 0);
           return selected.length || el.multiple ? selected : (el.options.length ? [0] : []);
         }
-        return ['checkbox','radio'].includes(el.type) ? el.defaultChecked : el.defaultValue;
+        if (['checkbox','radio'].includes(el.type)) return beforeEdit ? el.checked : el.defaultChecked;
+        return beforeEdit ? el.value : el.defaultValue;
+      }
+      function rememberBeforeEdit(event) {
+        const editor = editorFor(event);
+        // A framework can hydrate a field after focus. Refresh its baseline
+        // until editing starts, then preserve that original state.
+        if (editor && !edited.has(editor)) defaults.set(editor, initialState(editor, true));
       }
       function markEdited(event) {
-        const target = event.target instanceof Element ? event.target : null;
-        const editor = target && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]');
-        if (!editor || edited.size >= 256) unknownEdit = true;
+        const editor = editorFor(event);
+        // Application-level custom events are not evidence of text entry.
+        // Native editing in an unrecognised control must still fail closed.
+        if (!editor && !event.isTrusted) return;
+        if (!editor || (edited.size >= 256 && !edited.has(editor))) unknownEdit = true;
         else {
           // Keep the original defaults even if a framework changes them later.
           if (!defaults.has(editor)) defaults.set(editor, initialState(editor));
@@ -203,7 +216,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         }
         report('change');
       }
-      document.addEventListener('beforeinput', markEdited, true);
+      document.addEventListener('focusin', rememberBeforeEdit, true);
+      document.addEventListener('pointerdown', rememberBeforeEdit, true);
+      document.addEventListener('keydown', rememberBeforeEdit, true);
+      document.addEventListener('beforeinput', event => { rememberBeforeEdit(event); markEdited(event); }, true);
       document.addEventListener('input', markEdited, true);
       document.addEventListener('change', markEdited, true);
       function hasDraft(el) {
@@ -229,9 +245,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
           if (hasDraft(el)) return false;
           edited.delete(el);
         }
-        // Also catches autofill and rich-editor changes without input events.
-        for (const el of document.querySelectorAll('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) {
-          if (hasDraft(el)) return false;
+        // Saved task titles and descriptions are not drafts just because they
+        // contain text or differ from HTML defaults. File selections remain
+        // protected even when no editing event was delivered.
+        for (const el of document.querySelectorAll('input[type="file"]')) {
+          if (el.files && el.files.length) return false;
         }
         return true;
       }
