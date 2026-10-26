@@ -8,7 +8,7 @@ The reported ClickUp screenshot shows the page occupying only the upper part of 
 
 A disposable native-WebKit test reproduced an oscillating page height with the developer console docked below it. Barc pinned the web view to all four edges of its parent while WebKit resized that same view to reserve space for the console. Forcing another layout stretched the page over the console; WebKit then shrank it again. The unchanged test window produced a 500-point difference between successive page-height readings.
 
-The console had been opened during the earlier memory investigation, making it a likely trigger for the reported screenshot. The original event was not replayed on the user's page. WebKit's [native docking implementation](https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/Inspector/mac/WebInspectorUIProxyMac.mm) positions the console as a sibling and manages the page's frame.
+The console had been opened during the earlier memory investigation, making it a likely trigger for the reported screenshot. The user subsequently clarified that they switched to ClickUp, used it and left it alone. That sequence does not establish whether the console was attached when the problem occurred. The original event was not replayed on the user's page. WebKit's [native docking implementation](https://github.com/WebKit/WebKit/blob/main/Source/WebKit/UIProcess/Inspector/mac/WebInspectorUIProxyMac.mm) positions the console as a sibling and manages the page's frame.
 
 ## Fix and coverage
 
@@ -18,9 +18,12 @@ The regression test opens the real native console over a quiet fixture, docks it
 
 The tests use a disposable website data store and isolated inspector configuration. No user page or private page content is needed to reproduce the problem.
 
+A further test covers the clarified sequence through the real content controller, with and without a console docked before switching away and back. In each version it repeats three switches to a task fixture, clicks its task-details control, waits for 15 asynchronous DOM and title updates to reach the tab, then samples its idle geometry. It checks the browser frame, page card, native page frame and JavaScript viewport, including console overlap and full-card sizing when no console is present. The fixture explicitly sets a usable window size and rejects an empty viewport. This exercises page notifications and idle layout, but does not reproduce ClickUp's application code or establish the original trigger.
+
 ## Verification results
 
 - The original native-console reproduction failed with overlapping page/console frames and a 500-point height oscillation. Both normal and split hosts pass after the correction.
 - The focused run passed 95 tests in 11 suites.
 - The final wider run passed 2,463 tests in 392 suites. The six memory integration tests, including authenticated scroll restoration, passed separately. The native console test has a three-minute wall-clock limit to accommodate scheduling delays in the full AppKit run; it completes in seconds when run on its own.
 - The optimized local app built successfully and passed strict signature verification.
+- After the user's clarification, all three page-geometry tests passed, including both versions of the new switch/use/idle test. The focused run completed in 66.367 seconds. This follow-up changes tests and this record only; the installed sizing correction remains build 253, `0.0.4-4-g3863818`.

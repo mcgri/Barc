@@ -95,6 +95,7 @@ struct WebInspectorLayoutTests {
                               styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentViewController = content
+        window.setContentSize(NSSize(width: 1100, height: 850))
         window.orderFront(nil)
         defer { tab.unload(); window.orderOut(nil); window.close() }
         let elsewhere = session.addSpace(named: "Elsewhere")
@@ -117,6 +118,111 @@ struct WebInspectorLayoutTests {
             let host = try #require(restored.superview as? WebContainerView)
             #expect(restored !== page)
             #expect(restored.frame == host.bounds)
+        }
+    }
+
+    @Test("Switching to a page, using it and leaving it idle keeps its viewport stable",
+          .timeLimit(.minutes(3)), arguments: [false, true])
+    func switchUseAndIdle(withConsole: Bool) async throws {
+        let session = TestSession.make().0
+        let elsewhere = try #require(session.activeTab)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        let page = WebEnvironment.shared.makeWebView(configuration: configuration)
+        try await MemoryTestPage.load(page, html: """
+            <style>html,body{margin:0;min-height:100%}#details{background:#eee}</style>
+            <button id="openDetails">View task</button>
+            <section id="details" hidden>Saved task details</section>
+            <script>
+            window.fixtureRun = 0;
+            openDetails.onclick = () => {
+                const run = ++window.fixtureRun;
+                details.hidden = false;
+                window.fixtureTicks = 0;
+                clearInterval(window.fixtureTimer);
+                window.fixtureTimer = setInterval(() => {
+                    const tick = ++window.fixtureTicks;
+                    details.style.paddingBottom = (tick % 2 ? 600 : 20) + 'px';
+                    document.title = 'Layout fixture ' + run + '-' + tick;
+                    if (tick === 15) clearInterval(window.fixtureTimer);
+                }, 40);
+            };
+            </script>
+            """)
+        let tab = session.adoptGlancedTab(page, after: elsewhere)
+        let content = WebContentViewController(session: session)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 850),
+                              styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentViewController = content
+        // Installing a view controller adopts its initial fitting size. Give
+        // the fixture a real browser viewport before exercising any docking.
+        window.setContentSize(NSSize(width: 1100, height: 850))
+        window.orderFront(nil)
+        content.view.layoutSubtreeIfNeeded()
+        let inspector = try #require(page.value(forKey: "_inspector") as? NSObject)
+        defer {
+            if inspector.responds(to: #selector(NSWindow.close)) { inspector.perform(#selector(NSWindow.close)) }
+            tab.unload()
+            elsewhere.unload()
+            window.orderOut(nil)
+            window.close()
+        }
+        if withConsole {
+            inspector.perform(Selector(("showConsole")))
+            for _ in 0..<300 {
+                if inspector.value(forKey: "isVisible") as? Bool == true { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(inspector.value(forKey: "isVisible") as? Bool == true)
+            inspector.perform(Selector(("attach")))
+            for _ in 0..<200 {
+                if page.superview?.subviews.contains(where: { $0 !== page && $0 is WKWebView }) == true { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(page.superview?.subviews.contains(where: { $0 !== page && $0 is WKWebView }) == true)
+        }
+        let windowFrame = window.frame
+        for run in 1...3 {
+            session.selectTab(elsewhere)
+            content.view.layoutSubtreeIfNeeded()
+            session.selectTab(tab)
+            content.view.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(150))
+            let host = try #require(page.superview as? WebContainerView)
+            try #require(host.bounds.height > 600 && host.bounds.width > 1000)
+            let pageFrame = page.frame
+            let hostBounds = host.bounds
+            // This drives title observations through Tab and the real content
+            // controller while DOM layout changes, then stops all page work.
+            _ = try await page.evaluateJavaScript("openDetails.click(); true")
+            for _ in 0..<1000 {
+                if tab.pageTitle == "Layout fixture \(run)-15" { break }
+                content.view.needsLayout = true
+                content.view.layoutSubtreeIfNeeded()
+                #expect(page.frame == pageFrame, "Page updates must not change the native viewport")
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            try #require(tab.pageTitle == "Layout fixture \(run)-15",
+                         "Real page title observations must reach the tab before the idle check")
+            for _ in 0..<20 {
+                content.view.needsLayout = true
+                content.view.layoutSubtreeIfNeeded()
+                #expect(window.frame == windowFrame)
+                #expect(host.bounds == hostBounds)
+                #expect(page.frame == pageFrame, "Leaving the page idle must not grow or shrink it")
+                if let console = host.subviews.first(where: { $0 !== page && $0 is WKWebView }) {
+                    #expect(page.frame.intersection(console.frame).height <= 1)
+                } else {
+                    #expect(page.frame == host.bounds, "Without a docked console the page must fill its card")
+                }
+                let viewport = try #require(try await page.evaluateJavaScript("[innerWidth, innerHeight]") as? [Double])
+                try #require(viewport.count == 2)
+                #expect(abs(viewport[0] - page.frame.width) <= 1)
+                #expect(abs(viewport[1] - page.frame.height) <= 1)
+                try await Task.sleep(for: .milliseconds(25))
+            }
         }
     }
 }
