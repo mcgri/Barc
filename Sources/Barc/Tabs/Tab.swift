@@ -593,15 +593,30 @@ final class Tab: Identifiable {
     private var navigationHandler: TabNavigationHandler?
 
     /// Cheap native checks before the asynchronous all-frame inspection.
+    /// Cached script activity is deliberately rechecked by that inspection:
+    /// it must not permanently exclude a page after a call or capture ends.
     var allowsAutomaticHibernation: Bool {
         guard let view = loadedWebView else { return false }
         return !keepsAwake && !isLocked && !isLoading && document == nil
             && autoReloadInterval == nil && !isInPictureInPicture && !isPlayingMedia
-            && !PageHibernationGuard.shared.hasRealtimeActivity(in:view)
             && PageHibernationGuard.nativeActivityAllowsSleep(view)
     }
 
     var isLoaded: Bool { loadedWebView != nil }
+
+    var automaticSleepExplanation: String {
+        guard let view = loadedWebView else { return "Asleep" }
+        if keepsAwake { return "Keep Awake is enabled" }
+        if isLocked { return "Tab is locked" }
+        if isLoading || view.isLoading { return "Page is loading" }
+        if document != nil { return "Document is open" }
+        if autoReloadInterval != nil { return "Automatic reload is enabled" }
+        if isInPictureInPicture { return "Picture in Picture is active" }
+        if isPlayingMedia { return "Media is playing" }
+        if view.cameraCaptureState != .none || view.microphoneCaptureState != .none { return "Camera or microphone is in use" }
+        if DownloadManager.shared.protectsFromHibernation(view) { return "Transfer is in progress" }
+        return PageHibernationGuard.shared.sleepExplanation(for: view)
+    }
 
     /// The live web view, if there already is one, for read-only queries such
     /// as favicon discovery. Deliberately does not create one: a tab that has
@@ -864,6 +879,7 @@ final class Tab: Identifiable {
         webView.stopLoading()
         webView.removeFromSuperview()
         loadedWebView = nil
+        WebViewRetirement.shared.retire(webView)
         autoReloadTimer?.invalidate()
         autoReloadTimer = nil
         isLoading = false
@@ -872,6 +888,7 @@ final class Tab: Identifiable {
     }
 
     private func attach(_ webView: WKWebView) {
+        WebViewRetirement.shared.claim(webView)
         loadedWebView = webView
         let handler = TabNavigationHandler(tab: self)
         navigationHandler = handler

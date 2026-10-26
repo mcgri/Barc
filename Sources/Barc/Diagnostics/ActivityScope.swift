@@ -160,7 +160,7 @@ enum ActivityMath {
                 id: usage.tabId,
                 label: usage.domain.isEmpty ? usage.title : usage.domain,
                 value: Double(usage.memoryBytes),
-                caption: UsageFormat.memory(usage.memoryBytes),
+                caption: usage.formattedProcessMemory,
                 fraction: 0,
                 isDimmed: highlighting != nil && highlighting != usage.tabId
             )
@@ -180,15 +180,15 @@ enum ActivityMath {
 
     /// Where the browser's memory actually goes, as the slices of one bar.
     ///
-    /// Three parts and no more: the app itself, the pages, and WebKit's GPU
-    /// helper. It is the answer to the complaint every browser gets -- "why is
-    /// it using so much" -- and the honest answer is usually "the pages are",
-    /// which a single total can never say.
+    /// Include every measured component. Content-process memory includes the
+    /// engine and caches; WebKit does not expose a separate engine baseline.
     static func memorySlices(of snapshot: ResourceSnapshot) -> [ActivityBar] {
         let parts: [(String, UInt64, UUID)] = [
             ("Barc", snapshot.browserMemoryBytes, UUID()),
-            ("Pages", snapshot.webContentMemoryBytes, UUID()),
-            ("GPU process", snapshot.gpuProcessMemoryBytes, UUID())
+            ("Tabs and WebKit", snapshot.webContentMemoryBytes, UUID()),
+            ("Other web content", snapshot.auxiliaryContentMemoryBytes, UUID()),
+            ("Networking", snapshot.networkProcessMemoryBytes, UUID()),
+            ("Graphics", snapshot.gpuProcessMemoryBytes, UUID())
         ]
         let total = Double(snapshot.totalMemoryBytes)
         return parts.compactMap { name, bytes, id in

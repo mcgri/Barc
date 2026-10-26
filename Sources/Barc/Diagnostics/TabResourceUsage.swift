@@ -17,6 +17,9 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
     public let isPlayingAudio: Bool
     public let pid: pid_t?
     public let hasMeasuredMemory: Bool
+    /// Number of live pages known to use this process, including auxiliary views.
+    public let processPageCount: Int
+    public let automaticSleepExplanation: String
     public let memoryBytes: UInt64
     public let cpuPercentage: Double
     public let isMemoryHog: Bool
@@ -36,7 +39,9 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
         cpuPercentage: Double,
         isMemoryHog: Bool,
         isCpuHog: Bool,
-        hasMeasuredMemory: Bool = true
+        hasMeasuredMemory: Bool = true,
+        processPageCount: Int = 1,
+        automaticSleepExplanation: String = "Waiting for idle check"
     ) {
         self.id = tabId
         self.tabId = tabId
@@ -49,6 +54,8 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
         self.isPlayingAudio = isPlayingAudio
         self.pid = pid
         self.hasMeasuredMemory = hasMeasuredMemory
+        self.processPageCount = max(1, processPageCount)
+        self.automaticSleepExplanation = isSuspended ? "Asleep" : automaticSleepExplanation
         self.memoryBytes = memoryBytes
         self.cpuPercentage = max(0.0, cpuPercentage)
         self.isMemoryHog = isMemoryHog
@@ -74,5 +81,19 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
         }
         guard hasMeasuredMemory else { return "Unavailable" }
         return String(format: "%.1f%%", cpuPercentage)
+    }
+
+    public var formattedProcessMemory: String {
+        guard !isSuspended, hasMeasuredMemory else { return formattedMemory }
+        return processPageCount > 1 ? "Shared \(formattedMemory)" : formattedMemory
+    }
+
+    public var memoryExplanation: String {
+        if isSuspended { return "Sleeping; no live page process. Saved tab information remains in Barc." }
+        guard hasMeasuredMemory else { return "The process memory reading is unavailable." }
+        if processPageCount > 1 {
+            return "Total for a process shared by \(processPageCount) pages, including WebKit and caches. Counted once in browser totals; individual page allocations are not available."
+        }
+        return "Memory of this tab's WebKit process, including the engine and caches. WebKit does not report the tab's separate allocation."
     }
 }

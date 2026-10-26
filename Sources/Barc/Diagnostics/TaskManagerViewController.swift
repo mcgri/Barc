@@ -30,6 +30,7 @@ final class TaskManagerViewController: NSViewController {
 
     private let session: BrowserSession
     private let presentation: Presentation
+    private let snapshotProvider: (BrowserSession) -> ResourceSnapshot
 
     // MARK: Chrome
     private let canvas = SettingsCanvasView()
@@ -50,11 +51,13 @@ final class TaskManagerViewController: NSViewController {
     private let gpuCard = ActivityMetricCard(caption: "Graphics", tint: .systemTeal, floorCeiling: 100)
     private let compositionCard = ActivityCardView(caption: "Where the memory goes")
     private let composition = ActivityCompositionView()
+    private let engineCard = ActivityCardView(caption: "Browser and engine memory")
+    private let engineStats = ActivityStatGridView()
     private let rankCard = ActivityCardView(caption: "Heaviest")
     private let ranks = ActivityBarListView()
     private let detailsCard = ActivityCardView(caption: "Details")
     private let stats = ActivityStatGridView()
-    private let pagesCard = ActivityCardView(caption: "Pages")
+    private let pagesCard = ActivityCardView(caption: "Tabs")
     private let searchField = SettingsSearchField(skin: .control, placeholder: "Filter pages")
     private let tableView = NSTableView()
     private let tableScroll = FittingScrollView()
@@ -79,9 +82,11 @@ final class TaskManagerViewController: NSViewController {
     private var sortAscending = false
     private var query = ""
 
-    init(session: BrowserSession, presentation: Presentation = .window) {
+    init(session: BrowserSession, presentation: Presentation = .window,
+         snapshotProvider: @escaping (BrowserSession) -> ResourceSnapshot = { TabResourceMonitor.shared.snapshot(in: $0) }) {
         self.session = session
         self.presentation = presentation
+        self.snapshotProvider = snapshotProvider
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -298,6 +303,11 @@ final class TaskManagerViewController: NSViewController {
         composition.widthAnchor.constraint(equalTo: compositionCard.body.widthAnchor).isActive = true
         addToColumn(compositionCard)
 
+        engineCard.body.addArrangedSubview(engineStats)
+        engineStats.widthAnchor.constraint(equalTo: engineCard.body.widthAnchor).isActive = true
+        addMemoryNote("WebKit combines its engine, page data and caches in each content process. A separate engine baseline and exact tab-only memory are not available. Graphics and networking are measured separately.", to: engineCard)
+        addToColumn(engineCard)
+
         ranks.onSelect = { [weak self] id in self?.chooseBar(id) }
         rankCard.body.addArrangedSubview(ranks)
         ranks.widthAnchor.constraint(equalTo: rankCard.body.widthAnchor).isActive = true
@@ -316,11 +326,21 @@ final class TaskManagerViewController: NSViewController {
         view.widthAnchor.constraint(equalTo: column.widthAnchor).isActive = true
     }
 
+    private func addMemoryNote(_ text: String, to card: ActivityCardView) {
+        let note = NSTextField(wrappingLabelWithString: text)
+        note.font = Style.Fonts.settingsNote
+        note.textColor = Style.Colors.secondaryText
+        note.translatesAutoresizingMaskIntoConstraints = false
+        card.body.addArrangedSubview(note)
+        note.widthAnchor.constraint(equalTo: card.body.widthAnchor).isActive = true
+    }
+
     private func buildTable() {
+        addMemoryNote("Process memory includes WebKit and caches. Shared readings cover the same process and are counted once in totals. Sleeping tabs have no live page process.", to: pagesCard)
         let columns: [(id: String, title: String, width: CGFloat)] = [
             ("site", "Page", 300),
             ("space", "Space", 110),
-            ("memory", "Memory", 95),
+            ("memory", "Process RAM", 132),
             ("cpu", "CPU", 62),
             ("trend", "Last 2 min", 90),
             ("pid", "Process", 70)
@@ -333,7 +353,7 @@ final class TaskManagerViewController: NSViewController {
             // the table keeps its full width whatever it is put in, and inside
             // the Settings window -- which is narrower than the Task Manager's
             // own -- it simply hangs out past the edge of the pane.
-            column.minWidth = spec.id == "site" ? 120 : spec.width * 0.6
+            column.minWidth = spec.id == "site" ? 120 : (spec.id == "memory" ? spec.width : spec.width * 0.6)
             // The sparkline is a picture of the CPU column, so it sorts by the
             // same number rather than pretending to be a key of its own.
             column.sortDescriptorPrototype = NSSortDescriptor(
@@ -485,7 +505,7 @@ final class TaskManagerViewController: NSViewController {
     }
 
     @objc func refreshMetrics() {
-        snapshot = TabResourceMonitor.shared.snapshot(in: session)
+        snapshot = snapshotProvider(session)
 
         // A scope can vanish under you: the space you were reading was closed,
         // the page you drilled into finished loading somewhere else. Falling
@@ -640,13 +660,13 @@ final class TaskManagerViewController: NSViewController {
                 value: usage?.formattedCPU ?? "—",
                 detail: usage?.isSuspended == true
                     ? "asleep — this tab holds no process"
-                    : "this page's share of the machine",
+                    : "WebKit process CPU; may be shared",
                 history: monitor.cpuHistory(forTab: id),
                 ceilingSuffix: "%"
             )
             memoryCard.show(
-                value: usage?.formattedMemory ?? "—",
-                detail: shareOfBrowser(usage?.memoryBytes ?? 0),
+                value: usage?.formattedProcessMemory ?? "—",
+                detail: usage?.isSuspended == true ? "No live page process" : "Process total, including WebKit and caches",
                 history: monitor.memoryHistory(forTab: id),
                 ceilingSuffix: " MB"
             )
@@ -694,12 +714,23 @@ final class TaskManagerViewController: NSViewController {
     }
 
     private func updateComposition() {
+        let measured: (UInt64) -> String = { bytes in
+            bytes == 0 && self.snapshot.hasUnmeasuredProcesses ? "Unavailable" : UsageFormat.memory(bytes)
+        }
+        engineStats.show([
+            ("Barc app", measured(snapshot.browserMemoryBytes)),
+            ("WebKit engine baseline", "Included with tab processes"),
+            ("Networking", measured(snapshot.networkProcessMemoryBytes)),
+            ("Graphics", measured(snapshot.gpuProcessMemoryBytes)),
+            ("Other web content", UsageFormat.memory(snapshot.auxiliaryContentMemoryBytes)),
+            ("Tab processes, including WebKit", UsageFormat.memory(snapshot.webContentMemoryBytes))
+        ], singleColumn: true)
         switch scope {
         case .everything:
             compositionCard.setCaption("Where the memory goes")
             composition.show(ActivityMath.memorySlices(of: snapshot))
         case .space, .tab:
-            compositionCard.setCaption("Share of the browser")
+            compositionCard.setCaption("Process share of the browser")
             let mine = rollup.memoryBytes
             let total = snapshot.totalMemoryBytes
             let rest = total > mine ? total - mine : 0
@@ -725,10 +756,10 @@ final class TaskManagerViewController: NSViewController {
     private func updateRanks() {
         switch scope {
         case .everything:
-            rankCard.setCaption("Spaces by memory")
+            rankCard.setCaption("Spaces by process memory")
             ranks.show(ActivityMath.spaceBars(from: snapshot.tabs, spaces: session.spaces))
         case .space:
-            rankCard.setCaption("Heaviest pages here")
+            rankCard.setCaption("Tabs by process memory")
             // Every page asleep is the good case, not an empty chart: a space
             // you have not touched all day should say so rather than look
             // broken.
@@ -737,7 +768,7 @@ final class TaskManagerViewController: NSViewController {
                 : "No pages here"
             ranks.show(ActivityMath.tabBars(from: scopedTabs))
         case .tab(let id):
-            rankCard.setCaption("This page against the rest")
+            rankCard.setCaption("Tab process comparison")
             let siblings = ActivityMath.tabs(
                 in: homeSpaceOfScopedTab.map { ActivityScope.space($0) } ?? .everything,
                 from: snapshot.tabs
@@ -776,6 +807,9 @@ final class TaskManagerViewController: NSViewController {
         if case .everything = scope {
             pairs.append(("Spaces", "\(session.spaces.count)"))
             pairs.append(("Heaviest page", totals.heaviestTitle ?? "—"))
+        }
+        if case .tab(let id) = scope, let usage = snapshot.tabs.first(where: { $0.tabId == id }) {
+            pairs.append(("Automatic sleep", usage.automaticSleepExplanation))
         }
         stats.show(pairs)
     }
@@ -1008,13 +1042,16 @@ extension TaskManagerViewController: NSTableViewDataSource, NSTableViewDelegate 
                 label.leadingAnchor.constraint(equalTo: mark.trailingAnchor, constant: 6)
             ])
             label.stringValue = usage.title
-            label.toolTip = usage.url?.absoluteString
+            label.toolTip = "Automatic sleep: \(usage.automaticSleepExplanation)"
+            cell.toolTip = label.toolTip
             if usage.isSuspended { label.textColor = Style.Colors.secondaryText }
         case "space":
             label.stringValue = usage.spaceName
             label.textColor = Style.Colors.secondaryText
         case "memory":
-            label.stringValue = usage.formattedMemory
+            label.stringValue = usage.formattedProcessMemory
+            label.toolTip = usage.memoryExplanation
+            cell.toolTip = usage.memoryExplanation
             label.font = .monospacedDigitSystemFont(ofSize: 12, weight: usage.isMemoryHog ? .bold : .regular)
             if usage.isMemoryHog { label.textColor = .systemOrange }
         case "cpu":

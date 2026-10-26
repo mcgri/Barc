@@ -321,24 +321,26 @@ final class ActivityBarListView: NSView {
 final class ActivityCompositionView: NSView {
     private var slices: [ActivityBar] = []
     private let legend = NSStackView()
-    /// The colours the slices take, in order. The same three every time, so
-    /// the legend is learnable.
-    private static let palette: [NSColor] = [.systemIndigo, .systemTeal, .systemPink]
+    private static let palette: [NSColor] = [.systemIndigo, .systemTeal, .systemPink, .systemOrange, .systemBlue]
+    private var legendHeight: NSLayoutConstraint!
+    private var contentHeight: NSLayoutConstraint!
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        legend.orientation = .horizontal
-        legend.alignment = .centerY
-        legend.spacing = 14
+        legend.orientation = .vertical
+        legend.alignment = .leading
+        legend.spacing = 6
         legend.translatesAutoresizingMaskIntoConstraints = false
         addSubview(legend)
+        legendHeight = legend.heightAnchor.constraint(equalToConstant: 16)
+        contentHeight = heightAnchor.constraint(equalToConstant: 44)
         NSLayoutConstraint.activate([
             legend.leadingAnchor.constraint(equalTo: leadingAnchor),
             legend.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
             legend.bottomAnchor.constraint(equalTo: bottomAnchor),
-            legend.heightAnchor.constraint(equalToConstant: 16),
-            heightAnchor.constraint(equalToConstant: 44)
+            legendHeight,
+            contentHeight
         ])
     }
 
@@ -352,12 +354,20 @@ final class ActivityCompositionView: NSView {
             legend.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        for (index, slice) in slices.enumerated() {
-            legend.addArrangedSubview(
-                key(slice.label, value: slice.caption, colour: Self.palette[index % Self.palette.count])
-            )
+        for start in stride(from: 0, to: slices.count, by: 3) {
+            let row = NSStackView()
+            row.orientation = .horizontal
+            row.alignment = .centerY
+            row.spacing = 14
+            for index in start..<min(start + 3, slices.count) {
+                let slice = slices[index]
+                row.addArrangedSubview(key(slice.label, value: slice.caption, colour: Self.palette[index % Self.palette.count]))
+            }
+            legend.addArrangedSubview(row)
         }
-        legend.addArrangedSubview(NSView())
+        let rowCount = max(1, (slices.count + 2) / 3)
+        legendHeight.constant = CGFloat(rowCount * 16 + (rowCount - 1) * 6)
+        contentHeight.constant = 28 + legendHeight.constant
         needsDisplay = true
         setAccessibilityLabel(slices.map { "\($0.label) \($0.caption)" }.joined(separator: ", "))
     }
@@ -434,7 +444,7 @@ final class ActivityStatGridView: NSView {
         fatalError("ActivityStatGridView is created in code only")
     }
 
-    func show(_ pairs: [(String, String)]) {
+    func show(_ pairs: [(String, String)], singleColumn: Bool = false) {
         // Taking a row out of an `NSGridView` leaves its views in the view
         // hierarchy -- they stop being laid out and keep being drawn, so the
         // numbers pile up on top of each other, one refresh on top of the
@@ -448,8 +458,12 @@ final class ActivityStatGridView: NSView {
         }
         // Two pairs to a line: four rows of two reads faster than eight rows of
         // one, and the card stays the height of the chart beside it.
-        for chunk in stride(from: 0, to: pairs.count, by: 2) {
+        for chunk in stride(from: 0, to: pairs.count, by: singleColumn ? 1 : 2) {
             let left = pairs[chunk]
+            if singleColumn {
+                grid.addRow(with: [name(left.0), number(left.1)])
+                continue
+            }
             let right = chunk + 1 < pairs.count ? pairs[chunk + 1] : nil
             grid.addRow(with: [
                 name(left.0), number(left.1),

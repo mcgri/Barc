@@ -25,6 +25,7 @@ struct MemorySamplerTests {
         let readings = monitor.sampleAllTabs(in: session).filter { !$0.isSuspended }
         #expect(calls == 2)
         #expect(readings.count == 2)
+        #expect(readings.allSatisfy { $0.processPageCount == 2 })
         #expect(readings.allSatisfy { $0.cpuPercentage == 50 && $0.memoryBytes == 123_000_000 })
         first.unload(); second.unload()
     }

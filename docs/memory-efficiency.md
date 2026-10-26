@@ -20,11 +20,13 @@ These protections also apply under critical memory pressure. Every loaded pane i
 
 Normal background media still follows the existing pause-on-switch behavior. Calls and picture-in-picture have an exception so their audio can continue while another profile is in view.
 
-Form detection keeps edit state in memory and sends boolean activity information. It does not collect or persist field contents. A submit event alone does not prove an editor saved its draft, so edit protection remains until navigation. Some pages will consequently stay awake longer. The existing Keep Awake and per-site rules remain available.
+Form detection keeps edit state in memory and sends activity and protection codes. It does not collect or persist field contents. A submit event alone does not prove an editor saved its draft. An initially empty composer that is cleared, or a form choice returned to its original state, can qualify again without navigation. Unfinished and detached drafts, unsaved deletions and uncertain editor state remain protected. The existing Keep Awake and per-site rules remain available.
 
 ## Sleeping and waking
 
 Hibernation releases a page's live web view while retaining its sidebar entry and WebKit interaction state. It also captures scroll coordinates as a fallback for interaction state that has not yet caught up with a recent scroll. That fallback is restored only to the matching document URL. Changing profile identity clears both kinds of restoration state.
+
+Normally the old view deallocates immediately. System editing panels can retain a view after its tab releases it. A coalesced cleanup checks weak references after two seconds and replaces surviving, detached retired views with a blank document and blank history. The tab's saved restoration state and profile storage stay separate. A handoff to a new owner or reattachment revokes cleanup. If the blank state cannot be prepared, cleanup waits before retrying.
 
 Only the selected page or visible split wakes on return. Browser profile storage remains the same object, including private stores and session-only cookies. Hibernation does not delete website data, replace profile identities, clear login storage, or stop WebKit processes.
 
@@ -39,6 +41,7 @@ Hidden side panels use the same safety checks and timeout. Closing the panel UI 
 - Preview caching is limited by decoded byte cost and image count. Pressure trims previews; closed tabs release theirs; overlapping captures do not repopulate a cleared cache.
 - Unloaded tabs have no automatic-reload timer. A configured dashboard remains protected from automatic hibernation.
 - Resource sampling reads shared processes once per interval, uses physical footprint consistently, prunes old sampling state, and labels unavailable values. Registered auxiliary pages and detectable networking helpers contribute to measured totals. Shared process allocations are not exact per-tab allocations.
+- Performance lists the app, networking, graphics, auxiliary content and tab processes separately. Tab process readings include WebKit and caches; an exact engine baseline or tab-only allocation is unavailable. Page details show the latest automatic-sleep protection reason.
 
 ## Verification
 

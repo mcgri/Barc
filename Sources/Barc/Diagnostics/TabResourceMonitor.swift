@@ -116,7 +116,15 @@ final class TabResourceMonitor: NSObject {
             }
         }
         let tabs = session.allTabs
-        let livePIDs = Set(tabs.compactMap(processID)).union(WebEnvironment.shared.liveWebViews.compactMap { Self.contentProcessID($0) })
+        let registeredViews = WebEnvironment.shared.liveWebViews
+        var registeredPageCounts: [pid_t: Int] = [:]
+        for view in registeredViews {
+            if let pid = Self.contentProcessID(view) { registeredPageCounts[pid, default: 0] += 1 }
+        }
+        let tabPageCounts = Dictionary(grouping: tabs.compactMap { tab in
+            tab.isLoaded ? processID(tab) : nil
+        }, by: { $0 }).mapValues(\.count)
+        let livePIDs = Set(tabs.compactMap(processID)).union(registeredViews.compactMap { Self.contentProcessID($0) })
         previousSamples = previousSamples.filter { livePIDs.contains($0.key) }
         alertedHogTabs.formIntersection(Set(tabs.map(\.id)))
 
@@ -169,7 +177,11 @@ final class TabResourceMonitor: NSObject {
                 cpuPercentage: cpuPercentage,
                 isMemoryHog: isMemoryHog,
                 isCpuHog: isCpuHog,
-                hasMeasuredMemory: measured != nil
+                hasMeasuredMemory: measured != nil,
+                processPageCount: pid.map { max(tabPageCounts[$0] ?? 1, registeredPageCounts[$0] ?? 1) } ?? 1,
+                automaticSleepExplanation: session.visibleTabIDs.contains(tab.id)
+                    || (tab.currentWebView.map { $0.window?.isVisible == true && !$0.isHiddenOrHasHiddenAncestor } ?? false)
+                    ? "Currently visible" : tab.automaticSleepExplanation
             ))
         }
 

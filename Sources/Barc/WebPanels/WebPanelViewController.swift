@@ -254,6 +254,7 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
     /// Adopts a web view back from a floating window.
     public func adoptWebView(_ webView: WKWebView, for panel: WebPanel?) {
         guard let panel = panel ?? store.activePanel else { return }
+        WebViewRetirement.shared.claim(webView)
         webViewCache[panel.id] = webView
         store.select(id: panel.id)
         reloadActivePanel()
@@ -285,6 +286,7 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             view.removeFromSuperview()
             webViewCache[id] = nil
             hiddenSince[id] = nil
+            WebViewRetirement.shared.retire(view)
             await Task.yield()
         }
     }

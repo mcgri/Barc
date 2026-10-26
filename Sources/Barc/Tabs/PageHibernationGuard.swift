@@ -21,6 +21,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         var overflow = false
         var viewport: PageViewport?
         var realtimeFrames: Set<String> = []
+        var protection = "Waiting for page safety check"
     }
     private struct Frame {
         let kind: String
@@ -64,6 +65,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             page.overflow = false
         }
         page.generation += 1
+        page.protection = "Page changed since last safety check"
         if event == "gone" { page.frames[key] = nil; page.realtimeFrames.remove(key); return }
         guard page.frames.count < 256 || page.frames[key] != nil else { page.overflow = true; return }
         if body["realtime"] as? Bool == true { page.realtimeFrames.insert(key) }
@@ -82,9 +84,14 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     }
 
     func capturedViewport(of view: WKWebView) -> PageViewport? { pages.object(forKey:view)?.viewport }
+    func sleepExplanation(for view: WKWebView) -> String {
+        pages.object(forKey: view)?.protection ?? "Waiting for page safety check"
+    }
 
     func permitsHibernation(of view: WKWebView) async -> Bool {
-        guard Self.nativeActivityAllowsSleep(view), let page = pages.object(forKey: view),
+        guard let page = pages.object(forKey: view) else { return false }
+        page.protection = "Waiting for complete frame safety check"
+        guard Self.nativeActivityAllowsSleep(view),
               page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }), !page.overflow else { return false }
         page.viewport = nil
         var viewport: PageViewport?
@@ -95,8 +102,12 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         for frame in frames {
             guard !Task.isCancelled else { return false }
             let token = WebNotificationCentre.javaScriptString(frame.token)
-            let script = "({safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY})"
+            let script = "({safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), reason: window.__barcHibernation && window.__barcHibernation.reason, children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY})"
             guard let inspection = await inspect(script, frame: frame, in: view) else { return false }
+            guard inspection.safe else {
+                page.protection = inspection.reason
+                return false
+            }
             if frame.info.isMainFrame, frame.kind == "barcDraftGuard" { viewport = inspection.viewport }
             childCounts[frame.kind, default: 0] += inspection.children
             frameCounts[frame.kind, default: 0] += 1
@@ -105,10 +116,13 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         guard frameCounts.allSatisfy({ $0.value == 1 + (childCounts[$0.key] ?? 0) }) else { return false }
         guard !Task.isCancelled, page.generation == generation, Self.nativeActivityAllowsSleep(view) else { return false }
         page.viewport = viewport
+        page.protection = "Ready to sleep when idle"
         return true
     }
 
     private struct Inspection {
+        let safe: Bool
+        let reason: String
         let children: Int
         let viewport: PageViewport?
     }
@@ -136,53 +150,92 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                 switch result {
                 case .success(let value):
                     let result = value as? [String: Any]
-                    guard result?["safe"] as? Bool == true, let children = result?["children"] as? Int else { reply.finish(nil); return }
+                    guard let safe = result?["safe"] as? Bool, let children = result?["children"] as? Int else { reply.finish(nil); return }
                     var viewport: PageViewport?
                     if let address = result?["url"] as? String, let url = URL(string:address),
                        let x = result?["x"] as? Double, let y = result?["y"] as? Double {
                         let position = PageViewport(url:url, x:x, y:y)
                         if position.isValid { viewport = position }
                     }
-                    reply.finish(Inspection(children:children, viewport:viewport))
+                    let code = result?["reason"] as? String
+                    let reason = switch code {
+                    case "draft": "Unfinished form or draft"
+                    case "call": "Call or screen sharing in progress"
+                    case "upload": "Upload or form request in progress"
+                    case "media": "Media is playing"
+                    default: "Waiting for page safety check"
+                    }
+                    reply.finish(Inspection(safe:safe, reason:reason, children:children, viewport:viewport))
                 case .failure: reply.finish(nil)
                 }
             }
         }
     }
 
-    /// No field values cross the bridge or enter persistence. An edit stays
-    /// protected until navigation, rather than guessing that a submit saved it.
+    /// No field values cross the bridge or enter persistence. Protect current
+    /// drafts, including detached editors, but let explicitly cleared editors
+    /// sleep. A submit event alone is never evidence that work was saved.
     static let draftsScript = #"""
     (() => {
       const bridge = window.webkit.messageHandlers.barcDraftGuard;
       const token = globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()) + Date.now();
-      let edited = false;
+      const edited = new Set(), defaults = new WeakMap();
+      let unknownEdit = false;
       const report = event => bridge.postMessage({token, event});
-      function markEdited() { if (!edited) { edited = true; report('change'); } }
+      const rich = el => !el.matches('input, textarea, select');
+      const hasContent = el => !!(el.textContent.trim() || el.querySelector('img, video, audio, object, embed, canvas, svg, input[type="file"]'));
+      function initialState(el) {
+        if (rich(el)) return !hasContent(el);
+        if (el.tagName === 'SELECT') {
+          const selected = Array.from(el.options, (o, i) => o.defaultSelected ? i : -1).filter(i => i >= 0);
+          return selected.length || el.multiple ? selected : (el.options.length ? [0] : []);
+        }
+        return ['checkbox','radio'].includes(el.type) ? el.defaultChecked : el.defaultValue;
+      }
+      function markEdited(event) {
+        const target = event.target instanceof Element ? event.target : null;
+        const editor = target && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]');
+        if (!editor || edited.size >= 256) unknownEdit = true;
+        else {
+          // Keep the original defaults even if a framework changes them later.
+          if (!defaults.has(editor)) defaults.set(editor, initialState(editor));
+          edited.add(editor);
+        }
+        report('change');
+      }
       document.addEventListener('beforeinput', markEdited, true);
       document.addEventListener('input', markEdited, true);
       document.addEventListener('change', markEdited, true);
-      function isSafe() {
-        if (edited) return false;
-        // Also catches autofill/property assignment without a DOM event.
-        for (const el of document.querySelectorAll('input, textarea, select')) {
-          if (el.type === 'file' && el.files && el.files.length) return false;
-          if (el.tagName === 'SELECT') {
-            const defaults = Array.from(el.options).filter(o => o.defaultSelected);
-            const expected = defaults.length ? defaults : (el.multiple ? [] : Array.from(el.options).slice(0,1));
-            if (Array.from(el.selectedOptions).length !== expected.length || expected.some(o => !o.selected)) return false;
-          } else if (el.type === 'checkbox' || el.type === 'radio') {
-            if (el.checked !== el.defaultChecked) return false;
-          } else if (!['hidden','submit','button','reset','image'].includes(el.type) && el.value !== el.defaultValue) return false;
+      function hasDraft(el) {
+        const initial = defaults.has(el) ? defaults.get(el) : initialState(el);
+        if (rich(el)) {
+          // Emptying an editor which already contained text can itself be an
+          // unsaved deletion. Only an initially empty composer can clear here.
+          return !initial || hasContent(el);
         }
-        // Rich editors can update their DOM without input events. Retain them
-        // conservatively rather than inferring that their content was saved.
-        for (const el of document.querySelectorAll('[contenteditable]:not([contenteditable="false"]), [role="textbox"]')) {
-          if (el.textContent.trim()) return false;
+        if (el.type === 'file') return !!(el.files && el.files.length);
+        if (el.tagName === 'SELECT') {
+          const selected = Array.from(el.options, (o, i) => o.selected ? i : -1).filter(i => i >= 0);
+          return selected.length !== initial.length || selected.some((value, i) => value !== initial[i]);
+        }
+        if (['checkbox','radio'].includes(el.type)) return el.checked !== initial;
+        return !['hidden','submit','button','reset','image'].includes(el.type) && el.value !== initial;
+      }
+      function isSafe() {
+        if (unknownEdit || document.designMode === 'on') return false;
+        for (const el of edited) {
+          // A removed editor can still hold unsaved work. Do not interpret
+          // removal or a submit event as proof that a message was sent.
+          if (hasDraft(el)) return false;
+          edited.delete(el);
+        }
+        // Also catches autofill and rich-editor changes without input events.
+        for (const el of document.querySelectorAll('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]')) {
+          if (hasDraft(el)) return false;
         }
         return true;
       }
-      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe}});
+      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe, get reason() { return 'draft'; }}});
       report('register');
       window.addEventListener('pagehide', () => report('gone'));
       window.addEventListener('pageshow', e => { if (e.persisted) report('register'); });
@@ -195,12 +248,54 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     (() => {
       const bridge = window.webkit.messageHandlers.barcWorkGuard;
       const token = globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()) + Date.now();
-      const peers = new Set(), tracks = new Set();
+      const peers = new Set(), tracks = new Set(), streams = new WeakSet();
       let pending = 0, captureRequests = 0;
-      const report = event => bridge.postMessage({token, event, realtime: peers.size > 0 || captureRequests > 0 || Array.from(tracks).some(t => t.readyState !== 'ended')});
+      const realtime = () => peers.size > 0 || captureRequests > 0 || Array.from(tracks).some(t => t.readyState !== 'ended');
+      let reportedRealtime = false, reason = '';
+      const report = event => {
+        reportedRealtime = realtime();
+        bridge.postMessage({token, event, realtime: reportedRealtime});
+      };
       const change = delta => { pending += delta; report('change'); };
       let reliable = true;
+      function trackCapture(track) {
+        if (tracks.has(track)) return;
+        tracks.add(track);
+        const ended = () => { tracks.delete(track); report('change'); };
+        track.addEventListener('ended', ended, {once:true});
+        // Calling MediaStreamTrack.stop() changes readyState without
+        // dispatching "ended". Notify the native protection state too.
+        const stop = track.stop;
+        if (typeof stop === 'function') {
+          try {
+            track.stop = function() {
+              const result = stop.apply(this, arguments);
+              if (track.readyState === 'ended') ended();
+              return result;
+            };
+          } catch (error) { reliable = false; }
+        }
+      }
+      function trackStream(stream) {
+        streams.add(stream);
+        for (const track of stream.getTracks()) trackCapture(track);
+      }
       try {
+        // Track both track.clone() and stream.clone(), including explicit
+        // prototype calls. A stopped original does not end its live clones.
+        for (const [type, tracked, register] of [
+          [window.MediaStreamTrack, tracks, trackCapture],
+          [window.MediaStream, streams, trackStream]
+        ]) {
+          if (!type || !type.prototype.clone) continue;
+          const clone = type.prototype.clone;
+          type.prototype.clone = function() {
+            const copy = clone.apply(this, arguments);
+            const captured = tracked.has(this) || (type === window.MediaStream && this.getTracks().some(track => tracks.has(track)));
+            if (captured) { register(copy); report('change'); }
+            return copy;
+          };
+        }
         if (window.RTCPeerConnection) {
           const Original = window.RTCPeerConnection;
           window.RTCPeerConnection = new Proxy(Original, {construct(target, args, newTarget) {
@@ -224,10 +319,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             captureRequests++;
             change(1);
             try { return original.apply(this, arguments).then(stream => {
-              for (const track of stream.getTracks()) {
-                tracks.add(track);
-                track.addEventListener('ended', () => { tracks.delete(track); report('change'); }, {once:true});
-              }
+              trackStream(stream);
               return stream;
             }).finally(() => { captureRequests--; change(-1); }); }
             catch (error) { captureRequests--; change(-1); throw error; }
@@ -257,10 +349,17 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       function isSafe() {
         for (const peer of peers) if (peer.signalingState === 'closed') peers.delete(peer);
         for (const track of tracks) if (track.readyState === 'ended') tracks.delete(track);
-        if (Array.from(document.querySelectorAll('audio, video')).some(el => !el.paused && !el.ended)) return false;
-        return reliable && pending === 0 && peers.size === 0 && tracks.size === 0;
+        // Recheck live state even when a site used a prototype method instead
+        // of our instance wrapper. Cached bridge state is not a sleep veto.
+        if (reportedRealtime !== realtime()) report('change');
+        if (!reliable) { reason = 'unknown'; return false; }
+        if (captureRequests > 0 || peers.size > 0 || tracks.size > 0) { reason = 'call'; return false; }
+        if (pending !== 0) { reason = 'upload'; return false; }
+        if (Array.from(document.querySelectorAll('audio, video')).some(el => !el.paused && !el.ended)) { reason = 'media'; return false; }
+        reason = '';
+        return true;
       }
-      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe}});
+      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe, get reason() { return reason; }}});
       report('register');
       window.addEventListener('pagehide', () => report('gone'));
       window.addEventListener('pageshow', e => { if (e.persisted) report('register'); });
