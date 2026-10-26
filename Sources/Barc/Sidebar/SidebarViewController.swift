@@ -128,7 +128,7 @@ final class SidebarViewController: NSViewController {
     /// the popover it drives.
     private var appearancePopover: NSPopover?
     private var folderIconPopover: NSPopover?
-    private let settings = Settings.shared
+    private let settings: Settings
     /// Advances the idle badges. Only the badges, and only the rows on screen;
     /// see `tickIdleBadges`.
     private var idleTimer: Timer?
@@ -194,8 +194,9 @@ final class SidebarViewController: NSViewController {
     private var motionObservation: DisplayOptionsObservation?
     private var isRestoringDisplaySelection = false
 
-    init(session: BrowserSession) {
+    init(session: BrowserSession, settings: Settings = .shared) {
         self.session = session
+        self.settings = settings
         super.init(nibName: nil, bundle: nil)
     }
 

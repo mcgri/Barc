@@ -1,3 +1,4 @@
+// Modified for Barc: configurable full-page clipboard capture in page utilities, 2026-10-25.
 import Foundation
 
 /// Which buttons the bar above the page shows, and in what order.
@@ -24,6 +25,7 @@ struct ToolbarLayout: Codable, Equatable, Sendable {
         ("Site Settings", "gearshape.fill"),
         ("Share", "square.and.arrow.up"),
         ("Find in Page", "magnifyingglass"),
+        ("Copy Full Page to Clipboard", "camera"),
         ("Add Bookmark", "bookmark"),
         ("Page Menu", "macwindow"),
         ("Extensions", "puzzlepiece.extension")

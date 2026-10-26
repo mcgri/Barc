@@ -11,10 +11,10 @@ Barc started with Kylmora's source code and full Git history, preserving the ori
 
 ## Download and install
 
-Download [Barc 0.0.2](https://github.com/mcgri/Barc/releases/tag/v0.0.2) for **Apple Silicon or Intel Macs running macOS 14 or later**.
+Download [Barc 0.0.3](https://github.com/mcgri/Barc/releases/tag/v0.0.3) for **Apple Silicon or Intel Macs running macOS 14 or later**.
 
 - Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
-- Version 0.0.2 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Version 0.0.3 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
 - Browser profiles and migration data are not included. Import your own data after opening Barc.
 
 ## Build and run
@@ -35,10 +35,14 @@ make test
 Local builds are ad-hoc signed. To create universal `.dmg` and `.pkg` installers locally:
 
 ```sh
-Tools/package-unsigned-release.sh 0.0.2
+Tools/package-unsigned-release.sh 0.0.3
 ```
 
 The output is in `build/release/`, with checksums and release notes. Version tags trigger the release workflow. It uses signed/notarized packaging when Barc's signing credentials are configured; otherwise it publishes installers explicitly marked as unnotarized.
+
+## Memory and sleeping profiles
+
+Inactive profiles begin hibernating eligible pages after one minute. Drafts, calls, transfers, picture-in-picture, and Keep Awake pages stay open. Login storage and sidebar organization are kept, and only the page or split you return to reloads. Change the timeout under Settings → General → **Hibernate inactive profiles after**. The [memory-efficiency notes](docs/memory-efficiency.md) explain the protections, other performance changes, and verification.
 
 ## Import from Arc
 

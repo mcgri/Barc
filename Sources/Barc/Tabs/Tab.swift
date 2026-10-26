@@ -47,6 +47,7 @@ final class Tab: Identifiable {
 
     /// Emitted whenever a displayed property changes, so views can refresh.
     let didChange = PassthroughSubject<Void, Never>()
+    let transientDidChange = PassthroughSubject<Void, Never>()
 
     private(set) var url: URL
     private(set) var pageTitle: String?
@@ -97,6 +98,7 @@ final class Tab: Identifiable {
     func setPictureInPicture(_ active: Bool) {
         let changed = isInPictureInPicture != active
         isInPictureInPicture = active
+        applyMediaSuspension()
         if changed {
             NotificationCenter.default.post(name: .tabMediaStateDidChange, object: self)
         }
@@ -433,7 +435,7 @@ final class Tab: Identifiable {
     private func scheduleAutoReload() {
         autoReloadTimer?.invalidate()
         autoReloadTimer = nil
-        guard let interval = autoReloadInterval, interval > 0 else { return }
+        guard loadedWebView != nil, let interval = autoReloadInterval, interval > 0 else { return }
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.loadedWebView != nil, !self.isLoading else { return }
@@ -527,6 +529,7 @@ final class Tab: Identifiable {
     /// replaced it -- and so two YouTube tabs cannot play at once. Held here so
     /// the state survives the web view being unloaded and is reapplied when a
     /// new one attaches.
+    private var mediaSuspensionRequested = false
     private var mediaSuspended = false
     /// The colour the page declares for the chrome around it, if any.
     private(set) var themeColor: NSColor?
@@ -537,9 +540,19 @@ final class Tab: Identifiable {
     /// it left off. A tab with no live web view records the wish and applies it
     /// when one attaches.
     func setMediaSuspended(_ suspended: Bool) {
-        guard mediaSuspended != suspended else { return }
-        mediaSuspended = suspended
-        loadedWebView?.setAllMediaPlaybackSuspended(suspended)
+        mediaSuspensionRequested = suspended
+        applyMediaSuspension()
+    }
+
+    private func applyMediaSuspension() {
+        let liveCall = loadedWebView.map {
+            $0.cameraCaptureState != .none || $0.microphoneCaptureState != .none
+                || PageHibernationGuard.shared.hasRealtimeActivity(in:$0)
+        } ?? false
+        let effective = mediaSuspensionRequested && !isInPictureInPicture && !liveCall
+        guard mediaSuspended != effective else { return }
+        mediaSuspended = effective
+        loadedWebView?.setAllMediaPlaybackSuspended(effective)
     }
 
     /// Whether media in this tab is currently barred from playing. Read-only;
@@ -560,6 +573,13 @@ final class Tab: Identifiable {
         guard let loadedWebView else { return }
         WebFontStyling.apply(fonts, to: loadedWebView)
     }
+    private var savedHibernationViewport: PageViewport?
+    func retainHibernationViewport(_ viewport: PageViewport?) { savedHibernationViewport = viewport }
+    fileprivate func restoreHibernationViewport(in view: WKWebView) {
+        guard let viewport = savedHibernationViewport else { return }
+        savedHibernationViewport = nil
+        viewport.restore(in: view)
+    }
     private var savedInteractionState: Any?
     /// The web view is replaying `savedInteractionState`. That load is not a
     /// visit: the user went there before, and it was written then. Cleared
@@ -571,6 +591,15 @@ final class Tab: Identifiable {
     private var reportedVisitURL: URL?
     private var cancellables: Set<AnyCancellable> = []
     private var navigationHandler: TabNavigationHandler?
+
+    /// Cheap native checks before the asynchronous all-frame inspection.
+    var allowsAutomaticHibernation: Bool {
+        guard let view = loadedWebView else { return false }
+        return !keepsAwake && !isLocked && !isLoading && document == nil
+            && autoReloadInterval == nil && !isInPictureInPicture && !isPlayingMedia
+            && !PageHibernationGuard.shared.hasRealtimeActivity(in:view)
+            && PageHibernationGuard.nativeActivityAllowsSleep(view)
+    }
 
     var isLoaded: Bool { loadedWebView != nil }
 
@@ -740,6 +769,7 @@ final class Tab: Identifiable {
         self.pinnedSiteID = snapshot.pinnedSiteID
         self.pinnedMemberID = snapshot.pinnedSiteID == nil ? nil:snapshot.pinnedMemberID
         self.savedInteractionState = snapshot.interactionState
+        self.savedHibernationViewport = snapshot.hibernationViewport
         // A session written before the clock was persisted restores as "just
         // now", which is the safe direction to be wrong in: a tab is never
         // archived for idleness it accrued while nobody was measuring.
@@ -785,7 +815,8 @@ final class Tab: Identifiable {
             favicon: restoredFavicon.flatMap { $0.matches(url) ? $0 : nil },
             sidebarSymbolName: sidebarSymbolName,
             pinnedPageURL: pinnedPageURL,
-            pinnedMemberID: pinnedMemberID
+            pinnedMemberID: pinnedMemberID,
+            hibernationViewport: savedHibernationViewport
         )
     }
 
@@ -833,6 +864,8 @@ final class Tab: Identifiable {
         webView.stopLoading()
         webView.removeFromSuperview()
         loadedWebView = nil
+        autoReloadTimer?.invalidate()
+        autoReloadTimer = nil
         isLoading = false
         estimatedProgress = 0
         didChange.send()
@@ -848,9 +881,18 @@ final class Tab: Identifiable {
         // becoming visible clears the suspension.
         if mediaSuspended { webView.setAllMediaPlaybackSuspended(true) }
         observe(webView)
+        applyMediaSuspension()
+        scheduleAutoReload()
     }
 
     private func observe(_ webView: WKWebView) {
+        webView.publisher(for: \.microphoneCaptureState, options:[.new])
+            .merge(with:webView.publisher(for: \.cameraCaptureState, options:[.new]))
+            .sink { [weak self] _ in self?.applyMediaSuspension() }
+            .store(in:&cancellables)
+        NotificationCenter.default.publisher(for:.pageRealtimeActivityDidChange, object:webView)
+            .sink { [weak self] _ in self?.applyMediaSuspension() }
+            .store(in:&cancellables)
         webView.publisher(for: \.url, options: [.initial, .new])
             .sink { [weak self] url in
                 guard let self, let url, self.document == nil, !self.showsStartPage else { return }
@@ -888,21 +930,21 @@ final class Tab: Identifiable {
             .sink { [weak self] isLoading in
                 guard let self, self.document == nil else { return }
                 self.isLoading = isLoading
-                self.didChange.send()
+                self.transientDidChange.send()
             }
             .store(in: &cancellables)
 
         webView.publisher(for: \.estimatedProgress, options: [.initial, .new])
             .sink { [weak self] progress in
                 self?.estimatedProgress = progress
-                self?.didChange.send()
+                self?.transientDidChange.send()
             }
             .store(in: &cancellables)
 
         // The chrome enables its buttons from these, so a change must repaint.
         webView.publisher(for: \.canGoBack, options: [.new])
             .merge(with: webView.publisher(for: \.canGoForward, options: [.new]))
-            .sink { [weak self] _ in self?.didChange.send() }
+            .sink { [weak self] _ in self?.transientDidChange.send() }
             .store(in: &cancellables)
     }
 
@@ -928,6 +970,7 @@ final class Tab: Identifiable {
         self.url = url
         pendingUserURL = url
         failedURL = nil
+        savedHibernationViewport = nil
         // A load the user asked for is a visit even while a restore is still
         // in flight.
         isRestoringDocument = false
@@ -1185,6 +1228,7 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
     @MainActor
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         BoostCoordinator.shared.apply(to: webView)
+        tab?.restoreHibernationViewport(in:webView)
         tab?.reportVisit()
     }
 

@@ -3,13 +3,13 @@ import Foundation
 
 /// A folder chosen for one query does not become the answer to every query.
 /// Bounded, profile-local records mirror the source command bar's saved choice.
-struct FolderCommandHistory: Codable, Equatable {
+struct FolderCommandHistory: Codable, Equatable, Sendable {
     struct ImportedChoice {
         let query: String
         let folderID: UUID
         let selectedAt: Date
     }
-    private struct Selection: Codable, Equatable {
+    private struct Selection: Codable, Equatable, Sendable {
         let folderID: UUID
         let selectedAt: Date
     }

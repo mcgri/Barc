@@ -1,3 +1,4 @@
+// Modified for Barc: describe the restored performance gauge location, 2026-10-25.
 import AppKit
 
 /// The Task Manager pane: the switch that puts its button in the sidebar, and
@@ -16,7 +17,7 @@ final class TaskManagerSettingsViewController: NSViewController, SettingsWidePan
     private let session: BrowserSession
     private let settings: Settings
     private let sidebarSwitch = NSButton(
-        checkboxWithTitle: "Put a gauge in the sidebar's footer, beside Downloads",
+        checkboxWithTitle: "Show the performance gauge beside Home at the bottom of the sidebar",
         target: nil,
         action: nil
     )

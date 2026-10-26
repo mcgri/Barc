@@ -563,7 +563,7 @@ final class TaskManagerViewController: NSViewController {
             subtitleLabel.stringValue = [
                 UsageFormat.count(session.spaces.count, "space"),
                 UsageFormat.count(snapshot.tabs.count, "tab"),
-                "\(UsageFormat.memory(snapshot.totalMemoryBytes)) in total",
+                "\(UsageFormat.memory(snapshot.totalMemoryBytes)) measured",
                 "Barc \(UsageFormat.memory(snapshot.browserMemoryBytes))"
             ].joined(separator: " • ")
         case .space(let id):
@@ -617,8 +617,7 @@ final class TaskManagerViewController: NSViewController {
             )
             memoryCard.show(
                 value: UsageFormat.memory(snapshot.totalMemoryBytes),
-                detail: "across \(UsageFormat.count(snapshot.tabs.count, "tab"))"
-                    + " in \(UsageFormat.count(session.spaces.count, "space"))",
+                detail: snapshot.hasUnmeasuredProcesses ? "Measured processes; some readings unavailable" : "Measured browser and website processes",
                 history: monitor.totalMemoryHistory,
                 ceilingSuffix: " MB"
             )

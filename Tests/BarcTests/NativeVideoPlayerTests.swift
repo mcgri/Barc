@@ -49,7 +49,7 @@ struct NativeVideoPlayerTests {
     func scriptContent() {
         let script = SiteBehaviourScripts.nativeVideoPlayer
         #expect(script.contains("nativeVideoPlayer"))
-        #expect(script.contains("visibilityState"))
+        #expect(!script.contains("Object.defineProperty(document, \"visibilityState\""))
         #expect(script.contains("visibilitychange"))
         #expect(script.contains("controls = true"))
         #expect(script.contains("disablePictureInPicture = false"))
@@ -73,12 +73,10 @@ struct NativeVideoPlayerTests {
         #expect(script.contains("video-ads"))
     }
 
-    @Test("A blur is only swallowed when it is the window's own")
-    func blurIsNotSwallowedForEveryField() {
-        // `blur` does not bubble but does capture, so a capturing listener on
-        // the window sees every field's blur too. Swallowing those took away
-        // the event a search box uses to close its suggestions.
-        #expect(SiteBehaviourScripts.nativeVideoPlayer.contains("e.target !== window"))
+    @Test("Native video leaves blur and visibility events available to the website")
+    func blurAndVisibilityStayNative() {
+        #expect(!SiteBehaviourScripts.nativeVideoPlayer.contains("stopImmediatePropagation"))
+        #expect(!SiteBehaviourScripts.nativeVideoPlayer.contains("Object.defineProperty(document"))
     }
 
     @Test("CommandCatalog registers toggle-native-video command")

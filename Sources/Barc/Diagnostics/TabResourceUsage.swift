@@ -16,6 +16,7 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
     public let isSuspended: Bool
     public let isPlayingAudio: Bool
     public let pid: pid_t?
+    public let hasMeasuredMemory: Bool
     public let memoryBytes: UInt64
     public let cpuPercentage: Double
     public let isMemoryHog: Bool
@@ -34,7 +35,8 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
         memoryBytes: UInt64,
         cpuPercentage: Double,
         isMemoryHog: Bool,
-        isCpuHog: Bool
+        isCpuHog: Bool,
+        hasMeasuredMemory: Bool = true
     ) {
         self.id = tabId
         self.tabId = tabId
@@ -46,6 +48,7 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
         self.isSuspended = isSuspended
         self.isPlayingAudio = isPlayingAudio
         self.pid = pid
+        self.hasMeasuredMemory = hasMeasuredMemory
         self.memoryBytes = memoryBytes
         self.cpuPercentage = max(0.0, cpuPercentage)
         self.isMemoryHog = isMemoryHog
@@ -54,8 +57,9 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
 
     public var formattedMemory: String {
         if isSuspended {
-            return "< 1 MB (Suspended)"
+            return "Suspended"
         }
+        guard hasMeasuredMemory else { return "Unavailable" }
         let mb = Double(memoryBytes) / (1024 * 1024)
         if mb >= 1024 {
             let gb = mb / 1024
@@ -68,6 +72,7 @@ public struct TabResourceUsage: Identifiable, Sendable, Equatable {
         if isSuspended {
             return "0.0%"
         }
+        guard hasMeasuredMemory else { return "Unavailable" }
         return String(format: "%.1f%%", cpuPercentage)
     }
 }

@@ -1,4 +1,5 @@
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: remember the first-launch default-browser invitation, 2026-10-25.
 import AppKit
 import Foundation
 
@@ -15,6 +16,7 @@ final class Settings {
         static let numberedIncludesFavorites = "numberedTabsIncludeFavorites"
         static let searchEngine = "searchEngineIdentifier"
         static let restoresSession = "restoresSessionOnLaunch"
+        static let profileHibernationMinutes = "profileHibernationMinutes"
         static let suspensionMinutes = "tabSuspensionMinutes"
         static let archiveHours = "tabArchiveHours"
         static let idleBadge = "tabIdleBadgeMode"
@@ -62,6 +64,7 @@ final class Settings {
         static let skippedUpdateVersion = "skippedUpdateVersion"
         static let lastUpdateCheckDate = "lastUpdateCheckDate"
         static let lastLaunchedVersion = "lastLaunchedVersion"
+        static let defaultBrowserInvitationHandled = "defaultBrowserInvitationHandled"
         static let upgradesToHTTPS = "upgradesKnownHostsToHTTPS"
         static let showsFullAddress = "showsFullAddress"
         static let showsUnicodeDomains = "showsUnicodeDomains"
@@ -187,6 +190,7 @@ final class Settings {
             Key.searchEngine: SearchEngine.duckDuckGo.id,
             Key.restoresSession: true,
             Key.suspensionMinutes: 10,
+            Key.profileHibernationMinutes: 1,
             // Off. Archiving removes rows the user did not ask to remove, so it
             // is the one tab-lifecycle setting that has to be switched on
             // deliberately rather than discovered after the fact.
@@ -459,6 +463,12 @@ final class Settings {
     var lastLaunchedVersion: String? {
         get { defaults.string(forKey: Key.lastLaunchedVersion) }
         set { defaults.set(newValue, forKey: Key.lastLaunchedVersion) }
+    }
+
+    /// App-wide, so switching spaces or installing an update never asks again.
+    var defaultBrowserInvitationHandled: Bool {
+        get { defaults.bool(forKey: Key.defaultBrowserInvitationHandled) }
+        set { defaults.set(newValue, forKey: Key.defaultBrowserInvitationHandled) }
     }
 
     var skippedUpdateVersion: String? {
@@ -858,6 +868,15 @@ final class Settings {
     var restoresSession: Bool {
         get { defaults.bool(forKey: Key.restoresSession) }
         set { defaults.set(newValue, forKey: Key.restoresSession) }
+    }
+
+    static let profileHibernationChoices = [0, 1, 5, 10]
+    var profileHibernationMinutes: Int {
+        get { defaults.integer(forKey: Key.profileHibernationMinutes) }
+        set { defaults.set(max(0, newValue), forKey: Key.profileHibernationMinutes) }
+    }
+    var profileHibernationDelay: TimeInterval? {
+        profileHibernationMinutes > 0 ? TimeInterval(profileHibernationMinutes) * 60 : nil
     }
 
     /// Choices offered in Settings. Zero means never suspend.

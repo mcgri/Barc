@@ -7,14 +7,21 @@ import Foundation
 /// Spaces and tabs are a small, wholly-rewritten document, so a file is the
 /// right shape for them; SQLite earns its place for history, which is appended
 /// to constantly and queried by prefix.
-final class SessionStore {
+// Mutable state and all file access are confined to ioQueue. Snapshots crossing
+// into it are compiler-checked Sendable values, never live model/WebKit objects.
+final class SessionStore: @unchecked Sendable {
+    private let ioQueue = DispatchQueue(label: "barc.session.persistence", qos: .utility)
+    private var encodingPasses = 0
+    var encodingPassCount: Int { ioQueue.sync { encodingPasses } }
     let fileURL: URL
 
     init(fileURL: URL = AppPaths.sessionFile) {
         self.fileURL = fileURL
     }
 
-    func load() -> SessionSnapshot? {
+    func load() -> SessionSnapshot? { ioQueue.sync { loadOnQueue() } }
+
+    private func loadOnQueue() -> SessionSnapshot? {
         guard let data = try? Data(contentsOf: fileURL) else { return nil }
         do {
             return try JSONDecoder().decode(SessionSnapshot.self, from: data)
@@ -46,7 +53,18 @@ final class SessionStore {
     private var lastWrittenDigest: SHA256Digest?
 
     /// Atomic, so a crash mid-write cannot leave a truncated session behind.
+    /// Explicit saves flush earlier queued checkpoints before returning.
     func save(_ snapshot: SessionSnapshot) throws {
+        try ioQueue.sync { try saveOnQueue(snapshot) }
+    }
+
+    /// Serial ordering prevents an older checkpoint overwriting a newer one.
+    func enqueue(_ snapshot: SessionSnapshot) {
+        ioQueue.async { [self] in try? saveOnQueue(snapshot) }
+    }
+
+    private func saveOnQueue(_ snapshot: SessionSnapshot) throws {
+        encodingPasses += 1
         // Sorted keys, so the same session always encodes to the same bytes
         // and the comparison below means something.
         let encoder = JSONEncoder()
@@ -59,13 +77,10 @@ final class SessionStore {
         lastWrittenDigest = digest
     }
 
-    private func saveUncached(_ snapshot: SessionSnapshot) throws {
-        AppPaths.ensureSupportDirectory()
-        let data = try JSONEncoder().encode(snapshot)
-        try data.write(to: fileURL, options: [.atomic])
-    }
-
     func clear() {
-        try? FileManager.default.removeItem(at: fileURL)
+        ioQueue.sync {
+            try? FileManager.default.removeItem(at: fileURL)
+            lastWrittenDigest = nil
+        }
     }
 }

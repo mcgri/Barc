@@ -14,14 +14,23 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
     private let webContainer = NSView()
     private let leadingBorder = NSBox()
 
+    private static let controllers = NSHashTable<WebPanelViewController>.weakObjects()
     private var webViewCache: [UUID: WKWebView] = [:]
+    private var sleepingStates: [UUID: Any] = [:]
+    private var viewports: [UUID: PageViewport] = [:]
+    private var hiddenSince: [UUID: TimeInterval] = [:]
+    private let uptime: () -> TimeInterval
+    var cachedWebViewCount: Int { webViewCache.count }
+    func cachedWebView(for id: UUID) -> WKWebView? { webViewCache[id] }
     private var activeWebView: WKWebView?
     private var cancellables: Set<AnyCancellable> = []
     private var webViewObservations: Set<AnyCancellable> = []
 
-    public init(store: WebPanelStore = .shared) {
+    public init(store: WebPanelStore = .shared, uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
         self.store = store
+        self.uptime = uptime
         super.init(nibName: nil, bundle: nil)
+        Self.controllers.add(self)
     }
 
     required init?(coder: NSCoder) {
@@ -109,6 +118,7 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             webView.removeFromSuperview()
             self.webViewCache.removeValue(forKey: panel.id)
             self.activeWebView = nil
+            self.webViewObservations.removeAll()
             self.onPopOut?(webView, panel)
         }
 
@@ -125,6 +135,10 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: .webPanelVisibilityDidChange)
+            .sink { [weak self] _ in self?.reloadActivePanel() }
+            .store(in: &cancellables)
+
         NotificationCenter.default.publisher(for: .webPanelsDidChange)
             .sink { [weak self] _ in
                 self?.reloadActivePanel()
@@ -133,9 +147,23 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
     }
 
     public func reloadActivePanel() {
-        guard let panel = store.activePanel else {
+        let living = Set(store.panels.map(\.id))
+        for id in Array(webViewCache.keys) where !living.contains(id) {
+            webViewCache[id]?.stopLoading()
+            webViewCache[id]?.removeFromSuperview()
+            webViewCache[id] = nil
+        }
+        sleepingStates = sleepingStates.filter { living.contains($0.key) }
+        viewports = viewports.filter { living.contains($0.key) }
+        hiddenSince = hiddenSince.filter { living.contains($0.key) }
+        for id in webViewCache.keys {
+            if store.isOpen && store.activePanel?.id == id { hiddenSince[id] = nil }
+            else if hiddenSince[id] == nil { hiddenSince[id] = uptime() }
+        }
+        guard store.isOpen, let panel = store.activePanel else {
             activeWebView?.removeFromSuperview()
             activeWebView = nil
+            webViewObservations.removeAll()
             return
         }
 
@@ -171,7 +199,9 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             wv.customUserAgent = customUA
         }
 
-        if panel.isScratchpad {
+        if let state = sleepingStates.removeValue(forKey: panel.id) {
+            wv.interactionState = state
+        } else if panel.isScratchpad {
             wv.loadHTMLString(ScratchpadContent.html, baseURL: nil)
         } else {
             wv.load(URLRequest(url: panel.url))
@@ -227,6 +257,42 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
         webViewCache[panel.id] = webView
         store.select(id: panel.id)
         reloadActivePanel()
+    }
+
+    /// Serviced by the browser's existing sweep, with no timer per panel.
+    static func hibernateHiddenPanels(after delay: TimeInterval) async {
+        for controller in controllers.allObjects { await controller.hibernateHiddenPanels(after: delay, now: controller.uptime()) }
+    }
+
+    func hibernateHiddenPanels(after delay: TimeInterval, now: TimeInterval) async {
+        for (id, view) in webViewCache {
+            guard let hidden = hiddenSince[id], now - hidden >= delay,
+                  let panel = store.panels.first(where: { $0.id == id }), !panel.isScratchpad,
+                  SiteSettings.shared.allowsSuspension(for: view.url ?? panel.url),
+                  !(store.isOpen && store.activePanel?.id == id),
+                  view.window?.isVisible != true || view.isHiddenOrHasHiddenAncestor,
+                  !DownloadManager.shared.protectsFromHibernation(view),
+                  await PageHibernationGuard.shared.permitsHibernation(of: view),
+                  !Task.isCancelled, webViewCache[id] === view,
+                  !(store.isOpen && store.activePanel?.id == id),
+                  hiddenSince[id] == hidden,
+                  PageHibernationGuard.nativeActivityAllowsSleep(view),
+                  !DownloadManager.shared.protectsFromHibernation(view) else { continue }
+            viewports[id] = PageHibernationGuard.shared.capturedViewport(of:view)
+            sleepingStates[id] = view.interactionState
+            view.stopLoading()
+            view.navigationDelegate = nil
+            view.removeFromSuperview()
+            webViewCache[id] = nil
+            hiddenSince[id] = nil
+            await Task.yield()
+        }
+    }
+
+    public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if let id = webViewCache.first(where: { $0.value === webView })?.key {
+            viewports.removeValue(forKey:id)?.restore(in:webView)
+        }
     }
 
     // MARK: - Add Panel Prompt

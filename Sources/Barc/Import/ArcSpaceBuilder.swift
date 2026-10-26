@@ -93,7 +93,7 @@ enum ArcSpaceBuilder {
                     let pinID = ArcImportID.uuid(splitKey(candidate)+"/pin")
                     let members = zip(built.record.layout.tabIDs,built.record.tabIndices).map { member,index -> FavoriteSplit.Member in
                         var saved = tabs[index]
-                        saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.interactionState = nil
+                        saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.interactionState = nil; saved.hibernationViewport = nil
                         return .init(id:member,page:saved)
                     }
                     let focusedMember = zip(built.record.layout.tabIDs,built.record.tabIndices)

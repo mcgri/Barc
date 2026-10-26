@@ -188,4 +188,77 @@ struct ScreenshotTests {
         #expect(image.size.width > 0)
         #expect(image.size.height > 0)
     }
+
+    @Test("Full-page capture includes the footer below the viewport and copies its full PNG", arguments: [1.0, 1.5])
+    func fullPageClipboard(zoom: Double) async throws {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), configuration: config)
+        let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = web
+        window.orderFront(nil)
+        defer { window.close() }
+        web.pageZoom = zoom
+        let waiter = LoadWaiter()
+        web.navigationDelegate = waiter
+        try await withCheckedThrowingContinuation { continuation in
+            waiter.completion = continuation
+            web.loadHTMLString("<html><head><style>@media print { body { opacity:0 } }</style></head><body style='margin:0'><div style='height:600px;background:#ff0000'></div><div style='height:600px;background:#00ff00'></div><div style='height:600px;background:#0000ff'></div></body></html>", baseURL: nil)
+        }
+        _ = try await web.evaluateJavaScript("window.scrollTo(0, 300)")
+        let image = try await ScreenshotService.capture(webView: web, scope: .fullPage)
+        #expect(image.size.height >= 1800 * zoom - 1)
+        let png = try #require(ScreenshotService.pngData(from: image))
+        let bitmap = try #require(NSBitmapImageRep(data: png))
+        let first = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 10)?.usingColorSpace(.deviceRGB))
+        let middle = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB))
+        let last = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh - 10)?.usingColorSpace(.deviceRGB))
+        #expect(first.redComponent > 0.9 && first.blueComponent < 0.1)
+        #expect(middle.greenComponent > 0.9 && middle.redComponent < 0.1)
+        #expect(last.blueComponent > 0.9 && last.redComponent < 0.1)
+        #expect(try await web.evaluateJavaScript("window.scrollY") as? Double == 300)
+        #expect(web.bounds.size == NSSize(width: 300, height: 200))
+        let clipboard = NSPasteboard(name: .init("barc.full-page-test.\(UUID())"))
+        defer { clipboard.releaseGlobally() }
+        ScreenshotService.copyImageToClipboard(image: image, pasteboard: clipboard)
+        let copied = try #require(clipboard.data(forType: .png))
+        #expect(NSBitmapImageRep(data: copied)?.pixelsHigh == bitmap.pixelsHigh)
+    }
+
+
+    @Test("The sidebar utility menu exposes full-page clipboard capture")
+    func sidebarCaptureAction() throws {
+        let controller = BrowserWindowController(session: TestSession.make().0)
+        defer { controller.window?.delegate = nil; controller.window?.close() }
+        let root = try #require(controller.window?.contentView)
+        let bar = try #require(UITestSupport.descendants(of: root).compactMap { $0 as? ContentTopBar }.first)
+        let menu = bar.makeUtilitiesMenu()
+        let action = try #require(menu.items.first { $0.title == "Copy Full Page to Clipboard" })
+        #expect(action.target != nil && action.action != nil)
+        #expect(ToolbarLayout.catalog.contains { $0.label == action.title })
+    }
+
+
+    @Test("A page taller than the old capture limit retains its footer within the bitmap budget")
+    func longPageKeepsFooter() async throws {
+        let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 300, height: 200), configuration: config)
+        let window = NSWindow(contentRect: web.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = web; window.orderFront(nil)
+        defer { window.close() }
+        let waiter = LoadWaiter(); web.navigationDelegate = waiter
+        try await withCheckedThrowingContinuation { continuation in
+            waiter.completion = continuation
+            web.loadHTMLString("<body style='margin:0'><div style='height:29000px;background:red'></div><div style='height:1000px;background:blue'></div></body>", baseURL: nil)
+        }
+        let image = try await ScreenshotService.capture(webView: web, scope: .fullPage)
+        let png = try #require(ScreenshotService.pngData(from: image))
+        let bitmap = try #require(NSBitmapImageRep(data: png))
+        #expect(bitmap.pixelsHigh <= Int(ScreenshotService.maxFullPageHeight))
+        #expect(Double(bitmap.pixelsHigh * bitmap.pixelsWide) <= ScreenshotService.maxFullPagePixels)
+        let footer = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: bitmap.pixelsHigh - 10)?.usingColorSpace(.deviceRGB))
+        #expect(footer.blueComponent > 0.9 && footer.redComponent < 0.1)
+    }
+
 }

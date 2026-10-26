@@ -158,8 +158,8 @@ struct TabLifecycleLockTests {
         }
     }
 
-    @Test("A critically low system overrules the lock, because the alternative is worse")
-    func criticalPressureOverrulesTheLock() {
+    @Test("Critical pressure still protects Keep Awake work")
+    func criticalPressureHonoursTheLock() {
         let id = UUID()
         let locked = TabSuspension.TabState(
             id: id,
@@ -173,7 +173,7 @@ struct TabLifecycleLockTests {
             idleThreshold: 60,
             trigger: .memoryCritical
         )
-        #expect(chosen == [id])
+        #expect(chosen.isEmpty)
     }
 
     @Test("A kept-awake pane keeps its split loaded too")

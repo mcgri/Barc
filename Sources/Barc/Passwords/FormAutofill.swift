@@ -424,18 +424,14 @@ extension FormAutofill {
         } catch (e) {}
       }
 
-      function wire() {
-        for (const el of document.querySelectorAll('input, select')) {
-          if (el.dataset.barcAutofill) continue;
-          const kind = classify(el);
-          if (!kind || kind === 'cc-csc') continue;
-          el.dataset.barcAutofill = kind;
-          el.addEventListener('focus', function() { fillFrom(el, kind); });
-        }
-      }
-
-      wire();
-      new MutationObserver(function() { wire(); }).observe(document.documentElement, { childList: true, subtree: true });
+      // Delegation also covers fields inserted later, without rescanning the
+      // document for every DOM mutation. Focus is captured because it does not bubble.
+      document.addEventListener('focus', function(event) {
+        const el = event.target;
+        if (!el || !el.matches || !el.matches('input, select')) return;
+        const kind = classify(el);
+        if (kind && kind !== 'cc-csc') fillFrom(el, kind);
+      }, true);
     })();
     """
 }

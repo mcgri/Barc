@@ -19,7 +19,10 @@ struct SpaceDockTests {
         let session = TestSession.make().0
         for index in 1..<6 { session.addSpace(named:"Space \(index+1)") }
         session.selectSpace(session.spaces[0])
-        let sidebar = SidebarViewController(session:session),root = sidebar.view
+        // Reference geometry describes the footer without the optional gauge.
+        let settings = Settings(defaults:UserDefaults(suiteName:"barc.footer-geometry.\(UUID())")!)
+        settings.showsTaskManagerInSidebar = false
+        let sidebar = SidebarViewController(session:session,settings:settings),root = sidebar.view
         let host = UITestSupport.host(root,width:228,height:1027)
         host.layoutSubtreeIfNeeded()
         let footer = try #require(UITestSupport.descendants(of:root).compactMap { $0 as? SidebarFooterView }.first)

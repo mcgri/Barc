@@ -2,6 +2,7 @@
 import Foundation
 import AppKit
 import Darwin
+import WebKit
 
 /// Monitors per-tab CPU and memory consumption using Darwin process APIs (`proc_pidinfo`),
 /// and automatically flags memory-hogging and runaway sites.
@@ -19,6 +20,16 @@ final class TabResourceMonitor: NSObject {
         var totalCpuNanoseconds: UInt64
     }
 
+    private let readProcess: (pid_t) -> ProcessSampler.Reading?
+    private let processID: (Tab) -> pid_t?
+    private let uptime: () -> TimeInterval
+    private struct Reading {
+        let memory: UInt64
+        let cpu: Double
+    }
+    private var sweepAt: TimeInterval?
+    private var sweepReadings: [pid_t: Reading] = [:]
+    private var failedReadings: Set<pid_t> = []
     private var previousSamples: [pid_t: CPUSample] = [:]
 
     /// CPU and memory for the processes that are not pages: Barc itself and
@@ -41,8 +52,33 @@ final class TabResourceMonitor: NSObject {
     private var alertedHogTabs: Set<UUID> = []
     private var backgroundSweepTimer: Timer?
 
-    override init() {
+    init(readProcess: @escaping (pid_t) -> ProcessSampler.Reading? = { ProcessSampler.read(pid: $0) },
+         processID: @escaping (Tab) -> pid_t? = { $0.currentWebView.flatMap { TabResourceMonitor.contentProcessID($0) } },
+         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+        self.readProcess = readProcess
+        self.processID = processID
+        self.uptime = uptime
         super.init()
+    }
+
+    static func contentProcessID(_ view: WKWebView) -> pid_t? {
+        let selector = Selector(("_webProcessIdentifier"))
+        guard view.responds(to: selector), let pid = view.value(forKey: "_webProcessIdentifier") as? pid_t, pid > 0 else { return nil }
+        return pid
+    }
+
+    private func reading(pid: pid_t, now: TimeInterval) -> Reading? {
+        if let cached = sweepReadings[pid] { return cached }
+        guard !failedReadings.contains(pid), let process = readProcess(pid) else { failedReadings.insert(pid); return nil }
+        var cpu = 0.0
+        if let last = previousSamples[pid], now - last.timestamp > 0.1,
+           process.cpuNanoseconds >= last.totalCpuNanoseconds {
+            cpu = Double(process.cpuNanoseconds - last.totalCpuNanoseconds) / 1_000_000_000 / (now - last.timestamp) * 100
+        }
+        previousSamples[pid] = CPUSample(timestamp: now, totalCpuNanoseconds: process.cpuNanoseconds)
+        let value = Reading(memory: process.memoryBytes, cpu: cpu)
+        sweepReadings[pid] = value
+        return value
     }
 
     /// Starts periodic background checking for runaway tabs.
@@ -54,20 +90,35 @@ final class TabResourceMonitor: NSObject {
                 self.checkRunawayTabs(in: session)
             }
         }
+        backgroundSweepTimer?.tolerance = 5
     }
 
     /// Samples all tabs currently managed by the session.
     func sampleAllTabs(in session: BrowserSession) -> [TabResourceUsage] {
-        let now = ProcessInfo.processInfo.systemUptime
+        let now = uptime()
         var results: [TabResourceUsage] = []
 
-        // Precompute space mappings
-        var tabSpaceMap: [UUID: (name: String, id: UUID)] = [:]
+        if sweepAt == nil || now - (sweepAt ?? 0) >= 0.1 || now < (sweepAt ?? 0) {
+            sweepReadings.removeAll(keepingCapacity: true)
+            failedReadings.removeAll(keepingCapacity: true)
+            sweepAt = now
+        }
+        // Workspace ownership is unambiguous. Favorites can belong to several
+        // Spaces and must not be assigned to whichever Space was visited last.
+        var tabSpaceMap: [UUID: (name: String, id: UUID?)] = [:]
         for space in session.spaces {
-            for tab in space.tabs {
-                tabSpaceMap[tab.id] = (space.name, space.id)
+            for tab in space.workspaceTabs { tabSpaceMap[tab.id] = (space.name, space.id) }
+        }
+        for profile in session.profiles {
+            let spaces = session.spaces.filter { $0.profile === profile }
+            for tab in profile.favoriteTabs {
+                tabSpaceMap[tab.id] = spaces.count == 1 ? (spaces[0].name, spaces[0].id) : (profile.name + " (shared)", nil)
             }
         }
+        let tabs = session.allTabs
+        let livePIDs = Set(tabs.compactMap(processID)).union(WebEnvironment.shared.liveWebViews.compactMap { Self.contentProcessID($0) })
+        previousSamples = previousSamples.filter { livePIDs.contains($0.key) }
+        alertedHogTabs.formIntersection(Set(tabs.map(\.id)))
 
         for tab in session.allTabs {
             let home = tabSpaceMap[tab.id]
@@ -88,7 +139,7 @@ final class TabResourceMonitor: NSObject {
                     isSuspended: true,
                     isPlayingAudio: isPlayingAudio,
                     pid: nil,
-                    memoryBytes: 512 * 1024, // ~0.5 MB resident metadata
+                    memoryBytes: 0, // No invented per-tab metadata charge.
                     cpuPercentage: 0.0,
                     isMemoryHog: false,
                     isCpuHog: false
@@ -96,34 +147,10 @@ final class TabResourceMonitor: NSObject {
                 continue
             }
 
-            var pid: pid_t? = nil
-            var memoryBytes: UInt64 = 64 * 1024 * 1024 // Baseline 64 MB
-            var cpuPercentage: Double = 0.0
-
-            if let webView = tab.currentWebView {
-                if let processId = (webView as AnyObject).value(forKey: "_webProcessIdentifier") as? pid_t, processId > 0 {
-                    pid = processId
-                    var taskInfo = proc_taskinfo()
-                    let size = Int32(MemoryLayout<proc_taskinfo>.size)
-                    let status = proc_pidinfo(processId, PROC_PIDTASKINFO, 0, &taskInfo, size)
-
-                    if status == size {
-                        memoryBytes = taskInfo.pti_resident_size
-                        let currentCpuNano = taskInfo.pti_total_user + taskInfo.pti_total_system
-
-                        if let prev = previousSamples[processId] {
-                            let deltaSeconds = now - prev.timestamp
-                            if deltaSeconds > 0.1 && currentCpuNano >= prev.totalCpuNanoseconds {
-                                let deltaNano = currentCpuNano - prev.totalCpuNanoseconds
-                                let deltaCpuSeconds = Double(deltaNano) / 1_000_000_000.0
-                                cpuPercentage = (deltaCpuSeconds / deltaSeconds) * 100.0
-                            }
-                        }
-
-                        previousSamples[processId] = CPUSample(timestamp: now, totalCpuNanoseconds: currentCpuNano)
-                    }
-                }
-            }
+            let pid = processID(tab)
+            let measured = pid.flatMap { reading(pid: $0, now: now) }
+            let memoryBytes = measured?.memory ?? 0
+            let cpuPercentage = measured?.cpu ?? 0
 
             let isMemoryHog = memoryBytes >= Self.memoryHogThresholdBytes
             let isCpuHog = cpuPercentage >= Self.cpuHogThresholdPercentage
@@ -141,7 +168,8 @@ final class TabResourceMonitor: NSObject {
                 memoryBytes: memoryBytes,
                 cpuPercentage: cpuPercentage,
                 isMemoryHog: isMemoryHog,
-                isCpuHog: isCpuHog
+                isCpuHog: isCpuHog,
+                hasMeasuredMemory: measured != nil
             ))
         }
 
@@ -223,8 +251,13 @@ struct ResourceSnapshot {
     /// something else's doing.
     var machineGpuUtilisation: Double?
 
-    var totalMemoryBytes: UInt64 { browserMemoryBytes + webContentMemoryBytes + gpuProcessMemoryBytes }
-    var totalCpuPercentage: Double { browserCpuPercentage + webContentCpuPercentage + gpuProcessCpuPercentage }
+    var networkProcessMemoryBytes: UInt64 = 0
+    var networkProcessCpuPercentage: Double = 0
+    var auxiliaryContentMemoryBytes: UInt64 = 0
+    var auxiliaryContentCpuPercentage: Double = 0
+    var hasUnmeasuredProcesses = false
+    var totalMemoryBytes: UInt64 { browserMemoryBytes + webContentMemoryBytes + gpuProcessMemoryBytes + networkProcessMemoryBytes + auxiliaryContentMemoryBytes }
+    var totalCpuPercentage: Double { browserCpuPercentage + webContentCpuPercentage + gpuProcessCpuPercentage + networkProcessCpuPercentage + auxiliaryContentCpuPercentage }
 
     var activeTabCount: Int { tabs.count { !$0.isSuspended } }
     var suspendedTabCount: Int { tabs.count(where: \.isSuspended) }
@@ -270,15 +303,35 @@ extension TabResourceMonitor {
             if let reading = helperSampler.sample(pid: gpuPid, now: now) {
                 snapshot.gpuProcessMemoryBytes = reading.memoryBytes
                 snapshot.gpuProcessCpuPercentage = reading.cpuPercentage
+            } else { snapshot.hasUnmeasuredProcesses = true }
+        } else { snapshot.hasUnmeasuredProcesses = true }
+        let networkPIDs = WebEnvironment.shared.networkProcessIdentifiers
+        if !networkPIDs.isEmpty {
+            for networkPID in networkPIDs {
+                guard helpers.insert(networkPID).inserted else { continue }
+                if let value = helperSampler.sample(pid: networkPID, now: now) {
+                    snapshot.networkProcessMemoryBytes += value.memoryBytes
+                    snapshot.networkProcessCpuPercentage += value.cpuPercentage
+                } else { snapshot.hasUnmeasuredProcesses = true }
             }
+        } else { snapshot.hasUnmeasuredProcesses = true }
+        // Panels, Glance and installed web apps can own pages outside allTabs.
+        for view in WebEnvironment.shared.liveWebViews {
+            guard let pid = Self.contentProcessID(view) else { snapshot.hasUnmeasuredProcesses = true; continue }
+            guard seen.insert(pid).inserted else { continue }
+            if let value = reading(pid: pid, now: uptime()) {
+                snapshot.auxiliaryContentMemoryBytes += value.memory
+                snapshot.auxiliaryContentCpuPercentage += value.cpu
+            } else { snapshot.hasUnmeasuredProcesses = true }
         }
+        snapshot.hasUnmeasuredProcesses = snapshot.hasUnmeasuredProcesses || snapshot.tabs.contains { !$0.isSuspended && !$0.hasMeasuredMemory }
         helperSampler.forgetEveryPidExcept(helpers)
 
         // Barc's own GPU time: this process, WebKit's GPU process, and every
         // page process. In practice the GPU process is the one that has any --
         // WebKit does all page drawing there -- which is exactly why this
         // figure cannot be split per space.
-        var family = helpers
+        var family = helpers.union(seen)
         for usage in snapshot.tabs {
             if let pid = usage.pid { family.insert(pid) }
         }

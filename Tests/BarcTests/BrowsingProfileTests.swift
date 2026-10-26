@@ -82,7 +82,8 @@ struct BrowsingProfileTests {
         let initial = space.profile
         let group = session.createGroup(named: "Retained")
         let stored = SessionSnapshot.Tab(url: URL(string: "https://site.invalid/private-page")!, title: "Saved title",
-            groupID: group.id, customName: "Project", interactionState: Data("old profile state".utf8), keepsInSidebar: true)
+            groupID: group.id, customName: "Project", interactionState: Data("old profile state".utf8), keepsInSidebar: true,
+            hibernationViewport:PageViewport(url:URL(string:"https://site.invalid/private-page")!,x:0,y:900))
         let original = Tab(restoring: stored, identity: initial.identity)
         space.insert(original, at: 1); space.setActiveTabID(original.id)
         let target = try profile(session, "Separate")
@@ -95,6 +96,7 @@ struct BrowsingProfileTests {
         #expect(selected.url == original.url && selected.groupID == group.id && selected.customName == "Project")
         #expect(selected.keepsInSidebar)
         #expect(selected.snapshot().interactionState == nil)
+        #expect(selected.snapshot().hibernationViewport == nil)
         #expect(selected.currentWebView == nil)
         #expect(session.profiles.contains { $0 === initial })
         #expect(!session.assignProfile(target, to: space), "Choosing the checked profile does not reload pages")

@@ -731,6 +731,40 @@ struct ArchivedRowTests {
 @Suite("The sidebar footer")
 @MainActor
 struct SidebarFooterTests {
+    @Test("The performance gauge is clickable and leaves the Space dock clear")
+    func visiblePerformanceGauge() throws {
+        let footer = SidebarFooterView()
+        var clicks = 0
+        let action = TopBarAction(symbolName: "speedometer", label: "Task Manager") { clicks += 1 }
+        footer.setLeadingActions([action])
+        let host = UITestSupport.host(footer, width: 220, height: SidebarFooterView.height)
+        let button = try #require(footer.actionButton(labelled: "Task Manager") as? IconButton)
+        let dock = try #require(UITestSupport.descendants(of: footer).first { $0 is SpaceDockView })
+        let gauge = button.convert(button.bounds, to: host)
+        let dockFrame = dock.convert(dock.bounds, to: host)
+        let home = footer.homeButton.convert(footer.homeButton.bounds, to: host)
+        #expect(button.isDescendant(of: host))
+        #expect(!button.isHiddenOrHasHiddenAncestor)
+        #expect(gauge.width == 24 && gauge.height == 24)
+        #expect(home.maxX <= gauge.minX)
+        #expect(gauge.maxX <= dockFrame.minX)
+        #expect(abs(gauge.midY - dockFrame.midY) < 1)
+        #expect(footer.actionAnchor(labelled: "Task Manager") === button)
+        button.performClick(nil)
+        #expect(clicks == 1)
+
+        footer.setLeadingActions([])
+        host.layoutSubtreeIfNeeded()
+        #expect(button.superview == nil)
+        #expect(footer.actionButton(labelled: "Task Manager") == nil)
+        let expanded = dock.convert(dock.bounds, to: host)
+        #expect(abs(expanded.width - dockFrame.width - 24) < 1)
+        footer.setLeadingActions([action])
+        host.layoutSubtreeIfNeeded()
+        #expect(UITestSupport.descendants(of: footer).compactMap { $0 as? IconButton }
+            .filter { $0.accessibilityLabel() == "Task Manager" }.count == 1)
+    }
+
     @Test("Home, the Space dock and Add fit on one footer row")
     func footerKeepsIconsClearOfUtilities() {
         let footer = SidebarFooterView()

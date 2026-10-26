@@ -161,8 +161,17 @@ struct ProcessSampler {
         var info = proc_taskinfo()
         let size = Int32(MemoryLayout<proc_taskinfo>.size)
         guard proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &info, size) == size else { return nil }
+        // Use physical footprint consistently across the browser and helpers.
+        // Resident size misses compressed memory and includes shared mappings.
+        var usage = rusage_info_v4()
+        let status = withUnsafeMutablePointer(to: &usage) {
+            $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_V4, $0)
+            }
+        }
+        guard status == 0 else { return nil }
         return Reading(
-            memoryBytes: info.pti_resident_size,
+            memoryBytes: usage.ri_phys_footprint,
             cpuNanoseconds: info.pti_total_user + info.pti_total_system
         )
     }

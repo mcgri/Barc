@@ -1,3 +1,4 @@
+// Modified for Barc: complete offscreen page capture with bounded in-memory rasterization, 2026-10-25.
 // Modified for Barc: application identity and isolated screenshot test inputs, 2026-10-24.
 import AppKit
 import Foundation
@@ -47,8 +48,11 @@ public enum ScreenshotService {
     })()
     """
 
-    /// Maximum height for full-page screenshots to prevent memory exhaustion on infinite-scroll pages.
+    /// Limit the raster size, scaling very long pages instead of cutting off their footer.
     public static let maxFullPageHeight: Double = 24000.0
+    static let maxFullPagePixels: Double = 32_000_000
+
+    enum CaptureFailure: Error { case invalidDimensions, invalidRendering }
 
     /// Captures a screenshot of the specified `WKWebView`.
     ///
@@ -62,22 +66,58 @@ public enum ScreenshotService {
             return try await webView.takeSnapshot(configuration: nil)
 
         case .fullPage:
-            var fullWidth = Double(webView.bounds.width)
-            var fullHeight = Double(webView.bounds.height)
+            let dimensions = try await webView.callAsyncJavaScript(
+                "return " + pageDimensionScript, arguments: [:], in: nil, contentWorld: .defaultClient) as? [String: Any]
+            let zoom = webView.pageZoom
+            let width = max(webView.bounds.width, ((dimensions?["width"] as? NSNumber)?.doubleValue ?? 0) * zoom)
+            let height = max(webView.bounds.height, ((dimensions?["height"] as? NSNumber)?.doubleValue ?? 0) * zoom)
+            guard width.isFinite, height.isFinite, width > 0, height > 0,
+                  width <= 1_000_000, height <= 1_000_000 else { throw CaptureFailure.invalidDimensions }
 
-            if let result = try? await webView.evaluateJavaScript(pageDimensionScript) as? [String: Any] {
-                if let w = (result["width"] as? NSNumber)?.doubleValue, w > 0 {
-                    fullWidth = max(fullWidth, w)
-                }
-                if let h = (result["height"] as? NSNumber)?.doubleValue, h > 0 {
-                    fullHeight = max(fullHeight, h)
-                }
+            // takeSnapshot only paints the viewport on macOS, leaving the rest
+            // white. WebKit's PDF capture paints the full document without
+            // resizing the browser or changing its scroll position. Rasterize
+            // that in memory so the destination receives an ordinary image.
+            let config = WKPDFConfiguration()
+            config.rect = CGRect(x: 0, y: 0, width: width, height: height)
+            let data = try await webView.pdf(configuration: config)
+            guard let provider = CGDataProvider(data: data as CFData),
+                  let document = CGPDFDocument(provider), document.numberOfPages > 0 else { throw CaptureFailure.invalidRendering }
+            let displayScale = max(1, webView.window?.backingScaleFactor ?? 1)
+            let scale = min(displayScale, sqrt(maxFullPagePixels / (width * height)),
+                            maxFullPageHeight / max(width, height))
+            let pixelsWide = max(1, Int(floor(width * scale)))
+            let pixelsHigh = max(1, Int(floor(height * scale)))
+            guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+                  let context = CGContext(data: nil, width: pixelsWide, height: pixelsHigh,
+                    bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw CaptureFailure.invalidRendering }
+            let target = CGRect(x: 0, y: 0, width: pixelsWide, height: pixelsHigh)
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(target)
+            // WebKit splits documents taller than 14,400 points into PDF
+            // pages. Composite all of them vertically, including the footer.
+            var offset: CGFloat = 0
+            let verticalScale = CGFloat(pixelsHigh) / height
+            for index in 1...document.numberOfPages {
+                guard let page = document.page(at: index) else { throw CaptureFailure.invalidRendering }
+                let bounds = page.getBoxRect(.mediaBox)
+                guard bounds.width > 0, bounds.height > 0 else { throw CaptureFailure.invalidRendering }
+                context.saveGState()
+                context.translateBy(x: 0, y: CGFloat(pixelsHigh) - (offset + bounds.height) * verticalScale)
+                // Explicit scaling also avoids the blank margins introduced
+                // by CGPDFPage's non-upscaling convenience transform on Retina.
+                context.scaleBy(x: CGFloat(pixelsWide) / bounds.width, y: verticalScale)
+                context.translateBy(x: -bounds.minX, y: -bounds.minY)
+                context.drawPDFPage(page)
+                context.restoreGState()
+                offset += bounds.height
+                if offset >= height { break }
             }
-
-            let boundedHeight = min(fullHeight, maxFullPageHeight)
-            let config = WKSnapshotConfiguration()
-            config.rect = CGRect(x: 0, y: 0, width: fullWidth, height: boundedHeight)
-            return try await webView.takeSnapshot(configuration: config)
+            guard offset >= height - 1 else { throw CaptureFailure.invalidRendering }
+            guard let bitmap = context.makeImage() else { throw CaptureFailure.invalidRendering }
+            return NSImage(cgImage: bitmap, size: NSSize(width: Double(pixelsWide) / displayScale,
+                                                        height: Double(pixelsHigh) / displayScale))
         }
     }
 

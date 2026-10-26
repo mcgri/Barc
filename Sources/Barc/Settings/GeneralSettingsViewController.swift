@@ -1,4 +1,5 @@
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: persistent default-browser status, 2026-10-25.
 import AppKit
 
 /// The General pane: what Barc opens with, what new tabs open with, the
@@ -11,6 +12,7 @@ final class GeneralSettingsViewController: NSViewController {
     private let newTabsPopUp = NSPopUpButton()
     private let homepageField = NSTextField()
     private let appearancePopUp = NSPopUpButton()
+    private let profileHibernationPopUp = NSPopUpButton()
     private let suspensionPopUp = NSPopUpButton()
     private let archivePopUp = NSPopUpButton()
     private let idleBadgePopUp = NSPopUpButton()
@@ -18,6 +20,7 @@ final class GeneralSettingsViewController: NSViewController {
     /// The row the banner sits in, so the whole block can be taken off the
     /// pane rather than left behind as an empty gap.
     private var defaultBrowserRow: SettingsFormRow?
+    private var defaultBrowserStatusRow: SettingsFormRow?
     private let locationPopUp = NSPopUpButton()
     private let removalPopUp = NSPopUpButton()
     private let safeFiles = NSButton(checkboxWithTitle: "Open \u{201c}safe\u{201d} files after downloading", target: nil, action: nil)
@@ -65,6 +68,9 @@ final class GeneralSettingsViewController: NSViewController {
         // A hero is centred by default. This one is a banner: it runs the
         // width of the pane like the cards under it.
         defaultBrowserBanner.widthAnchor.constraint(equalTo: bannerRow.widthAnchor).isActive = true
+        defaultBrowserStatusRow = form.addRow(
+            "Default browser", NSTextField(labelWithString: "Barc is your default browser")
+        )
 
         opensWithPopUp.addItems(withTitles: ["Tabs and spaces from last session", "A new tab"])
         opensWithPopUp.target = self
@@ -115,6 +121,12 @@ final class GeneralSettingsViewController: NSViewController {
         appearancePopUp.action = #selector(appearanceChanged)
         form.addRow("Appearance", SettingsForm.fill(appearancePopUp))
 
+        profileHibernationPopUp.addItems(withTitles: Settings.profileHibernationChoices.map(Self.suspensionTitle))
+        profileHibernationPopUp.target = self
+        profileHibernationPopUp.action = #selector(profileHibernationChanged)
+        form.addRow("Hibernate inactive profiles after", SettingsForm.fill(profileHibernationPopUp))
+        form.addNote("Profiles start sleeping after you switch away. Drafts, calls, transfers and Keep Awake tabs stay open. Login sessions and sidebar tabs are kept. Only the page or split you return to reloads.")
+
         suspensionPopUp.addItems(withTitles: Settings.suspensionChoices.map(Self.suspensionTitle))
         suspensionPopUp.target = self
         suspensionPopUp.action = #selector(suspensionChanged)
@@ -122,8 +134,7 @@ final class GeneralSettingsViewController: NSViewController {
         form.addNote("""
             A sleeping tab gives its memory back and reopens where you left it. \
             It stays in the sidebar and reloads when you select it. Tabs you have \
-            set to Keep Awake are left alone, unless macOS itself runs critically \
-            short of memory.
+            set to Keep Awake and pages with unfinished work are left alone.
             """)
 
         archivePopUp.addItems(withTitles: Settings.archiveChoices.map(Self.archiveTitle))
@@ -205,6 +216,7 @@ final class GeneralSettingsViewController: NSViewController {
         commandBarOnNewTab.state = settings.openCommandBarOnNewTab ? .on : .off
         homepageField.stringValue = settings.homepageURL?.absoluteString ?? ""
         appearancePopUp.selectItem(withTitle: settings.appearance.title)
+        profileHibernationPopUp.selectItem(withTitle: Self.suspensionTitle(settings.profileHibernationMinutes))
         suspensionPopUp.selectItem(withTitle: Self.suspensionTitle(settings.tabSuspensionMinutes))
         archivePopUp.selectItem(withTitle: Self.archiveTitle(settings.tabArchiveHours))
         idleBadgePopUp.selectItem(withTitle: settings.tabIdleBadgeMode.title)
@@ -220,11 +232,12 @@ final class GeneralSettingsViewController: NSViewController {
     private func reloadDefaultBrowser() {
         let isDefault = DefaultBrowser.isBarc
         defaultBrowserRow?.isHidden = isDefault
+        defaultBrowserStatusRow?.isHidden = !isDefault
         if !isDefault { defaultBrowserBanner.resetMessage() }
     }
 
     private static func suspensionTitle(_ minutes: Int) -> String {
-        minutes == 0 ? "Never" : "\(minutes) minutes"
+        minutes == 0 ? "Never" : "\(minutes) minute\(minutes == 1 ? "" : "s")"
     }
 
     /// Hours, said the way people say them: nobody reads "168 hours" as a week.
@@ -317,6 +330,12 @@ final class GeneralSettingsViewController: NSViewController {
         settings.applyAppearance()
     }
 
+    @objc private func profileHibernationChanged() {
+        let index = profileHibernationPopUp.indexOfSelectedItem
+        guard Settings.profileHibernationChoices.indices.contains(index) else { return }
+        settings.profileHibernationMinutes = Settings.profileHibernationChoices[index]
+    }
+
     @objc private func suspensionChanged() {
         let index = suspensionPopUp.indexOfSelectedItem
         guard Settings.suspensionChoices.indices.contains(index) else { return }
@@ -366,6 +385,7 @@ final class GeneralSettingsViewController: NSViewController {
             // made something else the default in the meantime -- is not still
             // wearing the exit.
             self?.defaultBrowserBanner.alphaValue = 1
+            self?.reloadDefaultBrowser()
         }
     }
 }
@@ -408,10 +428,16 @@ enum DefaultBrowser {
 
     @MainActor
     static var isBarc: Bool {
-        guard let handler = NSWorkspace.shared.urlForApplication(toOpen: URL(string: "https://example.com/")!) else {
-            return false
+        isDefault(applicationURL: Bundle.main.bundleURL) { scheme in
+            NSWorkspace.shared.urlForApplication(toOpen: URL(string: "\(scheme)://example.com/")!)
         }
-        return handler.standardizedFileURL == Bundle.main.bundleURL.standardizedFileURL
+    }
+
+    /// Both kinds of web links must open this installation.
+    static func isDefault(applicationURL: URL, handlerForScheme: (String) -> URL?) -> Bool {
+        ["http", "https"].allSatisfy { scheme in
+            handlerForScheme(scheme)?.standardizedFileURL == applicationURL.standardizedFileURL
+        }
     }
 
     /// macOS asks the user to confirm; the answer arrives as an error when
@@ -421,6 +447,9 @@ enum DefaultBrowser {
         do {
             for scheme in ["http", "https"] {
                 try await NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenURLsWithScheme: scheme)
+            }
+            guard isBarc else {
+                return .failure("Barc is not yet the default for all web links. You can try again here.")
             }
             return .done
         } catch {

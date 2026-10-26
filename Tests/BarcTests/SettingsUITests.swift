@@ -1411,6 +1411,15 @@ struct DefaultBrowserBannerTests {
         #expect(bannerRow.isHidden == DefaultBrowser.isBarc)
     }
 
+    @Test("General keeps a visible status when Barc is already default")
+    func statusWhenAlreadyDefault() throws {
+        let controller = pane()
+        let label = try #require(all(NSTextField.self, in: controller.view)
+            .first { $0.stringValue == "Barc is your default browser" })
+        let statusRow = try #require(row(of: label))
+        #expect(statusRow.isHidden == !DefaultBrowser.isBarc)
+    }
+
     @Test("The buried row it replaced is gone")
     func oldRowIsGone() {
         // Two places to be told the same thing, one of them a row you had to

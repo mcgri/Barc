@@ -6,8 +6,8 @@ import AppKit
 ///
 /// Deliberately a value type with no references to live objects: writing it out
 /// cannot be affected by what the browser does next.
-struct SessionSnapshot: Codable, Equatable {
-    struct Tab: Codable, Equatable {
+struct SessionSnapshot: Codable, Equatable, Sendable {
+    struct Tab: Codable, Equatable, Sendable {
         var url: URL
         var title: String?
         /// Which group the tab was filed under. Absent for ungrouped tabs and
@@ -56,6 +56,7 @@ struct SessionSnapshot: Codable, Equatable {
         var pinnedPageURL: URL? = nil
         /// Stable within a multi-pane Favorite, independent of runtime tab IDs.
         var pinnedMemberID: UUID? = nil
+        var hibernationViewport: PageViewport? = nil
     }
 
     struct Split: Codable, Equatable, Sendable {
@@ -68,7 +69,7 @@ struct SessionSnapshot: Codable, Equatable {
         var customName: String? = nil
     }
 
-    struct Space: Codable, Equatable {
+    struct Space: Codable, Equatable, Sendable {
         var name: String
         /// Written by builds that had a space switcher row with an icon and a
         /// colour per space. Read for compatibility, never written.
@@ -187,7 +188,7 @@ struct SessionSnapshot: Codable, Equatable {
     /// A tab that left the sidebar on its own. Kept whole, so restoring it
     /// brings back the scroll position and back-forward list too, not just an
     /// address.
-    struct Archived: Codable, Equatable {
+    struct Archived: Codable, Equatable, Sendable {
         var tab: Tab
         var archivedAt: Date
         /// A split is one archive entry. Slots in its layout refer to this
@@ -199,7 +200,7 @@ struct SessionSnapshot: Codable, Equatable {
         var tabs: [Tab] { [tab] + (additionalTabs ?? []) }
     }
 
-    struct Group: Codable, Equatable {
+    struct Group: Codable, Equatable, Sendable {
         var id: UUID
         var name: String
         var emoji: String?
@@ -227,7 +228,7 @@ struct SessionSnapshot: Codable, Equatable {
         var iconWasCustomized: Bool? = nil
     }
 
-    struct Pinned: Codable, Equatable {
+    struct Pinned: Codable, Equatable, Sendable {
         var id: UUID
         var url: URL
         var title: String
@@ -237,10 +238,10 @@ struct SessionSnapshot: Codable, Equatable {
 
     /// A browsing identity and its shared Favorites. Older profile records
     /// without these optional fields still restore their original stores.
-    struct Profile: Codable, Equatable {
+    struct Profile: Codable, Equatable, Sendable {
         /// The shape the earlier build encoded, kept exactly so its files
         /// still decode. `ephemeral` carried no identifier then.
-        enum Kind: Codable, Equatable {
+        enum Kind: Codable, Equatable, Sendable {
             case standard
             case isolated(UUID)
             case ephemeral

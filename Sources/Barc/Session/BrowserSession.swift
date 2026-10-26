@@ -201,22 +201,22 @@ final class BrowserSession {
         // context. Retain their URLs and metadata, never its opaque WebKit state.
         closedTabs = closedTabs.map { record in
             guard record.spaceID == space.id else { return record }
-            var stored = record.snapshot; stored.interactionState = nil
+            var stored = record.snapshot; stored.interactionState = nil; stored.hibernationViewport = nil
             return ClosedTab(id: record.id, snapshot: stored, spaceID: record.spaceID, closedAt: record.closedAt)
         }
         closedWindows = closedWindows.map { record in
             guard record.spaceID == space.id else { return record }
-            let tabs = record.tabs.map { stored in var copy = stored; copy.interactionState = nil; return copy }
+            let tabs = record.tabs.map { stored in var copy = stored; copy.interactionState = nil; copy.hibernationViewport = nil; return copy }
             return ClosedWindow(id: record.id, title: record.title, spaceID: record.spaceID, tabs: tabs,
                 closedAt: record.closedAt, splits:record.splits,focusedTabIndex:record.focusedTabIndex)
         }
         for index in archivedTabs.indices where archivedTabs[index].spaceID == space.id {
-            archivedTabs[index].snapshot.interactionState = nil
+            archivedTabs[index].snapshot.interactionState = nil; archivedTabs[index].snapshot.hibernationViewport = nil
         }
         let selected = space.workspaceTabs.firstIndex { $0.id == space.activeTabID }
         let snapshots = space.workspaceTabs.map { tab -> SessionSnapshot.Tab in
             var stored = tab.snapshot()
-            stored.interactionState = nil
+            stored.interactionState = nil; stored.hibernationViewport = nil
             return stored
         }
         for tab in space.workspaceTabs { _ = space.remove(tab); forget(tab) }
@@ -1135,7 +1135,7 @@ final class BrowserSession {
                     var snapshot = tab.snapshot()
                     if clearingGroups { snapshot.groupID = nil }
                     snapshot.pinnedSiteID = nil
-                    snapshot.interactionState = nil
+                    snapshot.interactionState = nil; snapshot.hibernationViewport = nil
                     let wasFavorite = tab.pinnedSiteID != nil
                     detach(tab,from:source)
                     if wasFavorite { repairSelections(for:source.profile) }
@@ -1219,7 +1219,7 @@ final class BrowserSession {
                 } else {
                     var saved = page.snapshot()
                     saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.groupID = nil;saved.importedSourceID = nil
-                    if source.profile !== target.profile { saved.interactionState = nil }
+                    if source.profile !== target.profile { saved.interactionState = nil; saved.hibernationViewport = nil }
                     destination = Tab(restoring:saved,identity:target.identity)
                     if site.split == nil { destination.setSidebarIcon(site.icon) }
                     if !copy { source.profile.removeFavorite(page);forget(page) }
@@ -1297,7 +1297,7 @@ final class BrowserSession {
             var bindings:[UUID:UUID] = [:],copies:[Tab] = []
             for page in members {
                 var saved = page.snapshot();saved.groupID = nil;saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.importedSourceID = nil
-                if source.profile !== target.profile { saved.interactionState = nil }
+                if source.profile !== target.profile { saved.interactionState = nil; saved.hibernationViewport = nil }
                 let copied = Tab(restoring:saved,identity:target.identity)
                 insert(copied,into:target,at:target.workspaceTabs.count,select:false)
                 bindings[page.id] = copied.id;copies.append(copied)
@@ -1384,7 +1384,7 @@ final class BrowserSession {
                 snapshot.groupID = snapshot.groupID.flatMap { newIDs[$0] }
                 snapshot.importedSourceID = nil
                 snapshot.pinnedSiteID = nil
-                snapshot.interactionState = nil
+                snapshot.interactionState = nil; snapshot.hibernationViewport = nil
                 let copy = Tab(restoring:snapshot,identity:source.identity)
                 insert(copy,into:source,at:source.workspaceTabs.count,select:false)
                 bindings[tab.id] = copy.id
@@ -1486,7 +1486,7 @@ final class BrowserSession {
                 if snapshot.groupID == root.id { snapshot.sidebarPosition = rootPositions[tab.id] }
                 snapshot.importedSourceID = nil
                 snapshot.pinnedSiteID = nil
-                snapshot.interactionState = nil
+                snapshot.interactionState = nil; snapshot.hibernationViewport = nil
                 let copy = Tab(restoring: snapshot, identity: target.identity)
                 bindings[tab.id] = copy.id
                 insert(copy, into: target, at: target.workspaceTabs.count, select: false)
@@ -2471,7 +2471,7 @@ final class BrowserSession {
                     members:members.map { page in
                         var saved = page.snapshot()
                         saved.pinnedSiteID = nil;saved.pinnedMemberID = nil;saved.groupID = nil
-                        saved.interactionState = nil
+                        saved.interactionState = nil; saved.hibernationViewport = nil
                         return .init(id:page.id,page:saved)
                     },layout:layout,focusedMemberID:space.splits.preferredTab(containing:tab.id),
                     stickyMemberID:layout.tabIDs.first(where:space.splits.stickyTabIDs.contains),
@@ -2662,7 +2662,7 @@ final class BrowserSession {
             } else {
                 var snapshot = member.page
                 snapshot.pinnedSiteID = site.id;snapshot.pinnedMemberID = member.id
-                snapshot.groupID = nil;snapshot.interactionState = nil
+                snapshot.groupID = nil;snapshot.interactionState = nil; snapshot.hibernationViewport = nil
                 let page = Tab(restoring:snapshot,identity:space.identity)
                 insert(page,into:space,at:space.workspaceTabs.count,select:false)
                 members.append(page)
@@ -3326,7 +3326,9 @@ final class BrowserSession {
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: Self.saveDelay)
             guard !Task.isCancelled else { return }
-            self?.saveNow()
+            guard let self else { return }
+            self.saveTask = nil
+            self.sessionStore.enqueue(self.snapshot())
         }
     }
 
@@ -3556,7 +3558,7 @@ final class BrowserSession {
                         if let pinID = tab.pinnedSiteID,
                            incomingSpace.pinnedSites.contains(where:{ $0.id == pinID && $0.split != nil }) {
                             var saved = tab.snapshot()
-                            if tab.identity != existing.identity { saved.interactionState = nil }
+                            if tab.identity != existing.identity { saved.interactionState = nil; saved.hibernationViewport = nil }
                             let page = Tab(restoring:saved,identity:existing.identity)
                             adopt(page);existing.insert(page,at:existing.tabs.count)
                             let canonical = page.pinnedSiteID.flatMap { id in
@@ -3817,10 +3819,12 @@ final class BrowserSession {
 
     private func adopt(_ tab: Tab) {
         tab.delegate = self
-        tabSubscriptions[tab.id] = tab.didChange.sink { [weak self, weak tab] in
+        tabSubscriptions[tab.id] = tab.didChange.map { true }
+            .merge(with: tab.transientDidChange.map { false })
+            .sink { [weak self, weak tab] durable in
             guard let self, let tab else { return }
             self.changes.send(.tab(tab))
-            self.scheduleSave()
+            if durable { self.scheduleSave() }
         }
     }
 
@@ -3831,6 +3835,7 @@ final class BrowserSession {
             tab.exitPictureInPicture()
         }
         tab.unload()
+        TabSnapshotStore.shared.removeSnapshot(for: tab.id)
         tab.delegate = nil
         tabSubscriptions[tab.id] = nil
         TabNameStore.shared.forget(tab.id)

@@ -31,6 +31,16 @@ final class DownloadManager {
     /// Newest first, which is the order the list shows and the order the cap
     /// trims from the wrong end of.
     private(set) var downloads: [Download] = []
+    private let pendingHosts = NSMapTable<WKDownload, WKWebView>.weakToWeakObjects()
+    /// A live transfer or resumable failure still needs its original host.
+    func protectsFromHibernation(_ view: WKWebView) -> Bool {
+        if pendingHosts.objectEnumerator()?.allObjects.contains(where: { ($0 as? WKWebView) === view }) == true { return true }
+        return downloads.contains { item in
+            guard item.host === view else { return false }
+            return item.state == .running || item.canResume
+        }
+    }
+
     var visibleProfile: (() -> Space.Identity)?
     var visibleDownloads: [Download] {
         guard let identity = visibleProfile?() else { return downloads }
@@ -66,6 +76,7 @@ final class DownloadManager {
     /// Resolves which space initiated a download, allowing per-space downloads folder override.
     var spaceResolver: ((WKDownload) -> Space?)?
 
+    private let settings: Settings
     private let store: DownloadStore
     private var delegate: DownloadDelegate?
     /// Held between openings, so the list keeps its scroll position and the
@@ -79,7 +90,8 @@ final class DownloadManager {
     /// into one file write.
     private static let saveDelay = Duration.seconds(1)
 
-    init(store: DownloadStore = DownloadStore()) {
+    init(store: DownloadStore = DownloadStore(), settings: Settings = .shared) {
+        self.settings = settings
         self.store = store
         downloads = store.load().map(Download.init(record:))
         delegate = DownloadDelegate(manager: self)
@@ -124,6 +136,7 @@ final class DownloadManager {
     /// delegate is what starts the transfer talking to us; until then WebKit
     /// holds its callbacks.
     func adopt(_ download: WKDownload) {
+        if let view = download.webView { pendingHosts.setObject(view, forKey:download) }
         download.delegate = delegate
     }
 
@@ -259,6 +272,7 @@ final class DownloadManager {
         response: URLResponse,
         suggestedFilename: String
     ) -> URL? {
+        defer { pendingHosts.removeObject(forKey:webKitDownload) }
         // A resumed transfer must continue into the partial file it already
         // wrote, so the existing row's destination wins over a fresh name. A
         // row that is starting over instead needs a new one, because the old
@@ -283,7 +297,7 @@ final class DownloadManager {
         }
 
         let destination: URL
-        if Settings.shared.downloadLocation == .ask {
+        if settings.downloadLocation == .ask {
             // "Ask for each download": the save panel's answer is the
             // destination, name and all; a cancelled panel is a cancelled
             // download, which WebKit reports when nil comes back.
@@ -356,6 +370,7 @@ final class DownloadManager {
     }
 
     fileprivate func didFinish(_ webKitDownload: WKDownload) {
+        pendingHosts.removeObject(forKey:webKitDownload)
         guard let download = row(for: webKitDownload) else { return }
         let attributes = try? FileManager.default.attributesOfItem(
             atPath: download.destination.path(percentEncoded: false)
@@ -364,7 +379,7 @@ final class DownloadManager {
         quarantine(download.destination, source: download.sourceURL)
         changed(download)
 
-        let settings = Settings.shared
+        let settings = self.settings
         if settings.opensSafeFilesAfterDownloading, Self.isSafeToOpen(download.destination) {
             NSWorkspace.shared.open(download.destination)
         }
@@ -377,6 +392,7 @@ final class DownloadManager {
     }
 
     fileprivate func didFail(_ webKitDownload: WKDownload, error: any Error, resumeData: Data?) {
+        pendingHosts.removeObject(forKey:webKitDownload)
         guard let download = row(for: webKitDownload) else { return }
         // A cancel we asked for has already been recorded, with the resume data
         // WebKit gave the cancel call. Do not overwrite it with a failure.

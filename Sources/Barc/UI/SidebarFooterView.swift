@@ -1,4 +1,5 @@
 // Modified for Barc: compact Arc-style Home, Space dock and add controls, 2026-10-24.
+// Modified for Barc: restore the visible performance gauge, 2026-10-25.
 import AppKit
 
 @MainActor
@@ -14,6 +15,8 @@ final class SidebarFooterView: NSView {
     let homeButton = IconButton(symbolName: "archivebox.fill", label: "Home", side: 24, symbolSize: 18)
     let addButton = IconButton(symbolName: "plus", label: "Add", side: 24, symbolSize: 16)
     private let dock = SpaceDockView()
+    private let performanceSlot = NSView()
+    private var performanceWidth: NSLayoutConstraint!
     private var leadingActions: [(String, IconButton)] = []
     private var trailingActions: [(String, IconButton)] = []
     var isShowingArchive = false { didSet { homeButton.isActive = isShowingArchive } }
@@ -24,6 +27,8 @@ final class SidebarFooterView: NSView {
         homeButton.setGlyph(SidebarHomeGlyph.image(),label:"Home")
         addButton.setGlyph(SidebarAddGlyph.image(),label:"Add")
         addSubview(homeButton)
+        performanceSlot.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(performanceSlot)
         addSubview(dock)
         addSubview(addButton)
         homeButton.setClickHandler { [weak self] in
@@ -40,28 +45,53 @@ final class SidebarFooterView: NSView {
         dock.onSelect = { [weak self] in self?.onSelectSpace?($0) }
         dock.onChangeIcon = { [weak self] in self?.onChangeIcon?($0, $1) }
         dock.menuProvider = { [weak self] id, anchor in self?.spaceMenuProvider?(id, anchor) ?? NSMenu() }
+        performanceWidth = performanceSlot.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             heightAnchor.constraint(equalToConstant: Self.height),
+            performanceWidth,
             homeButton.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             homeButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             addButton.trailingAnchor.constraint(equalTo: trailingAnchor,constant:-12),
             addButton.centerYAnchor.constraint(equalTo: centerYAnchor),
-            dock.leadingAnchor.constraint(equalTo: homeButton.trailingAnchor),
+            performanceSlot.leadingAnchor.constraint(equalTo: homeButton.trailingAnchor),
+            performanceSlot.topAnchor.constraint(equalTo: topAnchor),
+            performanceSlot.bottomAnchor.constraint(equalTo: bottomAnchor),
+            dock.leadingAnchor.constraint(equalTo: performanceSlot.trailingAnchor),
             dock.trailingAnchor.constraint(equalTo: addButton.leadingAnchor),
             dock.centerYAnchor.constraint(equalTo: centerYAnchor)
         ])
     }
     required init?(coder: NSCoder) { fatalError("Created in code only") }
 
-    func setLeadingActions(_ actions: [TopBarAction]) { leadingActions = controls(actions) }
+    func setLeadingActions(_ actions: [TopBarAction]) {
+        performanceSlot.subviews.forEach { $0.removeFromSuperview() }
+        leadingActions = controls(actions)
+        let button = leadingActions.first { $0.0 == "Task Manager" }?.1
+        performanceWidth.constant = button == nil ? 0 : 24
+        if let button {
+            performanceSlot.addSubview(button)
+            NSLayoutConstraint.activate([
+                button.leadingAnchor.constraint(equalTo: performanceSlot.leadingAnchor),
+                button.centerYAnchor.constraint(equalTo: performanceSlot.centerYAnchor)
+            ])
+        }
+    }
     func setTrailingActions(_ actions: [TopBarAction]) { trailingActions = controls(actions) }
     private func controls(_ actions: [TopBarAction]) -> [(String, IconButton)] {
-        actions.map { ($0.label, IconButton(symbolName: $0.symbolName, label: $0.label, onClick: $0.handler)) }
+        actions.map {
+            ($0.label, IconButton(symbolName: $0.symbolName, label: $0.label,
+                                 side: $0.label == "Task Manager" ? 24 : Style.Metrics.iconButtonSide,
+                                 symbolSize: $0.label == "Task Manager" ? 16 : nil,
+                                 onClick: $0.handler))
+        }
     }
     func actionButton(labelled label: String) -> NSView? {
         (leadingActions + trailingActions).first { $0.0 == label }?.1
     }
-    func actionAnchor(labelled label: String) -> NSView? { actionButton(labelled: label) == nil ? nil : homeButton }
+    func actionAnchor(labelled label: String) -> NSView? {
+        guard let button = actionButton(labelled: label) else { return nil }
+        return button.superview == nil ? homeButton : button
+    }
     func makeHomeMenu() -> NSMenu {
         let menu = NSMenu(title: "Home")
         menu.autoenablesItems = false

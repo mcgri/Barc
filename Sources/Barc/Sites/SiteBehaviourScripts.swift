@@ -501,19 +501,30 @@ enum SiteBehaviourScripts {
         }
       }
 
-      function scan() {
-        var elements = document.querySelectorAll("audio, video");
-        for (var i = 0; i < elements.length; i++) {
-          attach(elements[i]);
-        }
+      function scan(root) {
+        if (!root || !root.querySelectorAll) { return; }
+        if (root.matches && root.matches("audio, video")) { attach(root); }
+        var elements = root.querySelectorAll("audio, video");
+        for (var i = 0; i < elements.length; i++) { attach(elements[i]); }
       }
 
-      scan();
-      document.addEventListener("DOMContentLoaded", scan);
-      if (document.documentElement) {
-        var observer = new MutationObserver(function () { scan(); });
+      function startWatching() {
+        scan(document);
+        var observer = new MutationObserver(function (records) {
+          records.forEach(function (record) {
+            record.addedNodes.forEach(scan);
+          });
+          activeMedia.forEach(function (el) {
+            if (!el.isConnected) { activeMedia.delete(el); }
+          });
+        });
         observer.observe(document.documentElement, { childList: true, subtree: true });
+        window.addEventListener("pagehide", function () { observer.disconnect(); }, { once: true });
       }
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", startWatching, { once: true });
+      } else { startWatching(); }
+      window.addEventListener("pageshow", function (event) { if (event.persisted) { startWatching(); } });
 
       window.__barcMedia = {
         setMuted: function (muted) {
@@ -623,41 +634,8 @@ enum SiteBehaviourScripts {
       var setting = \(policy).nativeVideoPlayer || "on");
       if (setting === "off") { return; }
 
-      // 1. Background Playback & Visibility API Spoofing
-      // YouTube and other video sites listen to visibilitychange and document.hidden
-      // to forcefully pause playback when switching tabs. We preserve background playback.
-      try {
-        Object.defineProperty(document, "hidden", { get: function () { return false; }, configurable: true });
-        Object.defineProperty(document, "visibilityState", { get: function () { return "visible"; }, configurable: true });
-        Object.defineProperty(document, "webkitVisibilityState", { get: function () { return "visible"; }, configurable: true });
-      } catch (e) {}
-
-      window.addEventListener("visibilitychange", function (e) {
-        if (\(policy).nativeVideoPlayer || "on") !== "off") {
-          e.stopImmediatePropagation();
-        }
-      }, true);
-
-      document.addEventListener("visibilitychange", function (e) {
-        if (\(policy).nativeVideoPlayer || "on") !== "off") {
-          e.stopImmediatePropagation();
-        }
-      }, true);
-
-      // Protect against blur-induced pauses on window.
-      //
-      // Only the window's own blur, which is the one that pauses a video when
-      // you switch app. `blur` does not bubble, but it does still capture down
-      // from the window to its target, so a capturing listener here sees the
-      // blur of every field on the page -- and stopping those was swallowing
-      // the event a site uses to dismiss what the field opened. A search box
-      // whose suggestions never close is this line without the guard.
-      window.addEventListener("blur", function (e) {
-        if (e.target !== window) { return; }
-        if (\(policy).nativeVideoPlayer || "on") !== "off") {
-          e.stopImmediatePropagation();
-        }
-      }, true);
+      // Leave page visibility intact so sites can save state and reduce work
+      // in the background. Media playback is controlled by the native host.
 
       // 2. Native Controls Enforcement & Ad-Bypass for YouTube & HTML5 video
       function isYouTube() {
@@ -744,21 +722,39 @@ enum SiteBehaviourScripts {
         }
       }
 
-      function sweepVideos() {
-        var videos = document.querySelectorAll("video");
-        for (var i = 0; i < videos.length; i++) {
-          enhanceVideoElement(videos[i]);
-        }
-        cleanYouTubeOverlays();
+      function scanVideos(root) {
+        if (!root || !root.querySelectorAll) { return; }
+        if (root.matches && root.matches("video")) { enhanceVideoElement(root); }
+        var videos = root.querySelectorAll("video");
+        for (var i = 0; i < videos.length; i++) { enhanceVideoElement(videos[i]); }
       }
-
-      sweepVideos();
-      document.addEventListener("DOMContentLoaded", sweepVideos);
-      if (document.documentElement) {
-        var observer = new MutationObserver(function () { sweepVideos(); });
+      function startWatching() {
+        scanVideos(document);
+        var observer = new MutationObserver(function (records) {
+          records.forEach(function (record) { record.addedNodes.forEach(scanVideos); });
+        });
         observer.observe(document.documentElement, { childList: true, subtree: true });
+        // Only YouTube needs periodic overlay cleanup, and only while visible.
+        var cleanupTimer = null;
+        function updateCleanup() {
+          if (cleanupTimer !== null) { clearInterval(cleanupTimer); cleanupTimer = null; }
+          if (isYouTube() && !document.hidden) {
+            cleanYouTubeOverlays();
+            cleanupTimer = setInterval(cleanYouTubeOverlays, 600);
+          }
+        }
+        document.addEventListener("visibilitychange", updateCleanup);
+        updateCleanup();
+        window.addEventListener("pagehide", function () {
+          observer.disconnect();
+          if (cleanupTimer !== null) { clearInterval(cleanupTimer); }
+          document.removeEventListener("visibilitychange", updateCleanup);
+        }, { once: true });
       }
-      setInterval(cleanYouTubeOverlays, 600);
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", startWatching, { once: true });
+      } else { startWatching(); }
+      window.addEventListener("pageshow", function (event) { if (event.persisted) { startWatching(); } });
     })();
     """
 

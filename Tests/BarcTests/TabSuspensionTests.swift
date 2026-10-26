@@ -143,7 +143,7 @@ struct TabSuspensionTests {
         #expect(chosen.isEmpty)
     }
 
-    @Test("Unloading a split is all or nothing")
+    @Test("A recently used sibling prevents the entire split from unloading")
     func anOffScreenCohortGoesTogether() {
         // A split in a background space: one pane crossed the threshold and the
         // other did not. Unloading half of it would hold most of the memory for
@@ -157,7 +157,7 @@ struct TabSuspensionTests {
             trigger: .idle,
             cohorts: [[idle, recent]]
         )
-        #expect(chosen == [idle, recent])
+        #expect(chosen.isEmpty)
     }
 
     @Test("Escalation never resurrects an unloaded pane as a candidate")

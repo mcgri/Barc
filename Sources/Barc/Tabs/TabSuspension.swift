@@ -27,8 +27,7 @@ enum TabSuspension {
         let isLoaded: Bool
         let lastActiveAt: Date
         /// The user's "Keep Awake" lock. Honoured for idle sweeps and for
-        /// ordinary memory warnings; see `candidateIDs` for the one case that
-        /// overrules it.
+        /// every memory-pressure trigger as well as idle sweeps.
         let keepsAwake: Bool
 
         init(id: Tab.ID, isLoaded: Bool, lastActiveAt: Date, keepsAwake: Bool = false) {
@@ -51,10 +50,8 @@ enum TabSuspension {
 
     /// How idle a tab must be before each trigger will unload it.
     ///
-    /// Chrome's Memory Saver discards background tabs after roughly five
-    /// minutes when memory is tight; Barc uses the same shape, with the idle
-    /// threshold under the user's control and pressure tightening it rather
-    /// than replacing it.
+    /// A warning may shorten the age threshold, but never removes protection
+    /// for visible content or work the user asked to keep awake.
     static let warningThreshold: TimeInterval = 60
 
     /// - Parameters:
@@ -65,10 +62,8 @@ enum TabSuspension {
     ///     user is looking at.
     ///   - cohorts: sets of tabs that must be loaded or unloaded together --
     ///     the members of each split. Unloading is all-or-nothing inside a
-    ///     cohort: a split cannot render one pane while its sibling shows
-    ///     nothing, so a cohort is either entirely protected or entirely fair
-    ///     game, and a single discarded pane escalates to unloading the whole
-    ///     group.
+    ///     cohort. Every loaded member must qualify independently; a visible,
+    ///     protected or recently used member keeps the whole group loaded.
     static func candidates(
         among tabs: [Tab],
         protecting protectedIDs: Set<Tab.ID>,
@@ -106,46 +101,25 @@ enum TabSuspension {
         case .memoryWarning:
             minimumIdle = warningThreshold
         case .memoryCritical:
-            // Anything not on screen is fair game.
+            // Drop the age requirement, while retaining activity protection.
             minimumIdle = nil
         }
 
-        // "Keep Awake" reads as protection, which is also what makes a locked
-        // pane protect the split it sits in. The lock yields only when the
-        // system is critically short of memory: the alternative there is the
-        // kernel picking a process to kill, and it does not know which tab the
-        // user locked. The settings note says so, so the one case where the
-        // promise bends is not a surprise.
+        // Protection never yields to memory pressure. A draft or a call is
+        // more valuable than an automatic attempt to reclaim its page.
         var protected = protectedIDs
-        if trigger != .memoryCritical {
-            protected.formUnion(tabs.lazy.filter(\.keepsAwake).map(\.id))
-        }
-
-        // A rendered or locked tab protects everything it is split with. The
-        // caller should already be reporting every pane, but a cohort whose
-        // panes disagree about being visible is a bug that would blank a page,
-        // so the closure is taken here rather than trusted upstream.
-        let seeds = protected
-        for cohort in cohorts where !cohort.isDisjoint(with: seeds) {
-            protected.formUnion(cohort)
-        }
-
-        var chosen = Set(
-            tabs.lazy
-                .filter { tab in
-                    guard tab.isLoaded, !protected.contains(tab.id) else { return false }
-                    guard let minimumIdle else { return true }
-                    return now.timeIntervalSince(tab.lastActiveAt) >= minimumIdle
-                }
-                .map(\.id)
-        )
-
-        // All-or-nothing: if one pane of an off-screen split has gone idle, its
-        // siblings go with it. Leaving them loaded would hold most of the memory
-        // for none of the benefit, since the group is restored as a unit anyway.
+        protected.formUnion(tabs.lazy.filter(\.keepsAwake).map(\.id))
         let loaded = Set(tabs.lazy.filter(\.isLoaded).map(\.id))
-        for cohort in cohorts where !cohort.isDisjoint(with: chosen) {
-            chosen.formUnion(cohort.intersection(loaded).subtracting(protected))
+        var chosen = Set(tabs.lazy.filter { tab in
+            guard tab.isLoaded, !protected.contains(tab.id) else { return false }
+            guard let minimumIdle else { return true }
+            return now.timeIntervalSince(tab.lastActiveAt) >= minimumIdle
+        }.map(\.id))
+        // Never unload a recently used or protected sibling to match an older
+        // pane. A complete group must independently qualify as a whole.
+        for cohort in cohorts {
+            let members = cohort.intersection(loaded)
+            if !members.isSubset(of: chosen) { chosen.subtract(cohort) }
         }
 
         return chosen

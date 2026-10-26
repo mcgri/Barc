@@ -122,7 +122,7 @@ struct ResourceSnapshotTests {
         #expect(monitor.totalMemoryHistory.samples.count == 2)
         #expect(monitor.totalCpuHistory.samples.count == 2)
         #expect(monitor.cpuHistory(forTab: tab.id).samples.count == 2)
-        #expect(monitor.memoryHistory(forTab: tab.id).latest > 0)
+        #expect(monitor.memoryHistory(forTab: tab.id).latest == 0, "An unloaded tab has no measured process allocation")
     }
 
     @Test("A closed tab's history is dropped rather than kept for ever")
@@ -212,6 +212,9 @@ struct ActivityButtonTests {
         #expect(labels.contains("Downloads"))
         #expect(labels.contains("Task Manager"))
         #expect(labels.contains("Archive"))
+        let button = sidebar.view.subviews.flatMap { descendants($0) }
+            .compactMap { $0 as? IconButton }.first { $0.accessibilityLabel() == "Task Manager" }
+        #expect(button?.superview != nil, "the performance gauge must be visible, not only a Home menu item")
     }
 
     @Test("Switching it off takes the button out of the footer, and back on puts it back")
@@ -264,5 +267,9 @@ struct ActivityButtonTests {
             found.formUnion(labelsOfButtons(under: subview))
         }
         return found
+    }
+
+    private func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants($0) }
     }
 }

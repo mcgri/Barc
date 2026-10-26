@@ -1,4 +1,5 @@
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: first-launch default-browser invitation, 2026-10-25.
 import AppKit
 import UniformTypeIdentifiers
 
@@ -550,6 +551,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         TabResourceMonitor.shared.startBackgroundMonitoring(session: session)
         Metrics.reportLaunchIfRequested(stage: "monitors-started")
         ICloudInboxCoordinator.shared.start(session: session, windowController: controller)
+        // First install only. Run before WhatsNew records the current version;
+        // a fresh install has no update sheet, so these prompts do not overlap.
+        DefaultBrowserInvitation.presentIfNeeded(on: controller.window)
         // After an update, once: what version this is and where its notes are.
         WhatsNew.presentIfNeeded(on: controller.window)
         Metrics.reportLaunchIfRequested(stage: "launch-complete")

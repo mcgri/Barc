@@ -6,16 +6,29 @@ import WebKit
 ///
 /// `WKProcessPool` is deliberately absent: Apple deprecated it in macOS 12 and
 /// it no longer affects process sharing, so creating one would be dead weight.
-/// Web views that share a `WKWebsiteDataStore` already share WebKit's network
-/// and content processes — which also means spaces are the unit of process
-/// sharing, not tabs.
-///
-/// Stores are cached because `WKWebsiteDataStore(forIdentifier:)` returns a
-/// distinct object each call, and two objects for one space would defeat the
-/// sharing above.
+/// Data-store identity controls website-data sharing and isolation. WebKit
+/// decides how many content processes to use; there is no fixed PID per profile.
+/// Stores stay cached across hibernation, including session-only cookies and
+/// private sessions, so unloading pages never replaces a profile's identity.
 @MainActor
 final class WebEnvironment {
     static let shared = WebEnvironment()
+
+    private final class IdentityBox: NSObject {
+        let identity: Space.Identity?
+        init(_ identity: Space.Identity?) { self.identity = identity }
+    }
+    private let views = NSMapTable<WKWebView, IdentityBox>.weakToStrongObjects()
+
+    /// Includes panels, popups and installed web apps, without retaining them.
+    var liveWebViews: [WKWebView] { views.keyEnumerator().allObjects.compactMap { $0 as? WKWebView } }
+    var visibleIdentities: Set<Space.Identity> {
+        Set(liveWebViews.compactMap { view in
+            guard view.window?.isVisible == true, view.window?.isMiniaturized != true,
+                  !view.isHiddenOrHasHiddenAncestor else { return nil }
+            return views.object(forKey: view)?.identity
+        })
+    }
 
     private var stores: [Space.Identity: WKWebsiteDataStore] = [:]
 
@@ -26,6 +39,15 @@ final class WebEnvironment {
         RAMCacheManager.shared.storesProvider = { [weak self] in
             Array(self?.stores.map { ($0.key, $0.value) } ?? [])
         }
+    }
+
+    /// Capability-checked diagnostic SPI; absence remains an unknown reading.
+    var networkProcessIdentifiers: Set<pid_t> {
+        let selector = Selector(("_networkProcessIdentifier"))
+        return Set(stores.values.compactMap { store in
+            guard store.responds(to: selector), let pid = store.value(forKey: "_networkProcessIdentifier") as? pid_t, pid > 0 else { return nil }
+            return pid
+        })
     }
 
     func dataStore(for identity: Space.Identity) -> WKWebsiteDataStore {
@@ -124,6 +146,8 @@ final class WebEnvironment {
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
+        PageHibernationGuard.shared.attach(configuration.userContentController)
+
         // Glance records the link under the pointer on mousedown, in a content
         // world the page cannot reach.
         GlanceLinkMonitor.shared.install(in: configuration)
@@ -176,7 +200,9 @@ final class WebEnvironment {
         if configuration.applicationNameForUserAgent == nil {
             configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
         }
+        PageHibernationGuard.shared.attach(configuration.userContentController)
         let webView = GlanceWebView(frame: frame, configuration: configuration)
+        views.setObject(IdentityBox(identity(for: configuration.websiteDataStore)), forKey:webView)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         if #available(macOS 13.3, *) {

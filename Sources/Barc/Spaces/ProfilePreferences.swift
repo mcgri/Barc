@@ -9,7 +9,7 @@ struct BrowserTopSite: Codable, Equatable, Sendable {
     var isValid: Bool { ["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host() != nil }
 }
 
-struct ProfilePreferences: Codable, Equatable {
+struct ProfilePreferences: Codable, Equatable, Sendable {
     var archiveHours: Int?
     var downloadsDirectoryPath: String?
     var bookmarkFolder: String?

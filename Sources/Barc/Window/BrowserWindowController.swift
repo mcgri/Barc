@@ -1,3 +1,4 @@
+// Modified for Barc: expose full-page clipboard capture and flash only after capture, 2026-10-25.
 // Modified for Barc: launcher suggestions and destinations stay in the current workspace, 2026-10-25.
 // Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
 import AppKit
@@ -708,6 +709,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
             },
             TopBarAction(symbolName: "magnifyingglass", label: "Find in Page") { [weak self] in
                 self?.performFind(nil)
+            },
+            TopBarAction(symbolName: "camera", label: "Copy Full Page to Clipboard") { [weak self] in
+                self?.copyFullPageToClipboard(nil)
             },
             TopBarAction(symbolName: "bookmark", label: "Add Bookmark") { [weak self] in
                 self?.toggleBookmark(nil)
@@ -2218,12 +2222,11 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     func performScreenshot(scope: ScreenshotScope, destination: ScreenshotDestination) {
         guard let tab = session.activeTab, let webView = tab.currentWebView else { return }
-        ScreenshotService.flashFeedback(in: webView)
-        ScreenshotService.playShutterSound()
-
         Task { @MainActor in
             do {
                 let image = try await ScreenshotService.capture(webView: webView, scope: scope)
+                ScreenshotService.flashFeedback(in: webView)
+                ScreenshotService.playShutterSound()
                 switch destination {
                 case .saveToDownloads(let customDir):
                     let fileURL = try ScreenshotService.saveImageToDownloads(
