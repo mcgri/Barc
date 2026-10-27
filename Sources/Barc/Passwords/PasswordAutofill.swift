@@ -16,7 +16,7 @@ import LocalAuthentication
 final class PasswordAutofill: NSObject {
     static let shared = PasswordAutofill()
     typealias CredentialReader = @Sendable (String, Space.Identity, String, Int) throws -> [PasswordCredential]
-    typealias CredentialChooser = @MainActor ([PasswordCredential], WKWebView, NSRect) -> PasswordCredential?
+    typealias CredentialChooser = @MainActor ([PasswordCredential], WKWebView, NSRect) async -> PasswordCredential?
     static let contentWorld = WKContentWorld.world(name: "BarcPasswordAutofill")
     typealias IdentityProvider = @MainActor (WKWebsiteDataStore) -> Space.Identity?
     private let identityProvider: IdentityProvider
@@ -28,6 +28,7 @@ final class PasswordAutofill: NSObject {
         let port: Int
     }
     private var selectedUsernames: [LoginScope: String] = [:]
+    private let lookupRequests = NSMapTable<WKWebView, NSString>(keyOptions: .weakMemory, valueOptions: .strongMemory)
     private let settings: Settings
     private let readCredentials: CredentialReader
     private static let messageName = "barcPasswords"
@@ -42,7 +43,7 @@ final class PasswordAutofill: NSObject {
         self.readCredentials = readCredentials
         self.identityProvider = identityProvider
         self.chooseCredential = chooseCredential ?? { credentials, webView, rect in
-            PasswordSuggestionMenu.choose(credentials, in: webView, field: rect)
+            await PasswordSuggestionMenu.choose(credentials, in: webView, field: rect)
         }
         super.init()
     }
@@ -75,8 +76,10 @@ final class PasswordAutofill: NSObject {
               !identity.isPrivate, !host.isEmpty else { return nil }
         let found = try await credentials(host: host, identity: identity, scheme: scheme, port: port)
         guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill, validatesContext() else { return nil }
-        let selected = chooseCredential(found, webView, field)
-        guard let selected, found.contains(selected) else { return nil }
+        guard !found.isEmpty else { return nil }
+        let selected = await chooseCredential(found, webView, field)
+        guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill,
+              validatesContext(), let selected, found.contains(selected) else { return nil }
         return selected
     }
 
@@ -135,24 +138,40 @@ extension PasswordAutofill: WKScriptMessageHandlerWithReply {
               let host = frameURL.host(), let scheme = frameURL.scheme, ["http", "https"].contains(scheme) else { return (nil, nil) }
         let port = KeychainPasswordStore.port(for: frameURL)
         switch action {
+        case "dismiss":
+            guard let request = body["request"] as? String,
+                  lookupRequests.object(forKey: webView) as String? == request else { return (nil, nil) }
+            lookupRequests.removeObject(forKey: webView)
+            PasswordSuggestionMenu.dismiss(in: webView)
+            return (nil, nil)
         case "lookup":
             guard settings.passwordProvider == .keychain, settings.passwordOfferAutofill,
-                  let rect = PasswordSuggestionMenu.fieldRect(body["rect"]) else { return (nil, nil) }
+                  let rect = PasswordSuggestionMenu.fieldRect(body["rect"]),
+                  let request = body["request"] as? String, request.utf8.count <= 128 else { return (nil, nil) }
+            PasswordSuggestionMenu.dismiss(in: webView)
+            lookupRequests.setObject(request as NSString, forKey: webView)
+            defer {
+                if lookupRequests.object(forKey: webView) as String? == request { lookupRequests.removeObject(forKey: webView) }
+            }
             let usernameOnly = body["field"] as? String == "username"
             let scope = LoginScope(identity: identity, host: host, scheme: scheme, port: port)
             do {
                 guard let credential = try await selectedCredential(for: host, identity: identity, scheme: scheme, port: port,
                         in: webView, field: rect, validatesContext: {
                             webView.url == frameURL && identityProvider(webView.configuration.websiteDataStore) == identity
+                                && lookupRequests.object(forKey: webView) as String? == request
                         }) else { return (nil, nil) }
                 if !usernameOnly, !(await authorize()) { return (nil, nil) }
                 guard webView.url == frameURL,
+                      lookupRequests.object(forKey: webView) as String? == request,
                       identityProvider(webView.configuration.websiteDataStore) == identity,
                       settings.passwordProvider == .keychain, settings.passwordOfferAutofill else { return (nil, nil) }
                 selectedUsernames[scope] = credential.username
                 return (Self.reply(for: credential, usernameOnly: usernameOnly, submit: settings.passwordSubmitAutomatically), nil)
             } catch {
-                if webView.url == frameURL {
+                if webView.url == frameURL, lookupRequests.object(forKey: webView) as String? == request,
+                   identityProvider(webView.configuration.websiteDataStore) == identity,
+                   settings.passwordProvider == .keychain, settings.passwordOfferAutofill {
                     PasswordSuggestionMenu.showUnavailable(in: webView, field: rect)
                 }
                 return (nil, nil)
@@ -181,7 +200,9 @@ private extension PasswordAutofill {
     (function() {
       const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.barcPasswords;
       if (!handler) return;
-      let filling = false;
+      let pending = null;
+      let requestSequence = 0;
+      const documentToken = Date.now().toString(36) + Math.random().toString(36).slice(2);
 
       function setValue(el, value) {
         try {
@@ -219,14 +240,17 @@ private extension PasswordAutofill {
       }
 
       async function fillInto(field, kind) {
-        if (filling) return;
-        filling = true;
+        if (pending) return;
+        const lookup = { field, value: field.value, request: documentToken + ':' + (++requestSequence) };
+        pending = lookup;
         const originalURL = location.href;
         try {
           const rect = field.getBoundingClientRect();
-          const creds = await handler.postMessage({ action: 'lookup', field: kind,
+          const creds = await handler.postMessage({ action: 'lookup', field: kind, request: lookup.request,
             rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } });
-          if (!creds || !field.isConnected || location.href !== originalURL) return;
+          if (!creds || pending !== lookup || !field.isConnected || location.href !== originalURL ||
+              document.activeElement !== field || field.value !== lookup.value) return;
+          pending = null;
           if (kind === 'username') {
             if (creds.username) setValue(field, creds.username);
             return;
@@ -235,12 +259,25 @@ private extension PasswordAutofill {
           if (user && creds.username) setValue(user, creds.username);
           if (creds.password) setValue(field, creds.password);
           if (creds.submit && field.form && field.form.requestSubmit) field.form.requestSubmit();
-        } catch (e) {} finally { filling = false; }
+        } catch (e) {} finally { if (pending === lookup) pending = null; }
       }
+
+      function dismiss() {
+        if (!pending) return;
+        const lookup = pending;
+        pending = null;
+        handler.postMessage({ action: 'dismiss', request: lookup.request }).catch(() => {});
+      }
+
+      document.addEventListener('input', event => { if (pending && event.target === pending.field) dismiss(); }, true);
+      document.addEventListener('focusout', event => { if (pending && event.target === pending.field) dismiss(); }, true);
+      document.addEventListener('pointerdown', event => { if (pending && event.target !== pending.field) dismiss(); }, true);
+      window.addEventListener('pagehide', dismiss, true);
+      window.addEventListener('blur', dismiss, true);
 
       function trigger(event) {
         if (!event.isTrusted || !navigator.userActivation || !navigator.userActivation.isActive) return;
-        if (event.type === 'keydown' && event.key !== 'ArrowDown') return;
+        if (event.type === 'keydown' && event.key !== 'ArrowDown') { dismiss(); return; }
         const field = event.target;
         const kind = loginField(field);
         if (kind) fillInto(field, kind);
