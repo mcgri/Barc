@@ -889,6 +889,7 @@ final class Tab: Identifiable {
 
     private func attach(_ webView: WKWebView) {
         WebViewRetirement.shared.claim(webView)
+        WebEnvironment.shared.setPurpose(.page, for: webView)
         loadedWebView = webView
         let handler = TabNavigationHandler(tab: self)
         navigationHandler = handler

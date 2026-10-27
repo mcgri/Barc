@@ -148,7 +148,7 @@ final class GlanceController {
         )
         focusRelay = relay
 
-        let webView = WebEnvironment.shared.makeWebView(configuration: configuration)
+        let webView = WebEnvironment.shared.makeWebView(configuration: configuration, purpose: .preview)
         // The same delegate a Little Arc window's page runs on: a glance and a
         // little window answer a download and a `window.open` the same way.
         let coordinator = PageWebCoordinator { [weak self] configuration in
@@ -245,6 +245,7 @@ final class GlanceController {
             webView.stopLoading()
         }
         _ = overlay.releasePage()
+        if let webView { WebViewRetirement.shared.retire(webView) }
         webView = nil
         coordinator = nil
         focusRelay = nil

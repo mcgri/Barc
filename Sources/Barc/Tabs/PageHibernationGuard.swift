@@ -18,9 +18,12 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         var frames: [String: Frame] = [:]
         var mainTokens: [String: String] = [:]
         var generation = 0
+        var activityRevision = 0
+        var approvedRevision: Int?
         var overflow = false
         var viewport: PageViewport?
         var realtimeFrames: Set<String> = []
+        var busyWorkFrames: Set<String> = []
         var protection = "Waiting for page safety check"
     }
     private struct Frame {
@@ -62,14 +65,29 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             page.frames = page.frames.filter { !$0.key.hasPrefix(name) }
             page.mainTokens[name] = token
             page.realtimeFrames = page.realtimeFrames.filter { !$0.hasPrefix(name) }
+            page.busyWorkFrames = page.busyWorkFrames.filter { !$0.hasPrefix(name) }
             page.overflow = false
         }
-        page.generation += 1
+        page.activityRevision += 1
+        page.approvedRevision = nil
+        // Completed background POSTs can arrive during the native round trip.
+        // Keep navigation and edits as strict invalidations, but validate work
+        // against its current busy state instead of requiring network silence.
+        if name != "barcWorkGuard" || event != "change" { page.generation += 1 }
         page.protection = "Page changed since last safety check"
-        if event == "gone" { page.frames[key] = nil; page.realtimeFrames.remove(key); return }
+        if event == "gone" {
+            page.frames[key] = nil
+            page.realtimeFrames.remove(key)
+            page.busyWorkFrames.remove(key)
+            return
+        }
         guard page.frames.count < 256 || page.frames[key] != nil else { page.overflow = true; return }
         if body["realtime"] as? Bool == true { page.realtimeFrames.insert(key) }
         else { page.realtimeFrames.remove(key) }
+        if name == "barcWorkGuard" {
+            if body["busy"] as? Bool == false { page.busyWorkFrames.remove(key) }
+            else { page.busyWorkFrames.insert(key) }
+        }
         page.frames[key] = Frame(kind: name, info: message.frameInfo, token: token,
                                 world: name == "barcDraftGuard" ? .defaultClient : .page)
     }
@@ -88,8 +106,17 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         pages.object(forKey: view)?.protection ?? "Waiting for page safety check"
     }
 
+    /// An earlier member of a split can change while another is inspected.
+    /// Call immediately before retiring the group, without another suspension.
+    func hasCurrentApproval(for view: WKWebView) -> Bool {
+        guard let page = pages.object(forKey: view), let approved = page.approvedRevision else { return false }
+        return approved == page.activityRevision && page.busyWorkFrames.isEmpty && !page.overflow
+            && Self.nativeActivityAllowsSleep(view)
+    }
+
     func permitsHibernation(of view: WKWebView) async -> Bool {
         guard let page = pages.object(forKey: view) else { return false }
+        page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
         guard Self.nativeActivityAllowsSleep(view),
               page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }), !page.overflow else { return false }
@@ -114,9 +141,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         }
         // A sandboxed or not-yet-registered iframe makes the inventory incomplete.
         guard frameCounts.allSatisfy({ $0.value == 1 + (childCounts[$0.key] ?? 0) }) else { return false }
-        guard !Task.isCancelled, page.generation == generation, Self.nativeActivityAllowsSleep(view) else { return false }
+        guard !Task.isCancelled, page.generation == generation, page.busyWorkFrames.isEmpty,
+              Self.nativeActivityAllowsSleep(view) else { return false }
         page.viewport = viewport
         page.protection = "Ready to sleep when idle"
+        page.approvedRevision = page.activityRevision
         return true
     }
 
@@ -208,6 +237,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         // Application-level custom events are not evidence of text entry.
         // Native editing in an unrecognised control must still fail closed.
         if (!editor && !event.isTrusted) return;
+        // Saved read-only values can emit framework input/change events.
+        // A field that already contains an edit stays protected if a save
+        // temporarily locks it; becoming read-only is not proof of a save.
+        if (editor && !edited.has(editor) && editor.matches('input[readonly], textarea[readonly], [aria-readonly="true"]')) return;
         if (!editor || (edited.size >= 256 && !edited.has(editor))) unknownEdit = true;
         else {
           // Keep the original defaults even if a framework changes them later.
@@ -272,7 +305,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       let reportedRealtime = false, reason = '';
       const report = event => {
         reportedRealtime = realtime();
-        bridge.postMessage({token, event, realtime: reportedRealtime});
+        bridge.postMessage({token, event, realtime: reportedRealtime,
+                            busy: pending !== 0 || reportedRealtime || !reliable});
       };
       const change = delta => { pending += delta; report('change'); };
       let reliable = true;

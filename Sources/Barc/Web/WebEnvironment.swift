@@ -14,14 +14,40 @@ import WebKit
 final class WebEnvironment {
     static let shared = WebEnvironment()
 
+    enum Purpose: String {
+        case page = "Page", preview = "Preview", panel = "Side panel"
+        case floating = "Floating window", littleWindow = "Small window", application = "Web app"
+    }
+
     private final class IdentityBox: NSObject {
         let identity: Space.Identity?
-        init(_ identity: Space.Identity?) { self.identity = identity }
+        var purpose: Purpose
+        var retired = false
+        var lastHost: String?
+        init(_ identity: Space.Identity?, purpose: Purpose) { self.identity = identity; self.purpose = purpose }
     }
     private let views = NSMapTable<WKWebView, IdentityBox>.weakToStrongObjects()
 
     /// Includes panels, popups and installed web apps, without retaining them.
     var liveWebViews: [WKWebView] { views.keyEnumerator().allObjects.compactMap { $0 as? WKWebView } }
+
+    func setPurpose(_ purpose: Purpose, for view: WKWebView) { views.object(forKey: view)?.purpose = purpose }
+
+    func markRetired(_ retired: Bool, view: WKWebView) {
+        guard let entry = views.object(forKey: view) else { return }
+        entry.retired = retired
+        if let host = view.url?.host { entry.lastHost = host }
+    }
+
+    /// Resource attribution contains a domain and surface, never page titles,
+    /// address paths, queries, form values or references that retain the view.
+    func resourceDescription(for view: WKWebView) -> String {
+        let entry = views.object(forKey: view)
+        let website = view.url?.host ?? entry?.lastHost ?? "Local page"
+        let state = entry?.retired == true ? "closed"
+            : (view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor ? "visible" : "hidden")
+        return "\(entry?.purpose.rawValue ?? "Page") · \(website) · \(state)"
+    }
     var visibleIdentities: Set<Space.Identity> {
         Set(liveWebViews.compactMap { view in
             guard view.window?.isVisible == true, view.window?.isMiniaturized != true,
@@ -188,13 +214,13 @@ final class WebEnvironment {
         return configuration
     }
 
-    func makeWebView(frame: NSRect = .zero, identity: Space.Identity) -> WKWebView {
-        makeWebView(frame: frame, configuration: makeConfiguration(for: identity))
+    func makeWebView(frame: NSRect = .zero, identity: Space.Identity, purpose: Purpose = .page) -> WKWebView {
+        makeWebView(frame: frame, configuration: makeConfiguration(for: identity), purpose: purpose)
     }
 
     /// Wraps a configuration WebKit handed us (the `window.open` path), so those
     /// web views get the same affordances as ones we create ourselves.
-    func makeWebView(frame: NSRect = .zero, configuration: WKWebViewConfiguration) -> WKWebView {
+    func makeWebView(frame: NSRect = .zero, configuration: WKWebViewConfiguration, purpose: Purpose = .page) -> WKWebView {
         // Subclassed only to add "Open Link in Glance" to the page's context
         // menu: WebKit exposes no delegate hook for it on macOS.
         if configuration.applicationNameForUserAgent == nil {
@@ -202,7 +228,7 @@ final class WebEnvironment {
         }
         PageHibernationGuard.shared.attach(configuration.userContentController)
         let webView = GlanceWebView(frame: frame, configuration: configuration)
-        views.setObject(IdentityBox(identity(for: configuration.websiteDataStore)), forKey:webView)
+        views.setObject(IdentityBox(identity(for: configuration.websiteDataStore), purpose: purpose), forKey:webView)
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         if #available(macOS 13.3, *) {

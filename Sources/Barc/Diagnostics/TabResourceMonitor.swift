@@ -235,6 +235,12 @@ final class TabResourceMonitor: NSObject {
 
 // MARK: - Whole-browser sampling and history
 
+struct AuxiliaryProcessUsage {
+    let pid: pid_t
+    let pages: [String]
+    let memoryBytes: UInt64?
+}
+
 /// One pass over everything the browser is costing, at one moment.
 ///
 /// Gathered in a single sweep rather than asked for column by column, because
@@ -267,6 +273,7 @@ struct ResourceSnapshot {
     var networkProcessCpuPercentage: Double = 0
     var auxiliaryContentMemoryBytes: UInt64 = 0
     var auxiliaryContentCpuPercentage: Double = 0
+    var auxiliaryProcesses: [AuxiliaryProcessUsage] = []
     var hasUnmeasuredProcesses = false
     var totalMemoryBytes: UInt64 { browserMemoryBytes + webContentMemoryBytes + gpuProcessMemoryBytes + networkProcessMemoryBytes + auxiliaryContentMemoryBytes }
     var totalCpuPercentage: Double { browserCpuPercentage + webContentCpuPercentage + gpuProcessCpuPercentage + networkProcessCpuPercentage + auxiliaryContentCpuPercentage }
@@ -328,10 +335,18 @@ extension TabResourceMonitor {
             }
         } else { snapshot.hasUnmeasuredProcesses = true }
         // Panels, Glance and installed web apps can own pages outside allTabs.
+        var auxiliaryViews: [pid_t: [WKWebView]] = [:]
         for view in WebEnvironment.shared.liveWebViews {
             guard let pid = Self.contentProcessID(view) else { snapshot.hasUnmeasuredProcesses = true; continue }
+            auxiliaryViews[pid, default: []].append(view)
+        }
+        for (pid, views) in auxiliaryViews.sorted(by: { $0.key < $1.key }) {
             guard seen.insert(pid).inserted else { continue }
-            if let value = reading(pid: pid, now: uptime()) {
+            let value = reading(pid: pid, now: uptime())
+            snapshot.auxiliaryProcesses.append(AuxiliaryProcessUsage(pid: pid,
+                pages: Array(Set(views.map { WebEnvironment.shared.resourceDescription(for: $0) })).sorted(),
+                memoryBytes: value?.memory))
+            if let value {
                 snapshot.auxiliaryContentMemoryBytes += value.memory
                 snapshot.auxiliaryContentCpuPercentage += value.cpu
             } else { snapshot.hasUnmeasuredProcesses = true }

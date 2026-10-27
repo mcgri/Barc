@@ -23,6 +23,7 @@ final class TabSuspender {
 
     private let uptime: () -> TimeInterval
     private let inspectPage: (WKWebView) async -> Bool
+    private let validatePage: (WKWebView) -> Bool
     private let protectsTransfer: (WKWebView) -> Bool
     private let additionalVisibleProfiles: () -> Set<Space.Identity>
     private var clock = ProfileHibernationClock()
@@ -36,12 +37,14 @@ final class TabSuspender {
     init(session: BrowserSession, settings: Settings = .shared,
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          inspectPage: @escaping (WKWebView) async -> Bool = { await PageHibernationGuard.shared.permitsHibernation(of: $0) },
+         validatePage: @escaping (WKWebView) -> Bool = { PageHibernationGuard.shared.hasCurrentApproval(for: $0) },
          protectsTransfer: @escaping (WKWebView) -> Bool = { DownloadManager.shared.protectsFromHibernation($0) },
          additionalVisibleProfiles: @escaping () -> Set<Space.Identity> = { WebEnvironment.shared.visibleIdentities }) {
         self.session = session
         self.settings = settings
         self.uptime = uptime
         self.inspectPage = inspectPage
+        self.validatePage = validatePage
         self.protectsTransfer = protectsTransfer
         self.additionalVisibleProfiles = additionalVisibleProfiles
         subscription = session.changes.sink { [weak self] change in
@@ -156,17 +159,23 @@ final class TabSuspender {
             guard members.allSatisfy({ candidates.contains($0.id) }) else { continue }
             let revision = visibilityRevision
             var safe = true
+            var checkedViews: [Tab.ID: WKWebView] = [:]
             for member in members {
                 guard member.allowsAutomaticHibernation, let view = member.currentWebView,
                       !protectsTransfer(view), await inspectPage(view),
                       member.currentWebView === view else { safe = false; break }
+                checkedViews[member.id] = view
             }
             // Revalidate after all asynchronous checks. Switching back or
             // changing a split cancels a stale decision before any view is removed.
             updateClocks()
             let current = candidateIDs(trigger)
             guard safe, !Task.isCancelled, revision == visibilityRevision,
-                  members.allSatisfy({ current.contains($0.id) }) else { continue }
+                  members.allSatisfy({ member in
+                      guard current.contains(member.id), member.allowsAutomaticHibernation,
+                            let view = checkedViews[member.id], member.currentWebView === view else { return false }
+                      return !protectsTransfer(view) && validatePage(view)
+                  }) else { continue }
             for member in members {
                 if let view = member.currentWebView { member.retainHibernationViewport(PageHibernationGuard.shared.capturedViewport(of:view)) }
             }

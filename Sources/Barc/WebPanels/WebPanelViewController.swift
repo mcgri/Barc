@@ -193,7 +193,7 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             return cached
         }
 
-        let wv = WebEnvironment.shared.makeWebView(identity: .standard)
+        let wv = WebEnvironment.shared.makeWebView(identity: .standard, purpose: .panel)
         wv.navigationDelegate = self
         if let customUA = panel.customUserAgent {
             wv.customUserAgent = customUA
@@ -255,6 +255,7 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
     public func adoptWebView(_ webView: WKWebView, for panel: WebPanel?) {
         guard let panel = panel ?? store.activePanel else { return }
         WebViewRetirement.shared.claim(webView)
+        WebEnvironment.shared.setPurpose(.panel, for: webView)
         webViewCache[panel.id] = webView
         store.select(id: panel.id)
         reloadActivePanel()
@@ -275,6 +276,7 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
                   !DownloadManager.shared.protectsFromHibernation(view),
                   await PageHibernationGuard.shared.permitsHibernation(of: view),
                   !Task.isCancelled, webViewCache[id] === view,
+                  PageHibernationGuard.shared.hasCurrentApproval(for: view),
                   !(store.isOpen && store.activePanel?.id == id),
                   hiddenSince[id] == hidden,
                   PageHibernationGuard.nativeActivityAllowsSleep(view),

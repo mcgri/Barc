@@ -74,7 +74,10 @@ struct HibernationSafetyEdgeTests {
         let pin = try #require(profile.pinnedSites.first)
         var time:TimeInterval = 0, inspected = 0
         let preferences = settings();preferences.tabSuspensionMinutes = 0
-        let driver = TabSuspender(session:session,settings:preferences,uptime:{time},inspectPage:{ _ in inspected += 1; return true },additionalVisibleProfiles:{[]})
+        let driver = TabSuspender(session:session,settings:preferences,uptime:{time},inspectPage:{ page in
+            inspected += 1
+            return await PageHibernationGuard.shared.permitsHibernation(of: page)
+        },additionalVisibleProfiles:{[]})
         let second = session.addSpace(named:"Two",profile:profile)
         time = 600;await driver.evaluate(.idle)
         #expect(favorite.isLoaded && inspected == 0)

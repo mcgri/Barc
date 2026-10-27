@@ -28,12 +28,14 @@ final class WebViewRetirement {
     }
 
     func retire(_ view: WKWebView) {
+        WebEnvironment.shared.markRetired(true, view: view)
         pending.setObject(Deadline(uptime() + delay), forKey: view)
         scheduleCleanup()
     }
 
     /// Handoffs to a new owner revoke any earlier retirement request.
     func claim(_ view: WKWebView) {
+        WebEnvironment.shared.markRetired(false, view: view)
         pending.removeObject(forKey: view)
     }
 
@@ -60,6 +62,7 @@ final class WebViewRetirement {
             guard let deadline = pending.object(forKey: view), deadline.uptime <= now else { continue }
             guard view.superview == nil, view.window == nil else {
                 pending.removeObject(forKey: view)
+                WebEnvironment.shared.markRetired(false, view: view)
                 continue
             }
             guard let state = await blankState() else {

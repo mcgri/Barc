@@ -82,8 +82,17 @@ struct MemoryIntegrationTests {
             if (try? await restored.evaluateJavaScript("scrollY")) as? Double == before { break }
             try await Task.sleep(for:.milliseconds(10))
         }
+        // Catch a later native history restore overwriting a briefly correct
+        // position, instead of accepting the first matching sample alone.
+        try await Task.sleep(for: .milliseconds(250))
         let after = try await restored.evaluateJavaScript("scrollY") as? Double
         #expect(after == before)
+        for _ in 0..<150 {
+            if (try? await restored.evaluateJavaScript("history.scrollRestoration")) as? String == "auto" { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try await restored.evaluateJavaScript("history.scrollRestoration") as? String == "auto")
+        #expect(try await restored.evaluateJavaScript("scrollY") as? Double == before)
         tab.unload()
         await store.httpCookieStore.deleteCookie(cookie); await store.httpCookieStore.deleteCookie(persistent)
         WebEnvironment.shared.releaseDataStore(for:profile.identity)

@@ -1,6 +1,7 @@
 // Modified for Barc: complete memory accounting and explicit process attribution, 2026-10-26.
 import AppKit
 import Testing
+import WebKit
 @testable import Barc
 
 @Suite("Performance memory breakdown")
@@ -49,6 +50,8 @@ struct PerformanceMemoryBreakdownTests {
                 snapshot.browserMemoryBytes = 139 * self.mib
                 snapshot.webContentMemoryBytes = 484 * self.mib
                 snapshot.auxiliaryContentMemoryBytes = 185 * self.mib
+                snapshot.auxiliaryProcesses = [AuxiliaryProcessUsage(pid: 456,
+                    pages: ["Preview · example.test · hidden"], memoryBytes: 185 * self.mib)]
                 snapshot.networkProcessMemoryBytes = 15 * self.mib
                 snapshot.gpuProcessMemoryBytes = 38 * self.mib
                 snapshot.tabs = [self.usage(), self.usage(suspended: true)]
@@ -63,6 +66,7 @@ struct PerformanceMemoryBreakdownTests {
             #expect(text.contains("Networking"))
             #expect(text.contains("Other web content"))
             #expect(text.contains("185 MB"))
+            #expect(text.contains("Preview · example.test · hidden"))
             #expect(text.contains("exact tab-only memory are not available"))
             #expect(tables(controller.view).contains { $0.tableColumns.contains { $0.title == "Process RAM" } })
             if let directory = ProcessInfo.processInfo.environment["BARC_PERFORMANCE_PREVIEW_DIR"] {
@@ -84,6 +88,29 @@ struct PerformanceMemoryBreakdownTests {
                 window.contentViewController = nil
             }
         }
+    }
+
+    @Test("Other web content identifies the surface and domain without duplicating tab processes")
+    func auxiliaryAttribution() async throws {
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let page = WebEnvironment.shared.makeWebView(configuration: configuration, purpose: .preview)
+        try await MemoryTestPage.load(page, html: "<p>Auxiliary fixture</p>")
+        _ = try await page.evaluateJavaScript("history.replaceState({}, '', '/private-path?token=fictional-secret'); true")
+        let pid = try #require(TabResourceMonitor.contentProcessID(page))
+        let session = TestSession.make().0
+        let monitor = TabResourceMonitor(readProcess: { _ in
+            ProcessSampler.Reading(memoryBytes: 185 * self.mib, cpuNanoseconds: 0)
+        })
+        let other = try #require(monitor.snapshot(in: session).auxiliaryProcesses.first { $0.pid == pid })
+        #expect(other.pages.contains("Preview · 127.0.0.1 · hidden"))
+        #expect(other.memoryBytes == 185 * mib)
+        #expect(!other.pages.joined().contains("private-path"))
+        #expect(!other.pages.joined().contains("fictional-secret"))
+        let tab = session.adoptGlancedTab(page, after: session.activeTab)
+        defer { tab.unload() }
+        #expect(!monitor.snapshot(in: session).auxiliaryProcesses.contains { $0.pid == pid },
+                "A page handed to a tab must be counted in tab processes only")
     }
 
     private func usage(sharedPages: Int = 1, measured: Bool = true, suspended: Bool = false) -> TabResourceUsage {

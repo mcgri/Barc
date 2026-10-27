@@ -35,7 +35,7 @@ public final class FloatingWebWindowController: NSWindowController, NSWindowDele
         if let existing = webView {
             effectiveWebView = existing
         } else {
-            effectiveWebView = WebEnvironment.shared.makeWebView(identity: .standard)
+            effectiveWebView = WebEnvironment.shared.makeWebView(identity: .standard, purpose: .floating)
             if let targetURL = url ?? panel?.url {
                 if targetURL.scheme == "barc" && (targetURL.host == "scratchpad" || targetURL.host == "notes") {
                     effectiveWebView.loadHTMLString(ScratchpadContent.html, baseURL: nil)
@@ -45,6 +45,8 @@ public final class FloatingWebWindowController: NSWindowController, NSWindowDele
             }
         }
         self.webView = effectiveWebView
+        WebEnvironment.shared.setPurpose(.floating, for: effectiveWebView)
+        WebViewRetirement.shared.claim(effectiveWebView)
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: initialSize),
@@ -170,6 +172,12 @@ public final class FloatingWebWindowController: NSWindowController, NSWindowDele
 
     public func windowWillClose(_ notification: Notification) {
         if !isDockingBack {
+            cancellables.removeAll()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            webView.stopLoading()
+            webView.removeFromSuperview()
+            WebViewRetirement.shared.retire(webView)
             onClose?(self)
         }
     }

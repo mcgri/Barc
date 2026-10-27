@@ -717,14 +717,18 @@ final class TaskManagerViewController: NSViewController {
         let measured: (UInt64) -> String = { bytes in
             bytes == 0 && self.snapshot.hasUnmeasuredProcesses ? "Unavailable" : UsageFormat.memory(bytes)
         }
-        engineStats.show([
+        var rows = [
             ("Barc app", measured(snapshot.browserMemoryBytes)),
             ("WebKit engine baseline", "Included with tab processes"),
             ("Networking", measured(snapshot.networkProcessMemoryBytes)),
             ("Graphics", measured(snapshot.gpuProcessMemoryBytes)),
-            ("Other web content", UsageFormat.memory(snapshot.auxiliaryContentMemoryBytes)),
-            ("Tab processes, including WebKit", UsageFormat.memory(snapshot.webContentMemoryBytes))
-        ], singleColumn: true)
+            ("Other web content", UsageFormat.memory(snapshot.auxiliaryContentMemoryBytes))
+        ]
+        for process in snapshot.auxiliaryProcesses {
+            rows.append((process.pages.joined(separator: "\n"), process.memoryBytes.map(UsageFormat.memory) ?? "Unavailable"))
+        }
+        rows.append(("Tab processes, including WebKit", UsageFormat.memory(snapshot.webContentMemoryBytes)))
+        engineStats.show(rows, singleColumn: true)
         switch scope {
         case .everything:
             compositionCard.setCaption("Where the memory goes")

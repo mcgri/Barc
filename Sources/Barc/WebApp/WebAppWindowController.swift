@@ -26,7 +26,7 @@ final class WebAppWindowController: NSWindowController, NSWindowDelegate {
     init(app: InstalledWebApp, identity: Space.Identity = .standard) {
         self.app = app
         self.identity = identity
-        self.webView = WebEnvironment.shared.makeWebView(identity: identity)
+        self.webView = WebEnvironment.shared.makeWebView(identity: identity, purpose: .application)
 
         let initialSize = NSSize(width: 1040, height: 720)
         let window = NSWindow(
@@ -162,6 +162,12 @@ final class WebAppWindowController: NSWindowController, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         stopKeyMonitor()
+        cancellables.removeAll()
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.stopLoading()
+        webView.removeFromSuperview()
+        WebViewRetirement.shared.retire(webView)
         onClose?(self)
     }
 

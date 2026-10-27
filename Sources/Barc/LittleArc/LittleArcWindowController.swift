@@ -59,7 +59,7 @@ final class LittleArcWindowController: NSWindowController, NSWindowDelegate {
         // The space's own configuration, so the page is signed in as the space
         // the user was in and the filter lists, per-site settings and fonts all
         // apply exactly as they would in a tab.
-        self.webView = WebEnvironment.shared.makeWebView(identity: identity)
+        self.webView = WebEnvironment.shared.makeWebView(identity: identity, purpose: .littleWindow)
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: LittleArcMetrics.size),
@@ -178,6 +178,15 @@ final class LittleArcWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        stopKeyMonitor()
+        if !isHandingOff {
+            cancellables.removeAll()
+            webView.navigationDelegate = nil
+            webView.uiDelegate = nil
+            webView.stopLoading()
+            webView.removeFromSuperview()
+            WebViewRetirement.shared.retire(webView)
+        }
         onClose?(self)
     }
 
