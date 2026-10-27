@@ -42,3 +42,13 @@ The fixes preserve drafts by keeping protected documents live. They do not seria
 - After the final standalone-app and viewport corrections, all 37 targeted tests in eight suites passed in 21.375 seconds. This includes the six memory integration tests, authenticated scroll restoration and all new retention/input/navigation cases.
 - The earlier scroll failure also reproduced in isolation, so it was corrected rather than treated as a scheduling-only failure. Temporary scroll probes were removed.
 - Both window and embedded Performance presentations were rendered with a disposable auxiliary-memory fixture and checked for readable attribution.
+
+## Local installation
+
+The optimized app passed strict signature verification and was installed locally as build 255, version `0.0.4-6-gb408e7c`. The previous app and session were backed up. Barc quit normally; its saved session was unchanged during replacement. After reopening, all 71 workspace tabs, eight spaces and 1,151 saved address entries remained present.
+
+Opening the existing ClickUp task restored its title and address and reached approximately 1.21 GB while visible. An initial inactive-profile trial was interrupted when ClickUp became the visible page again; the Task Manager correctly reported its visible-page protection.
+
+The repeated live check completed with the alternate profile still selected. At the observation 171 seconds after switching away, ClickUp reported **Automatic sleep: Asleep**, without using the manual sleep action. Barc reported approximately **252 MB** total: 158 MB for the app, 42 MB for the remaining tab process including WebKit, 14 MB networking and 38 MB graphics. Auxiliary web content was zero; 70 of 71 tabs were asleep. The observation confirms automatic unloading after inactivity; it does not measure the exact transition time. Other pages also slept during the check, so the total change cannot all be attributed to ClickUp.
+
+After validation, all 71 workspace tabs, eight spaces and the previously saved address entries remained present. The previous user page was reopened without reopening ClickUp. The native scheduler, restoration and protected-work tests passed as recorded above.
