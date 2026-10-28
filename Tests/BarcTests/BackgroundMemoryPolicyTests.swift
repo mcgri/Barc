@@ -86,12 +86,12 @@ struct BackgroundMemoryPolicyTests {
         defer { defaults.removePersistentDomain(forName: name) }
         let settings = Settings(defaults: defaults)
         #expect(settings.backgroundMemoryGB == 2)
-        #expect(settings.backgroundMemoryBudget == 2 * 1024 * 1024 * 1024)
+        #expect(settings.backgroundMemoryBudget == (UInt64(2) << 30))
         #expect(Settings.backgroundMemoryChoices == [0, 1, 2, 4])
         settings.backgroundMemoryGB = 0
         #expect(settings.backgroundMemoryBudget == nil)
         settings.backgroundMemoryGB = 4
-        #expect(settings.backgroundMemoryBudget == 4 * 1024 * 1024 * 1024)
+        #expect(settings.backgroundMemoryBudget == (UInt64(4) << 30))
     }
 
 }
