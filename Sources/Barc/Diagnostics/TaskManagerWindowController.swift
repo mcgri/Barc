@@ -9,7 +9,7 @@ import AppKit
 /// Barc's. The name of what you are looking at is on the page, where the
 /// Settings window puts it too, and the traffic lights float over the rail.
 @MainActor
-final class TaskManagerWindowController: NSWindowController {
+final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
     static var current: TaskManagerWindowController?
 
     /// Big enough for three cards across the top with a chart under them.
@@ -50,6 +50,7 @@ final class TaskManagerWindowController: NSWindowController {
 
         super.init(window: window)
 
+        window.delegate = self
         window.contentViewController = TaskManagerViewController(session: session)
         window.setContentSize(Self.openingSize)
         window.setFrameAutosaveName("BarcTaskManagerWindow")
@@ -60,6 +61,11 @@ final class TaskManagerWindowController: NSWindowController {
             window.setContentSize(Self.openingSize)
             window.center()
         }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if Self.current === self { Self.current = nil }
+        window?.contentViewController = nil
     }
 
     public required init?(coder: NSCoder) {

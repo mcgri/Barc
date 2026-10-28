@@ -203,28 +203,29 @@ final class ActivityBarListView: NSView {
     }
 
     func show(_ bars: [ActivityBar]) {
-        // Rebuilt rather than updated in place. Two seconds is a long time
-        // between frames and the set can change completely -- a space closed, a
-        // new heaviest page -- so keeping row views around to reuse would be
-        // bookkeeping in exchange for nothing a person could see.
-        for view in rows.arrangedSubviews {
-            rows.removeArrangedSubview(view)
-            view.removeFromSuperview()
+        while rows.arrangedSubviews.count > bars.count, let last = rows.arrangedSubviews.last {
+            rows.removeArrangedSubview(last)
+            last.removeFromSuperview()
         }
         empty.isHidden = !bars.isEmpty
-        for bar in bars {
-            let row = BarRow(bar: bar, tint: tint) { [weak self] in self?.onSelect?(bar.id) }
-            rows.addArrangedSubview(row)
-            row.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
+        for (index, bar) in bars.enumerated() {
+            let action: () -> Void = { [weak self] in self?.onSelect?(bar.id) }
+            if index < rows.arrangedSubviews.count {
+                (rows.arrangedSubviews[index] as? BarRow)?.update(bar: bar, tint: tint, onClick: action)
+            } else {
+                let row = BarRow(bar: bar, tint: tint, onClick: action)
+                rows.addArrangedSubview(row)
+                row.widthAnchor.constraint(equalTo: rows.widthAnchor).isActive = true
+            }
         }
     }
 
     /// A label, a track with a fill in it, and the number at the end.
     @MainActor
     private final class BarRow: NSView {
-        private let bar: ActivityBar
-        private let tint: NSColor
-        private let onClick: () -> Void
+        private var bar: ActivityBar
+        private var tint: NSColor
+        private var onClick: () -> Void
         private var isHovered = false { didSet { needsDisplay = true } }
         private var trackingArea: NSTrackingArea?
 
@@ -265,6 +266,20 @@ final class ActivityBarListView: NSView {
 
         required init?(coder: NSCoder) {
             fatalError("BarRow is created in code only")
+        }
+
+        func update(bar: ActivityBar, tint: NSColor, onClick: @escaping () -> Void) {
+            self.bar = bar
+            self.tint = tint
+            self.onClick = onClick
+            if let heading = subviews.first as? NSStackView {
+                (heading.arrangedSubviews[0] as? NSTextField)?.stringValue = bar.label
+                (heading.arrangedSubviews[0] as? NSTextField)?.textColor = bar.isDimmed
+                    ? Style.Colors.tertiaryText : Style.Colors.primaryText
+                (heading.arrangedSubviews[1] as? NSTextField)?.stringValue = bar.caption
+            }
+            setAccessibilityLabel("\(bar.label), \(bar.caption)")
+            needsDisplay = true
         }
 
         override func updateTrackingAreas() {
@@ -350,20 +365,40 @@ final class ActivityCompositionView: NSView {
 
     func show(_ slices: [ActivityBar]) {
         self.slices = slices
-        for view in legend.arrangedSubviews {
-            legend.removeArrangedSubview(view)
-            view.removeFromSuperview()
+        let requiredRows = (slices.count + 2) / 3
+        while legend.arrangedSubviews.count > requiredRows, let last = legend.arrangedSubviews.last {
+            legend.removeArrangedSubview(last)
+            last.removeFromSuperview()
         }
         for start in stride(from: 0, to: slices.count, by: 3) {
-            let row = NSStackView()
-            row.orientation = .horizontal
-            row.alignment = .centerY
-            row.spacing = 14
-            for index in start..<min(start + 3, slices.count) {
-                let slice = slices[index]
-                row.addArrangedSubview(key(slice.label, value: slice.caption, colour: Self.palette[index % Self.palette.count]))
+            let rowIndex = start / 3
+            let row: NSStackView
+            if rowIndex < legend.arrangedSubviews.count {
+                row = legend.arrangedSubviews[rowIndex] as! NSStackView
+            } else {
+                row = NSStackView()
+                row.orientation = .horizontal
+                row.alignment = .centerY
+                row.spacing = 14
+                legend.addArrangedSubview(row)
             }
-            legend.addArrangedSubview(row)
+            let count = min(3, slices.count - start)
+            while row.arrangedSubviews.count > count, let last = row.arrangedSubviews.last {
+                row.removeArrangedSubview(last)
+                last.removeFromSuperview()
+            }
+            for offset in 0..<count {
+                let index = start + offset
+                let slice = slices[index]
+                let colour = Self.palette[index % Self.palette.count]
+                if offset < row.arrangedSubviews.count {
+                    let key = row.arrangedSubviews[offset] as! NSStackView
+                    (key.arrangedSubviews[0] as? SettingsPlateView)?.fill = colour
+                    (key.arrangedSubviews[1] as? NSTextField)?.stringValue = "\(slice.label)  \(slice.caption)"
+                } else {
+                    row.addArrangedSubview(key(slice.label, value: slice.caption, colour: colour))
+                }
+            }
         }
         let rowCount = max(1, (slices.count + 2) / 3)
         legendHeight.constant = CGFloat(rowCount * 16 + (rowCount - 1) * 6)
@@ -445,30 +480,25 @@ final class ActivityStatGridView: NSView {
     }
 
     func show(_ pairs: [(String, String)], singleColumn: Bool = false) {
-        // Taking a row out of an `NSGridView` leaves its views in the view
-        // hierarchy -- they stop being laid out and keep being drawn, so the
-        // numbers pile up on top of each other, one refresh on top of the
-        // last. The views have to go as well as the row.
-        while grid.numberOfRows > 0 {
-            let row = grid.row(at: 0)
-            for index in 0..<row.numberOfCells {
-                row.cell(at: index).contentView?.removeFromSuperview()
-            }
-            grid.removeRow(at: 0)
+        // Keep cells alive: removing grid rows retains AppKit dependency records.
+        let perRow = singleColumn ? 1 : 2
+        let count = (pairs.count + perRow - 1) / perRow
+        while grid.numberOfRows < count {
+            grid.addRow(with: [name(""), number(""), name(""), number("")])
         }
-        // Two pairs to a line: four rows of two reads faster than eight rows of
-        // one, and the card stays the height of the chart beside it.
-        for chunk in stride(from: 0, to: pairs.count, by: singleColumn ? 1 : 2) {
-            let left = pairs[chunk]
-            if singleColumn {
-                grid.addRow(with: [name(left.0), number(left.1)])
-                continue
+        for index in 0..<grid.numberOfRows {
+            let row = grid.row(at: index)
+            row.isHidden = index >= count
+            for column in 0..<4 {
+                let pairIndex = index * perRow + column / 2
+                let text = pairIndex < pairs.count && column / 2 < perRow
+                    ? (column % 2 == 0 ? pairs[pairIndex].0 : pairs[pairIndex].1) : ""
+                (row.cell(at: column).contentView as? NSTextField)?.stringValue = text
             }
-            let right = chunk + 1 < pairs.count ? pairs[chunk + 1] : nil
-            grid.addRow(with: [
-                name(left.0), number(left.1),
-                name(right?.0 ?? ""), number(right?.1 ?? "")
-            ])
+        }
+        if grid.numberOfColumns == 4 {
+            grid.column(at: 2).isHidden = singleColumn
+            grid.column(at: 3).isHidden = singleColumn
         }
         setAccessibilityLabel(pairs.map { "\($0.0) \($0.1)" }.joined(separator: ", "))
     }

@@ -165,9 +165,11 @@ final class ActivityScopeBar: NSView {
             context.timingFunction = Style.Motion.curve
             clip.animator().setBoundsOrigin(NSPoint(x: x, y: clip.bounds.origin.y))
         } completionHandler: { [weak self] in
-            guard let self else { return }
-            self.scroll.reflectScrolledClipView(clip)
-            self.updateArrows()
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.scroll.reflectScrolledClipView(clip)
+                self.updateArrows()
+            }
         }
     }
 
@@ -231,22 +233,25 @@ final class ActivityScopeBar: NSView {
 
     func show(_ items: [Item], selected: ActivityScope) {
         let wanted = items.map(\.scope)
-        if wanted != order {
-            for view in row.arrangedSubviews {
-                row.removeArrangedSubview(view)
-                view.removeFromSuperview()
-            }
-            chips = [:]
-            for item in items {
-                let chip = ChipView(item: item) { [weak self] in self?.onSelect?(item.scope) }
-                chips[item.scope] = chip
+        while row.arrangedSubviews.count > items.count, let last = row.arrangedSubviews.last {
+            row.removeArrangedSubview(last)
+            last.removeFromSuperview()
+        }
+        chips = [:]
+        for (index, item) in items.enumerated() {
+            let action: () -> Void = { [weak self] in self?.onSelect?(item.scope) }
+            let chip: ChipView
+            if index < row.arrangedSubviews.count {
+                chip = row.arrangedSubviews[index] as! ChipView
+                chip.onClick = action
+            } else {
+                chip = ChipView(item: item, onClick: action)
                 row.addArrangedSubview(chip)
             }
-            order = wanted
+            chips[item.scope] = chip
+            chip.update(item: item, isChosen: item.scope == selected)
         }
-        for item in items {
-            chips[item.scope]?.update(item: item, isChosen: item.scope == selected)
-        }
+        order = wanted
         // A chip that changed its number may have changed its width with it,
         // which moves the chips after it out from under the pointer.
         needsLayout = true
@@ -317,7 +322,7 @@ final class ActivityScopeBar: NSView {
         private let icon = NSImageView()
         private let titleLabel = NSTextField(labelWithString: "")
         private let detailLabel = NSTextField(labelWithString: "")
-        private let onClick: () -> Void
+        var onClick: () -> Void
         private var tint: NSColor = .controlAccentColor
         private var isChosen = false
         private var trackingArea: NSTrackingArea?

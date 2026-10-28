@@ -495,7 +495,11 @@ final class TaskManagerViewController: NSViewController {
         // scheduling quantum; slower and a page that spikes while you are
         // watching it never shows up.
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshMetrics() }
+            MainActor.assumeIsolated {
+                guard let self, let window = self.view.window,
+                      window.occlusionState.contains(.visible), !window.isMiniaturized else { return }
+                self.refreshMetrics()
+            }
         }
     }
 
@@ -717,6 +721,7 @@ final class TaskManagerViewController: NSViewController {
         let measured: (UInt64) -> String = { bytes in
             bytes == 0 && self.snapshot.hasUnmeasuredProcesses ? "Unavailable" : UsageFormat.memory(bytes)
         }
+        // Unregistered cached/prewarmed processes cannot be reliably attributed with this sampler.
         var rows = [
             ("Barc app", measured(snapshot.browserMemoryBytes)),
             ("WebKit engine baseline", "Included with tab processes"),
