@@ -1,9 +1,15 @@
-<!-- Modified for Barc: application identity, branding and legal documentation, 2026-10-23. -->
+<!-- Modified for Barc: application identity, purpose and legal documentation, 2026-10-28. -->
 # Barc
 
-My goal is to copy Arc's UI and UX because I'm too lazy, and maybe too old, to get used to a new browser.
+Barc is a browser I build for myself. What matters to me is whether I like using it.
 
-I forked [Kylmora](https://github.com/kylmora/kylmora) to make a browser that fits my needs and the way I work. You're welcome to use Barc, share feedback, contribute, or fork it and make it your own.
+My goal is to reduce the browser's footprint while maintaining the original Arc feel. I'm still too lazy, and maybe too old, to get used to a new way of browsing.
+
+Some things, including passkeys, aren't working in this private build yet. I'll get to them eventually. I hope.
+
+Zero monitoring. No built-in AI. You already have your own GPT subscriptions :D
+
+I forked [Kylmora](https://github.com/kylmora/kylmora) to get there. You're welcome to use Barc, share feedback, contribute, or fork it and make it your own.
 
 Original browser: [Kylmora source code](https://github.com/kylmora/kylmora) and [kylmora.com](https://kylmora.com).
 
@@ -11,10 +17,10 @@ Barc started with Kylmora's source code and full Git history, preserving the ori
 
 ## Download and install
 
-Download [Barc 0.0.3](https://github.com/mcgri/Barc/releases/tag/v0.0.3) for **Apple Silicon or Intel Macs running macOS 14 or later**.
+Download [Barc 0.0.5](https://github.com/mcgri/Barc/releases/tag/v0.0.5) for **Apple Silicon or Intel Macs running macOS 14 or later**.
 
 - Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
-- Version 0.0.3 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Version 0.0.5 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
 - Browser profiles and migration data are not included. Import your own data after opening Barc.
 
 ## Build and run
@@ -35,7 +41,7 @@ make test
 Local builds are ad-hoc signed. To create universal `.dmg` and `.pkg` installers locally:
 
 ```sh
-Tools/package-unsigned-release.sh 0.0.3
+Tools/package-unsigned-release.sh 0.0.5
 ```
 
 The output is in `build/release/`, with checksums and release notes. Version tags trigger the release workflow. It uses signed/notarized packaging when Barc's signing credentials are configured; otherwise it publishes installers explicitly marked as unnotarized.
@@ -70,7 +76,7 @@ Open Settings → Passwords → **Import passwords from macOS…**. The dialog o
 
 Imported passwords use Barc's encrypted local vault. This is a one-time copy, with no iCloud synchronization. The exported CSV is unencrypted; delete it after importing. Passkeys and verification codes are not imported. The current local build does not have Apple's browser permission for iCloud passkeys or the iCloud Passwords extension.
 
-Saved-account suggestions work on email-first and password login steps. Click the login field, or press the down arrow while it is focused, to choose an account. Suggestions use only the current profile.
+Saved-account suggestions work on email-first and password login steps. Click the login field, or press the down arrow while it is focused, to choose an account. Suggestions use only the current profile and leave keyboard focus in the field. Typing dismisses them, and no popup appears when there are no saved logins.
 
 ## Barc identity
 

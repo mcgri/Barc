@@ -1,5 +1,5 @@
 #!/bin/bash
-# Modified for Barc: universal, explicitly unnotarized installer releases, 2026-10-25.
+# Modified for Barc: universal, explicitly unnotarized installer releases, 2026-10-28.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -59,7 +59,7 @@ hdiutil verify "$out/$stem.dmg"
 cat > "$out/RELEASE-NOTES.md" <<NOTES
 # Barc $version
 
-Barc is a personal fork of [Kylmora](https://github.com/kylmora/kylmora), focused on Arc-style sidebar navigation, Spaces and Arc import.
+Barc is a personal fork of [Kylmora](https://github.com/kylmora/kylmora), built for my own taste. My goal is to reduce the browser's footprint while maintaining the original Arc feel.
 
 $(if [[ -f "docs/releases/$version.md" ]]; then cat "docs/releases/$version.md"; fi)
 
