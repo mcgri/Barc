@@ -80,6 +80,8 @@ final class ContentBlocker {
     private var identifiers: [String: String] = [:]
     private let controllers = NSHashTable<WKUserContentController>.weakObjects()
     private var compiling: Set<String> = []
+    private var compiledCosmetics: [String: Bool] = [:]
+    private var customCompiledCosmetics: [UUID: Bool] = [:]
 
     init(settings: Settings = .shared, store: FilterListStore = .shared,
          ruleStore: WKContentRuleListStore = .default()) {
@@ -224,7 +226,8 @@ final class ContentBlocker {
     // MARK: - Compilation
 
     private func ensureCompiled(_ list: FilterList) {
-        guard compiled[list.id] == nil, !compiling.contains(list.id) else { return }
+        guard compiledCosmetics[list.id] != settings.hideGenericPageElements,
+              !compiling.contains(list.id) else { return }
         compiling.insert(list.id)
         statuses[list.id] = .fetching
         notifyChange()
@@ -242,30 +245,47 @@ final class ContentBlocker {
     }
 
     private func compile(_ list: FilterList, text cached: FilterListStore.Cached) async {
-        defer { compiling.remove(list.id) }
+        let hide = settings.hideGenericPageElements
+        defer {
+            compiling.remove(list.id)
+            if hide != settings.hideGenericPageElements { ensureCompiled(list) }
+        }
         // The identifier carries the text's fingerprint and the converter's
         // version, so a fresh download or a changed converter compiles anew
         // and an unchanged one is found in WebKit's cache without converting.
-        let identifier = "barc.filter.\(list.id).v\(AdblockRuleConverter.version).\(Self.fingerprint(cached.text))"
+        let identifier = "barc.filter.\(list.id).v\(AdblockRuleConverter.version).\(Self.fingerprint(cached.text))" + (hide ? "" : ".specific-v1")
         if let existing = await lookUp(identifier) {
             var rules = await store.ruleCount(for: list, identifier: identifier)
             if rules == nil {
                 // Compiled by an earlier build that kept no count. Counting is
                 // a conversion without the compile, once, in the background.
                 let text = cached.text
-                let counted = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text).rules.count }.value
+                let counted = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text).filteringGenericCosmetics(hide: hide).rules.count }.value
                 await store.recordRuleCount(counted, for: list, identifier: identifier)
                 rules = counted
             }
+            guard hide == settings.hideGenericPageElements else { return }
+            compiledCosmetics[list.id] = hide
             adopt(existing, for: list, identifier: identifier, rules: rules, fetched: cached.fetched)
             return
         }
         let text = cached.text
-        let output = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text) }.value
+        let output = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text).filteringGenericCosmetics(hide: hide) }.value
+        if output.rules.isEmpty {
+            guard hide == settings.hideGenericPageElements else { return }
+            compiled[list.id] = nil
+            compiledCosmetics[list.id] = hide
+            statuses[list.id] = .ready(rules: 0, fetched: cached.fetched)
+            applyToAll()
+            notifyChange()
+            return
+        }
         do {
             let json = try output.encoded()
             let ruleList = try await compileList(identifier: identifier, json: json)
             await store.recordRuleCount(output.rules.count, for: list, identifier: identifier)
+            guard hide == settings.hideGenericPageElements else { return }
+            compiledCosmetics[list.id] = hide
             adopt(ruleList, for: list, identifier: identifier, rules: output.rules.count, fetched: cached.fetched)
         } catch {
             statuses[list.id] = .failed(Self.describe(error))
@@ -403,6 +423,7 @@ final class ContentBlocker {
         for (id, prevIdentifier) in customIdentifiers where !enabledIDs.contains(id) {
             ruleStore.removeContentRuleList(forIdentifier: prevIdentifier) { _ in }
             customCompiled[id] = nil
+            customCompiledCosmetics[id] = nil
             customIdentifiers[id] = nil
             customStatuses[id] = nil
         }
@@ -430,7 +451,8 @@ final class ContentBlocker {
     }
 
     private func ensureCompiledCustom(_ list: CustomFilterList) {
-        guard customCompiled[list.id] == nil, !customCompiling.contains(list.id) else { return }
+        guard customCompiledCosmetics[list.id] != settings.hideGenericPageElements,
+              !customCompiling.contains(list.id) else { return }
         customCompiling.insert(list.id)
         customStatuses[list.id] = .fetching
         notifyChange()
@@ -448,25 +470,42 @@ final class ContentBlocker {
     }
 
     private func compileCustom(_ list: CustomFilterList, text cached: FilterListStore.Cached) async {
-        defer { customCompiling.remove(list.id) }
-        let identifier = "barc.custom.\(list.id.uuidString).v\(AdblockRuleConverter.version).\(Self.fingerprint(cached.text))"
+        let hide = settings.hideGenericPageElements
+        defer {
+            customCompiling.remove(list.id)
+            if hide != settings.hideGenericPageElements { ensureCompiledCustom(list) }
+        }
+        let identifier = "barc.custom.\(list.id.uuidString).v\(AdblockRuleConverter.version).\(Self.fingerprint(cached.text))" + (hide ? "" : ".specific-v1")
         if let existing = await lookUp(identifier) {
             var rules = await store.customRuleCount(id: list.id.uuidString, identifier: identifier)
             if rules == nil {
                 let text = cached.text
-                let counted = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text).rules.count }.value
+                let counted = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text).filteringGenericCosmetics(hide: hide).rules.count }.value
                 await store.recordCustomRuleCount(counted, id: list.id.uuidString, identifier: identifier)
                 rules = counted
             }
+            guard hide == settings.hideGenericPageElements else { return }
+            customCompiledCosmetics[list.id] = hide
             adoptCustom(existing, for: list, identifier: identifier, rules: rules, fetched: cached.fetched)
             return
         }
         let text = cached.text
-        let output = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text) }.value
+        let output = await Task.detached(priority: .utility) { AdblockRuleConverter().convert(text).filteringGenericCosmetics(hide: hide) }.value
+        if output.rules.isEmpty {
+            guard hide == settings.hideGenericPageElements else { return }
+            customCompiled[list.id] = nil
+            customCompiledCosmetics[list.id] = hide
+            customStatuses[list.id] = .ready(rules: 0, fetched: cached.fetched)
+            applyToAll()
+            notifyChange()
+            return
+        }
         do {
             let json = try output.encoded()
             let ruleList = try await compileList(identifier: identifier, json: json)
             await store.recordCustomRuleCount(output.rules.count, id: list.id.uuidString, identifier: identifier)
+            guard hide == settings.hideGenericPageElements else { return }
+            customCompiledCosmetics[list.id] = hide
             adoptCustom(ruleList, for: list, identifier: identifier, rules: output.rules.count, fetched: cached.fetched)
         } catch {
             customStatuses[list.id] = .failed(Self.describe(error))

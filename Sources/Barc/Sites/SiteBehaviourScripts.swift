@@ -101,9 +101,17 @@ enum SiteBehaviourScripts {
         });
       }
       sweep(document);
-      new MutationObserver(function (records) {
-        records.forEach(function (r) { r.addedNodes.forEach(function (n) { if (n.nodeType === 1) { sweep(n); } }); });
-      }).observe(document.documentElement, { childList: true, subtree: true });
+      // Media events cover dynamically inserted media in child frames too.
+      // Avoid watching every DOM insertion in every frame.
+      document.addEventListener("play", function (event) {
+        var media = event.target;
+        var setting = \(policy).autoPlay || "allow");
+        if (navigator.userActivation && navigator.userActivation.hasBeenActive) { return; }
+        if (setting === "never" || (setting !== "allow" && !media.muted && media.volume > 0)) {
+          media.autoplay = false;
+          media.pause();
+        }
+      }, true);
     })();
     """
 

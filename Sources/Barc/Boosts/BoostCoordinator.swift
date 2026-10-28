@@ -48,6 +48,7 @@ final class BoostCoordinator {
         controller.removeAllUserScripts()
         for script in others { controller.addUserScript(script) }
 
+        guard store.boosts.contains(where: \.isEnabled) else { return }
         controller.addUserScript(
             WKUserScript(
                 source: Self.bootstrapSource(boosts: store.boosts),

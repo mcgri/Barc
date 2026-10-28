@@ -5,6 +5,10 @@ import LocalAuthentication
 import Security
 import WebKit
 
+extension Notification.Name {
+    static let formAutofillSettingDidChange = Notification.Name("formAutofillSettingDidChange")
+}
+
 /// A person, as forms ask for one: name, contact and address.
 struct AutofillIdentity: Identifiable, Equatable, Codable, Sendable {
     var id: UUID
@@ -247,13 +251,36 @@ final class AutofillStore {
 @MainActor
 final class FormAutofill: NSObject {
     static let shared = FormAutofill()
-    private let settings = Settings.shared
+    private let settings: Settings
+    private let controllers = NSHashTable<WKUserContentController>.weakObjects()
     private static let messageName = "barcAutofill"
     var store: AutofillStore = .shared
 
+    init(settings: Settings = .shared) {
+        self.settings = settings
+        super.init()
+        NotificationCenter.default.addObserver(self, selector: #selector(preferencesChanged),
+                                              name: .formAutofillSettingDidChange, object: nil)
+    }
+
     func attach(_ controller: WKUserContentController) {
+        controllers.add(controller)
+        controller.removeScriptMessageHandler(forName: Self.messageName, contentWorld: .page)
         controller.addScriptMessageHandler(self, contentWorld: .page, name: Self.messageName)
-        controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
+        apply(to: controller)
+    }
+
+    @objc func preferencesChanged() {
+        for controller in controllers.allObjects { apply(to: controller) }
+    }
+
+    private func apply(to controller: WKUserContentController) {
+        let others = controller.userScripts.filter { $0.source != Self.script }
+        controller.removeAllUserScripts()
+        for script in others { controller.addUserScript(script) }
+        if settings.formAutofillEnabled || settings.cardAutofillEnabled {
+            controller.addUserScript(WKUserScript(source: Self.script, injectionTime: .atDocumentEnd, forMainFrameOnly: false))
+        }
     }
 
     /// What the page gets for an identity field: the first identity's
@@ -320,6 +347,7 @@ extension FormAutofill {
     /// wiring below it only runs inside Barc.
     static let script = """
     (function() {
+      function initialize() {
       const RULES = [
         ['cc-number', /card.?num|cc.?num|ccnumber|cardnum|\\bpan\\b|creditcard|card_no|cardno/i],
         ['cc-csc', /cvc|cvv|csc|security.?code|card.?code/i],
@@ -426,12 +454,28 @@ extension FormAutofill {
 
       // Delegation also covers fields inserted later, without rescanning the
       // document for every DOM mutation. Focus is captured because it does not bubble.
-      document.addEventListener('focus', function(event) {
+      function onFocus(event) {
         const el = event.target;
         if (!el || !el.matches || !el.matches('input, select')) return;
         const kind = classify(el);
         if (kind && kind !== 'cc-csc') fillFrom(el, kind);
-      }, true);
+      }
+      document.addEventListener('focus', onFocus, true);
+      return onFocus;
+      }
+      if (window === window.top) {
+        initialize();
+      } else {
+        // Login and checkout frames need autofill, but most frames never focus
+        // a field. Allocate classifiers and field patterns only when needed.
+        document.addEventListener('focus', function firstFocus(event) {
+          const el = event.target;
+          if (!el || !el.matches || !el.matches('input, select')) return;
+          document.removeEventListener('focus', firstFocus, true);
+          const onFocus = initialize();
+          if (onFocus) onFocus(event);
+        }, true);
+      }
     })();
     """
 }

@@ -15,8 +15,15 @@ public final class LinkHintsCoordinator: NSObject {
     public static let handlerName = "barcLinkHints"
 
     public var onOpenNewTab: ((URL) -> Void)?
+    private let settings: Settings
 
     override public init() {
+        settings = .shared
+        super.init()
+    }
+
+    init(settings: Settings) {
+        self.settings = settings
         super.init()
     }
 
@@ -28,9 +35,13 @@ public final class LinkHintsCoordinator: NSObject {
 
     /// Triggers link hints overlay in the given web view.
     public func showHints(in webView: WKWebView?, openInNewTab: Bool = false) {
-        guard let webView else { return }
-        let js = LinkHintsScript.script(openInNewTab: openInNewTab)
+        guard let webView, let js = script(openInNewTab: openInNewTab) else { return }
         webView.evaluateJavaScript(js, in: nil, in: .defaultClient) { _ in }
+    }
+
+    func script(openInNewTab: Bool) -> String? {
+        guard settings.linkHintsEnabled else { return nil }
+        return LinkHintsScript.script(openInNewTab: openInNewTab)
     }
 }
 

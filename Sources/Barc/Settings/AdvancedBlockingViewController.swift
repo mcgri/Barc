@@ -149,6 +149,11 @@ final class AdvancedBlockingViewController: NSViewController {
         cookieCheckbox.state = settings.autoRejectCookieBanners ? .on : .off
         cookieCheckbox.font = .systemFont(ofSize: 13, weight: .medium)
 
+        let genericCheckbox = NSButton(checkboxWithTitle: "Hide generic page elements",
+                                       target: self, action: #selector(genericCosmeticsToggled(_:)))
+        genericCheckbox.state = settings.hideGenericPageElements ? .on : .off
+        genericCheckbox.toolTip = "Hide common advertising and cookie-banner elements on every site. Turn off to reduce page memory use."
+
         let hostileCheckbox = NSButton(
             checkboxWithTitle: "Block hostile page behaviour (force selectable text, unblock right-click, prevent clipboard snooping)",
             target: self,
@@ -198,7 +203,7 @@ final class AdvancedBlockingViewController: NSViewController {
             list.widthAnchor.constraint(equalTo: document.widthAnchor)
         ])
 
-        let stack = NSStackView(views: [cookieCheckbox, hostileCheckbox, divider, scroll])
+        let stack = NSStackView(views: [cookieCheckbox, genericCheckbox, hostileCheckbox, divider, scroll])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -212,6 +217,7 @@ final class AdvancedBlockingViewController: NSViewController {
             stack.bottomAnchor.constraint(equalTo: root.bottomAnchor),
 
             cookieCheckbox.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            genericCheckbox.widthAnchor.constraint(equalTo: stack.widthAnchor),
             hostileCheckbox.widthAnchor.constraint(equalTo: stack.widthAnchor),
             divider.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.widthAnchor.constraint(equalTo: stack.widthAnchor)
@@ -223,6 +229,11 @@ final class AdvancedBlockingViewController: NSViewController {
     @objc private func cookieRejectToggled(_ sender: NSButton) {
         settings.autoRejectCookieBanners = sender.state == .on
         CookieConsentAutoReject.shared.preferencesChanged()
+    }
+
+    @objc private func genericCosmeticsToggled(_ sender: NSButton) {
+        settings.hideGenericPageElements = sender.state == .on
+        blocker.preferencesChanged()
     }
 
     @objc private func hostileBehaviourToggled(_ sender: NSButton) {

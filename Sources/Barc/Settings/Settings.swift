@@ -123,6 +123,7 @@ final class Settings {
         static let rockerGestures = "rockerGesturesEnabled"
         static let gestureTrails = "gestureTrailsEnabled"
         static let autoRejectCookieBanners = "contentBlockingAutoRejectCookieBanners"
+        static let hideGenericPageElements = "hideGenericPageElements"
         static let blockHostilePageBehaviour = "contentBlockingBlockHostilePageBehaviour"
         static let clearWebsiteDataOnQuit = "clearWebsiteDataOnQuit"
         static let websiteDataQuitAllowlist = "websiteDataQuitAllowlist"
@@ -283,6 +284,7 @@ final class Settings {
             Key.syncWebDAVPassword: "",
             Key.userRulesText: "",
             Key.autoRejectCookieBanners: true,
+            Key.hideGenericPageElements: true,
             Key.blockHostilePageBehaviour: true,
             Key.showDevelopMenu: true,
             Key.mouseGestures: true,
@@ -660,13 +662,19 @@ final class Settings {
     /// Names, addresses and contact details from the saved identities.
     var formAutofillEnabled: Bool {
         get { defaults.bool(forKey: Key.formAutofillEnabled) }
-        set { defaults.set(newValue, forKey: Key.formAutofillEnabled) }
+        set {
+            defaults.set(newValue, forKey: Key.formAutofillEnabled)
+            NotificationCenter.default.post(name: .formAutofillSettingDidChange, object: nil)
+        }
     }
 
     /// Saved payment cards, behind Touch ID when passwords are.
     var cardAutofillEnabled: Bool {
         get { defaults.bool(forKey: Key.cardAutofillEnabled) }
-        set { defaults.set(newValue, forKey: Key.cardAutofillEnabled) }
+        set {
+            defaults.set(newValue, forKey: Key.cardAutofillEnabled)
+            NotificationCenter.default.post(name: .formAutofillSettingDidChange, object: nil)
+        }
     }
 
     var passwordOfferAutofill: Bool {
@@ -756,6 +764,12 @@ final class Settings {
     var autoRejectCookieBanners: Bool {
         get { defaults.object(forKey: Key.autoRejectCookieBanners) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Key.autoRejectCookieBanners) }
+    }
+
+    /// Hides generic page elements at a measured cost of about 18–19 MiB per web process.
+    var hideGenericPageElements: Bool {
+        get { defaults.bool(forKey: Key.hideGenericPageElements) }
+        set { defaults.set(newValue, forKey: Key.hideGenericPageElements) }
     }
 
     /// Whether hostile page behaviour (forcing text un-selectability, context menu disabling,
@@ -889,17 +903,6 @@ final class Settings {
         set { defaults.set(newValue, forKey: Key.suspensionMinutes) }
     }
 
-    /// How long a background tab may sit before its memory is reclaimed, or nil
-    /// when the user has turned suspension off.
-    var tabSuspensionDelay: TimeInterval? {
-        let minutes = tabSuspensionMinutes
-        return minutes > 0 ? TimeInterval(minutes) * 60 : nil
-    }
-
-    /// Measured in hours, not minutes: the second stage is about days away from
-    /// a tab, and offering "archive after 5 minutes" would invite people to
-    /// configure their tabs into disappearing.
-    static let archiveChoices: [Int] = [0, 12, 24, 72, 168, 720]
     /// Choices offered in Settings. Zero disables the background memory budget.
     static let backgroundMemoryChoices = [0, 1, 2, 4]
     /// Background process memory limit in gigabytes. Zero means no limit.
@@ -912,6 +915,17 @@ final class Settings {
         backgroundMemoryGB > 0 ? UInt64(backgroundMemoryGB) * 1024 * 1024 * 1024 : nil
     }
 
+    /// How long a background tab may sit before its memory is reclaimed, or nil
+    /// when the user has turned suspension off.
+    var tabSuspensionDelay: TimeInterval? {
+        let minutes = tabSuspensionMinutes
+        return minutes > 0 ? TimeInterval(minutes) * 60 : nil
+    }
+
+    /// Measured in hours, not minutes: the second stage is about days away from
+    /// a tab, and offering "archive after 5 minutes" would invite people to
+    /// configure their tabs into disappearing.
+    static let archiveChoices: [Int] = [0, 12, 24, 72, 168, 720]
 
     var tabArchiveHours: Int {
         get { defaults.integer(forKey: Key.archiveHours) }

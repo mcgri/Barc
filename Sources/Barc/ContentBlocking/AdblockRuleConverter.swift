@@ -47,6 +47,13 @@ struct AdblockRuleConverter: Sendable {
         /// Rules dropped to stay under WebKit's limit.
         var truncated: Int
 
+        func filteringGenericCosmetics(hide: Bool) -> Output {
+            guard !hide else { return self }
+            var output = self
+            output.rules.removeAll { $0.actionType == "css-display-none" && $0.ifDomain == nil }
+            return output
+        }
+
         /// The JSON WebKit compiles.
         func encoded() throws -> String {
             let data = try JSONSerialization.data(withJSONObject: rules.map(\.json), options: [])
