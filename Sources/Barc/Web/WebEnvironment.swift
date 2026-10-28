@@ -163,9 +163,6 @@ final class WebEnvironment {
         // The Browsing pane's per-web-view preferences.
         let settings = Settings.shared
         configuration.upgradeKnownHostsToHTTPS = settings.upgradesToHTTPS
-        // WebKit excludes playing media and loading pages from idle suspension.
-        // This policy only affects detached views.
-        configuration.preferences.inactiveSchedulingPolicy = .suspend
         configuration.preferences.minimumFontSize = settings.effectiveMinimumFontSize
         configuration.preferences.tabFocusesLinks = settings.tabFocusesLinks
 
