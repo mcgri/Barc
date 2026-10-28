@@ -32,6 +32,9 @@ final class TabSuspender {
     private var sweepGeneration = UUID()
     private var pendingTrigger: TabSuspension.Trigger?
     private var visibilityRevision = 0
+    private var sweepResources: [Tab.ID: TabResourceUsage] = [:]
+    private var budgetPriority: [Tab.ID] = []
+    private var lastMemoryCachePurge: TimeInterval?
     private(set) var lastSweepUnloadedCount = 0
 
     init(session: BrowserSession, settings: Settings = .shared,
@@ -144,10 +147,27 @@ final class TabSuspender {
     func evaluate(_ trigger: TabSuspension.Trigger) async {
         lastSweepUnloadedCount = 0
         updateClocks()
-        if trigger != .idle { TabSnapshotStore.shared.clear() }
+        if trigger != .idle {
+            TabSnapshotStore.shared.clear()
+            let now = uptime()
+            if TabSuspension.shouldPurgeMemoryCache(now: now, lastPurge: lastMemoryCachePurge) {
+                lastMemoryCachePurge = now
+                let stores = RAMCacheManager.shared.storesProvider?().map(\.1) ?? [WKWebsiteDataStore.default()]
+                Task { @MainActor in
+                    var seen: Set<ObjectIdentifier> = []
+                    for store in stores where seen.insert(ObjectIdentifier(store)).inserted {
+                        await store.removeData(ofTypes: [WKWebsiteDataTypeMemoryCache], modifiedSince: .distantPast)
+                    }
+                }
+            }
+        }
+        sweepResources = Dictionary(TabResourceMonitor.shared.sampleAllTabs(in: session).map { ($0.tabId, $0) }, uniquingKeysWith: { first, _ in first })
         archiveIfDue(trigger)
         let candidates = candidateIDs(trigger)
-        let tabs = session.allTabs.filter { candidates.contains($0.id) }
+        let priority = Dictionary(uniqueKeysWithValues: budgetPriority.enumerated().map { ($0.element, $0.offset) })
+        let tabs = session.allTabs.filter { candidates.contains($0.id) }.sorted {
+            (priority[$0.id] ?? Int.max) < (priority[$1.id] ?? Int.max)
+        }
         var visited: Set<Tab.ID> = []
         for tab in tabs {
             guard !Task.isCancelled else { return }
@@ -157,6 +177,8 @@ final class TabSuspender {
             let members = session.allTabs.filter { group.contains($0.id) && $0.isLoaded }
             visited.formUnion(group)
             guard members.allSatisfy({ candidates.contains($0.id) }) else { continue }
+            let remaining = candidateIDs(trigger)
+            guard members.allSatisfy({ remaining.contains($0.id) }) else { continue }
             let revision = visibilityRevision
             var safe = true
             var checkedViews: [Tab.ID: WKWebView] = [:]
@@ -200,7 +222,20 @@ final class TabSuspender {
                 protected.insert(tab.id)
             }
         }
-        var chosen: Set<Tab.ID> = []
+        let stamp = Date(timeIntervalSinceReferenceDate: now)
+        let allStates = tabs.map { tab -> TabSuspension.TabState in
+            var state = TabSuspension.TabState(id: tab.id, isLoaded: tab.isLoaded,
+                lastActiveAt: stamp.addingTimeInterval(-clock.tabIdle(tab.id, now: now)), keepsAwake: tab.keepsAwake)
+            if let usage = sweepResources[tab.id] {
+                state.footprint = usage.hasMeasuredMemory ? usage.memoryBytes : nil
+                state.processID = usage.pid
+                state.sharedProcess = usage.processPageCount > 1
+            }
+            return state
+        }
+        budgetPriority = TabSuspension.budgetOrder(among: allStates, protecting: protected,
+            budget: settings.backgroundMemoryBudget, cohorts: session.splitCohorts, now: stamp)
+        var chosen = Set(budgetPriority)
         for profile in session.profiles {
             let members = tabs.filter { $0.identity == profile.identity }
             let tabDelay = profile.preferences.sleepMinutes.map { $0 > 0 ? Double($0) * 60 : nil } ?? settings.tabSuspensionDelay
@@ -211,10 +246,8 @@ final class TabSuspender {
                 threshold = min(tabDelay ?? profileDelay, profileDelay)
             }
             let stamp = Date(timeIntervalSinceReferenceDate: now)
-            let states = members.map {
-                TabSuspension.TabState(id: $0.id, isLoaded: $0.isLoaded,
-                    lastActiveAt: stamp.addingTimeInterval(-clock.tabIdle($0.id, now: now)), keepsAwake: $0.keepsAwake)
-            }
+            let memberIDs = Set(members.map(\.id))
+            let states = allStates.filter { memberIDs.contains($0.id) }
             chosen.formUnion(TabSuspension.candidateIDs(among: states, protecting: protected,
                 idleThreshold: threshold, trigger: trigger, cohorts: session.splitCohorts, now: stamp))
         }

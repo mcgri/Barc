@@ -19,8 +19,7 @@ enum TabSuspension {
 
     /// Everything the policy decides from, for one tab.
     ///
-    /// The policy reads four facts and no more, so it is stated over those four
-    /// facts. That is what lets the rules be tested with plain values instead of
+    /// The policy is stated over plain facts so the rules can be tested without
     /// a window, a web view and a ten-minute wait.
     struct TabState: Equatable, Sendable {
         let id: Tab.ID
@@ -29,6 +28,12 @@ enum TabSuspension {
         /// The user's "Keep Awake" lock. Honoured for idle sweeps and for
         /// every memory-pressure trigger as well as idle sweeps.
         let keepsAwake: Bool
+        /// Measured physical footprint of the content process, or nil when unavailable.
+        var footprint: UInt64? = nil
+        /// Content process identifier used to count shared memory once.
+        var processID: Int32? = nil
+        /// Whether other live pages use this content process.
+        var sharedProcess = false
 
         init(id: Tab.ID, isLoaded: Bool, lastActiveAt: Date, keepsAwake: Bool = false) {
             self.id = id
@@ -53,6 +58,46 @@ enum TabSuspension {
     /// A warning may shorten the age threshold, but never removes protection
     /// for visible content or work the user asked to keep awake.
     static let warningThreshold: TimeInterval = 60
+    static let heavyThreshold: UInt64 = 500 * 1024 * 1024
+    static let heavyDelay: TimeInterval = 180
+    static let budgetGrace: TimeInterval = 120
+
+    /// Both pressure levels share one memory-cache purge interval.
+    static func shouldPurgeMemoryCache(now: TimeInterval, lastPurge: TimeInterval?) -> Bool {
+        guard let lastPurge else { return true }
+        return now - lastPurge >= 60
+    }
+
+    /// Count each attributed process once. Unknown attribution adds no charge.
+    static func budgetOrder(among tabs: [TabState], protecting protected: Set<Tab.ID>,
+                            budget: UInt64?, cohorts: [Set<Tab.ID>] = [], now: Date) -> [Tab.ID] {
+        guard let budget else { return [] }
+        let background = tabs.filter { $0.isLoaded && !$0.keepsAwake && !protected.contains($0.id) }
+        var processes: [Int32: UInt64] = [:]
+        for tab in background {
+            if let pid = tab.processID, let bytes = tab.footprint {
+                processes[pid] = max(processes[pid] ?? 0, bytes)
+            }
+        }
+        guard processes.values.reduce(0, +) > budget else { return [] }
+        var eligible = Set(background.filter { now.timeIntervalSince($0.lastActiveAt) >= budgetGrace }.map(\.id))
+        let loaded = Set(tabs.filter(\.isLoaded).map(\.id))
+        for _ in cohorts {
+            for cohort in cohorts where !cohort.intersection(loaded).isSubset(of: eligible) {
+                eligible.subtract(cohort)
+            }
+        }
+        return background.filter { eligible.contains($0.id) }.sorted {
+            let leftRank = $0.processID == nil || $0.footprint == nil ? 2 : ($0.sharedProcess ? 1 : 0)
+            let rightRank = $1.processID == nil || $1.footprint == nil ? 2 : ($1.sharedProcess ? 1 : 0)
+            if leftRank != rightRank { return leftRank < rightRank }
+            let left = $0.processID == nil ? 0 : ($0.footprint ?? 0)
+            let right = $1.processID == nil ? 0 : ($1.footprint ?? 0)
+            if left != right { return left > right }
+            if $0.lastActiveAt != $1.lastActiveAt { return $0.lastActiveAt < $1.lastActiveAt }
+            return $0.id.uuidString < $1.id.uuidString
+        }.map(\.id)
+    }
 
     /// - Parameters:
     ///   - protectedIDs: the tabs **currently rendered**, not the selected one.
@@ -113,7 +158,10 @@ enum TabSuspension {
         var chosen = Set(tabs.lazy.filter { tab in
             guard tab.isLoaded, !protected.contains(tab.id) else { return false }
             guard let minimumIdle else { return true }
-            return now.timeIntervalSince(tab.lastActiveAt) >= minimumIdle
+            let heavy = trigger == .idle && !tab.sharedProcess && tab.processID != nil
+                && (tab.footprint ?? 0) >= heavyThreshold
+            let threshold = heavy ? min(minimumIdle, heavyDelay) : minimumIdle
+            return now.timeIntervalSince(tab.lastActiveAt) >= threshold
         }.map(\.id))
         // Never unload a recently used or protected sibling to match an older
         // pane. A complete group must independently qualify as a whole.

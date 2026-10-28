@@ -12,6 +12,7 @@ final class GeneralSettingsViewController: NSViewController {
     private let newTabsPopUp = NSPopUpButton()
     private let homepageField = NSTextField()
     private let appearancePopUp = NSPopUpButton()
+    private let backgroundMemoryPopUp = NSPopUpButton()
     private let profileHibernationPopUp = NSPopUpButton()
     private let suspensionPopUp = NSPopUpButton()
     private let archivePopUp = NSPopUpButton()
@@ -127,6 +128,12 @@ final class GeneralSettingsViewController: NSViewController {
         form.addRow("Hibernate inactive profiles after", SettingsForm.fill(profileHibernationPopUp))
         form.addNote("Profiles start sleeping after you switch away. Drafts, calls, transfers and Keep Awake tabs stay open. Login sessions and sidebar tabs are kept. Only the page or split you return to reloads.")
 
+        backgroundMemoryPopUp.addItems(withTitles: ["Off", "1 GB", "2 GB", "4 GB"])
+        backgroundMemoryPopUp.target = self
+        backgroundMemoryPopUp.action = #selector(backgroundMemoryChanged)
+        form.addRow("Background tab memory limit", SettingsForm.fill(backgroundMemoryPopUp))
+        form.addNote("When background tabs use more than this, the heaviest ones sleep first. Tabs you used in the last two minutes, drafts, calls, transfers and Keep Awake tabs stay open.")
+
         suspensionPopUp.addItems(withTitles: Settings.suspensionChoices.map(Self.suspensionTitle))
         suspensionPopUp.target = self
         suspensionPopUp.action = #selector(suspensionChanged)
@@ -217,6 +224,7 @@ final class GeneralSettingsViewController: NSViewController {
         homepageField.stringValue = settings.homepageURL?.absoluteString ?? ""
         appearancePopUp.selectItem(withTitle: settings.appearance.title)
         profileHibernationPopUp.selectItem(withTitle: Self.suspensionTitle(settings.profileHibernationMinutes))
+        backgroundMemoryPopUp.selectItem(at: Settings.backgroundMemoryChoices.firstIndex(of: settings.backgroundMemoryGB) ?? 2)
         suspensionPopUp.selectItem(withTitle: Self.suspensionTitle(settings.tabSuspensionMinutes))
         archivePopUp.selectItem(withTitle: Self.archiveTitle(settings.tabArchiveHours))
         idleBadgePopUp.selectItem(withTitle: settings.tabIdleBadgeMode.title)
@@ -334,6 +342,12 @@ final class GeneralSettingsViewController: NSViewController {
         let index = profileHibernationPopUp.indexOfSelectedItem
         guard Settings.profileHibernationChoices.indices.contains(index) else { return }
         settings.profileHibernationMinutes = Settings.profileHibernationChoices[index]
+    }
+
+    @objc private func backgroundMemoryChanged() {
+        let index = backgroundMemoryPopUp.indexOfSelectedItem
+        guard Settings.backgroundMemoryChoices.indices.contains(index) else { return }
+        settings.backgroundMemoryGB = Settings.backgroundMemoryChoices[index]
     }
 
     @objc private func suspensionChanged() {

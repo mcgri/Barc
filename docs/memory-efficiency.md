@@ -62,3 +62,43 @@ BARC_MEMORY_SOAK=1 swift test --skip-build --filter MemorySoakTests
 ```
 
 Results are written to `_local/memory-soak-result-2026-10-26.json`. Process caches are managed by WebKit, so a released view need not make its process disappear immediately. The soak measures actual footprint rather than assuming a removed reference equals a particular RAM saving.
+
+## Pressure memory-cache cleanup
+
+Warning and critical memory pressure also clear the memory-cache data type in live website data stores. Cleanup runs at most once per 60 seconds, shared across both pressure levels. Cookies and persistent website storage are unaffected.
+
+## Allocator relief and UI layer audit, 2026-10-28
+
+The auxiliary URLSession cache has a 4 MB memory budget in Standard and Reduced disk caching modes, and zero in Minimal caching mode. Standard retains its 500 MB disk budget. WebKit controls its own page memory cache. Reduced disk caching periodically removes disk cache files and does not guarantee zero disk writes. Minimal caching clears existing WebKit caches when applied but cannot prevent subsequent WebKit caching. The old `ramCacheCapacityMB` defaults key remains readable for compatibility; a repository-wide search found no Settings UI control using it.
+
+MemoryRelief listens for warning/critical pressure and application resign-active events. It coalesces requests to once per three minutes and calls allocator pressure relief on a utility queue. It addresses freed-but-dirty pages, not live page objects. The motivating installed-app sample had 230 MB of WebKit Malloc with about 10 MB allocated. Relief is best effort and does not guarantee a particular footprint reduction.
+
+The audit covered Sidebar, UI including CommandBar, Compact, GlanceOverlayView, TabOverview, and Toasts:
+
+- Unchanged after review: CommandBar, compact sidebar plate, and toast shadows retain their original alpha-derived shapes. The proposed circular rounded shadow paths were reverted. CommandBar changes size during presentation; a static model-layer path would not track animated bounds. Compact changes width during reveal/layout, so keeping its original shadow avoids path/geometry synchronization risks. Toast appearance uses a layer transform rather than a bounds animation, but its backdrop, like the compact plate and CommandBar, uses continuous corners. A circular rounded path is not an exact match, and no visual comparison established that the difference was imperceptible. Retaining the original shadows preserves appearance and removes the new path construction entirely, including at empty or undersized bounds.
+- Fixed: the overview removes its cards and tab references after dismissal, releasing card-owned decoded thumbnails even when its controller stays alive. Its backdrop was already detached on dismissal.
+- Unchanged: sidebar transition stills are removed and released by `discardStill` and `discardNeighbourStill`. Full-window images are transient animation assets, not a persistent image cache.
+- Unchanged: Glance already updates its card shadow path and detaches embedded pages. Its small confirmation-button shadow is not a large resizing surface.
+- Unchanged: ToastPresenter already removes and releases dismissed toast views, including their visual-effect backdrops.
+- Unchanged: compact mode reparents the real sidebar into a material plate; that hierarchy supports hover reveal and transition animation. Rebuilding it for every hide would affect focus, constraints and animation. The sidebar content is removed from the plate and returned to its normal slot when compact presentation ends; the empty overlay is hidden.
+- Unchanged: CommandBar clears result rows on close but retains its small panel/control hierarchy for focus and anchor positioning. Removing its material independently would require rebuilding constraints during presentation. Sidebar popovers retain at most the most recent editor per category, with no full-window image cache.
+- Unchanged: content containers, row highlights and reorder shadows already have paths. Layer-backed containers support clipping, tint and animation. Removing their layers could change rendering.
+- Unchanged: TabSnapshotStore already captures at 480 points wide and limits decoded images to 24 MB and 30 entries. Overview cards can temporarily own images beyond that shared cache; dismissal now drops those owners.
+
+Session loading reads the JSON Data and decodes a snapshot while those input bytes remain alive. The Data is local to SessionStore.load and is not retained by BrowserSession. A small autorelease pool now drains temporary decoder objects before constructing tab models. This does not eliminate the inherent input-plus-output overlap or change the persistence format. No measured saving is claimed for this change.
+
+### Disposable launch measurement
+
+A debug executable built under `/tmp/barc-build-a2` was packaged under `/tmp/barc-a2-app/Barc.app` with the distinct bundle identifier `io.github.mcgri.Barc.MemoryA2`. HOME and CFFIXED_USER_HOME pointed to `/tmp/barc-a2-app/home`. The synthetic JSON held 70 `about:blank` tabs, no interactionState blobs, and was 7,024 bytes after application checkpointing. This used no installed-app profile. MallocStackLogging was enabled; its instrumentation changes memory use and these values are not a release-build benchmark.
+
+The first vmmap sample during launch reported 290.7 MB physical footprint and 432.6 MB peak. The WebKit malloc zone had 101.1 MB allocated and 144.3 MB dirty. At approximately 42 seconds its live allocation had fallen to 353 KB. At 2 minutes 3 seconds, vmmap reported 272.9 MB footprint, 432.6 MB peak, 353 KB live in WebKit Malloc and 20.4 MB dirty in that zone. The separate footprint tool reported 273 MB at that time. DefaultMallocZone had 230 KB allocated and about 9.3 MB dirty; stack logging routes much of the ordinary heap into its instrumentation zone, so that default-zone number cannot be compared directly with an uninstrumented run. The heap sample at about 24 seconds found 35.6 MB live across zones.
+
+Seven compiled filter-list artifacts appeared under the disposable profile's WebKit ContentRuleLists directory. ContentBlocker starts all active lists, converts each source into rules, encodes JSON and passes it to WKContentRuleListStore compilation. This is a strong startup-peak candidate: a large WebKit allocation burst occurred even with a tiny session and no state blobs. The measurement does not isolate compilation from other WebKit initialization, so it is not proof of exclusive attribution. ContentBlocking was left to its owning workstream. Arc import, existing history/favicon databases and installed extensions were not exercised by this fresh-profile run. The autorelease-pool change was compiled after the measured executable was copied; no before/after saving is claimed.
+
+Raw measurement files and the synthetic profile remain under `/tmp/barc-a2-app`; the disposable app was terminated after sampling. Both app and test-target compilation passed using `/tmp/barc-build-a2`; no test suite was run.
+
+## Background memory limits
+
+Settings → General → **Background tab memory limit** offers Off, 1 GB, 2 GB and 4 GB, defaulting to 2 GB. Each sweep counts measured background processes once and checks eligible tabs heaviest first, breaking ties by least recent visibility. Unknown attribution adds no memory charge and follows measured tabs in least-recently-used order. Budget sleeping waits at least two minutes after last visibility and stops once the remaining measured footprint is within budget. Protected pages and complete split groups retain the existing safety checks.
+
+A background tab with an unshared process using at least 500 MiB can sleep after three minutes when its ordinary timeout is longer. Shared or unavailable measurements do not trigger this shorter timeout. Sampling uses the existing resource monitor during the coalesced sweep; no additional sampling timer is created.

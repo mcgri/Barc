@@ -18,6 +18,7 @@ final class Settings {
         static let restoresSession = "restoresSessionOnLaunch"
         static let profileHibernationMinutes = "profileHibernationMinutes"
         static let suspensionMinutes = "tabSuspensionMinutes"
+        static let backgroundMemoryGB = "backgroundMemoryGB"
         static let archiveHours = "tabArchiveHours"
         static let idleBadge = "tabIdleBadgeMode"
         static let compactMode = "compactModeEnabled"
@@ -190,6 +191,7 @@ final class Settings {
             Key.searchEngine: SearchEngine.duckDuckGo.id,
             Key.restoresSession: true,
             Key.suspensionMinutes: 10,
+            Key.backgroundMemoryGB: 2,
             Key.profileHibernationMinutes: 1,
             // Off. Archiving removes rows the user did not ask to remove, so it
             // is the one tab-lifecycle setting that has to be switched on
@@ -898,6 +900,18 @@ final class Settings {
     /// a tab, and offering "archive after 5 minutes" would invite people to
     /// configure their tabs into disappearing.
     static let archiveChoices: [Int] = [0, 12, 24, 72, 168, 720]
+    /// Choices offered in Settings. Zero disables the background memory budget.
+    static let backgroundMemoryChoices = [0, 1, 2, 4]
+    /// Background process memory limit in gigabytes. Zero means no limit.
+    var backgroundMemoryGB: Int {
+        get { defaults.integer(forKey: Key.backgroundMemoryGB) }
+        set { defaults.set(newValue, forKey: Key.backgroundMemoryGB) }
+    }
+    /// Background memory limit in bytes, or nil when the budget is off.
+    var backgroundMemoryBudget: UInt64? {
+        backgroundMemoryGB > 0 ? UInt64(backgroundMemoryGB) * 1024 * 1024 * 1024 : nil
+    }
+
 
     var tabArchiveHours: Int {
         get { defaults.integer(forKey: Key.archiveHours) }
