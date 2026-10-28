@@ -1,4 +1,4 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: application identity, branding, fork configuration and website, 2026-10-28.
 import AppKit
 
 /// Barc identity, upstream attribution, license notices and update status.
@@ -66,7 +66,8 @@ final class AboutSettingsViewController: NSViewController {
         form.addRow("Browser", Self.paragraph(Copy.browser), alignment: .top)
         form.addRow("Engine", Self.value("WebKit, the system's own, shared with Safari (security patches arrive with macOS updates)"))
         form.addRow("Built with", Self.value("Swift 6 and AppKit; derived from Kylmora"))
-        form.addRow("Project", Self.link("github.com/mcgri/Barc", url: AppInfo.website))
+        form.addRow("Website", Self.link("barc.cc", url: AppInfo.website))
+        form.addRow("Source code", Self.link("github.com/mcgri/Barc", url: AppInfo.repository))
         form.addRow("Original browser", Self.link("Kylmora", url: AppInfo.upstreamWebsite))
         form.addRow("License", Self.link("Apache License 2.0", url: AppInfo.licenseURL))
         form.addRow("Notices", Self.link("Copyright and attribution", url: AppInfo.noticeURL))

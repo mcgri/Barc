@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Modified for Barc: application identity, branding and fork configuration, 2026-10-23. -->
+<!-- Modified for Barc: application identity, branding, fork configuration and website, 2026-10-28. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>pfm_app_url</key>
-	<string>https://github.com/mcgri/Barc</string>
+	<string>https://barc.cc</string>
 	<key>pfm_description</key>
 	<string>Barc Browser Enterprise Management Settings</string>
 	<key>pfm_domain</key>

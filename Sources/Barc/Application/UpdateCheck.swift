@@ -1,20 +1,21 @@
-// Modified for Barc: application identity, branding and fork configuration, 2026-10-23.
+// Modified for Barc: application identity, branding, fork configuration and website, 2026-10-28.
 import Foundation
 
 /// The running app's identity, read from the bundle.
 enum AppInfo {
     static let name = "Barc"
-    static let website = URL(string: "https://github.com/mcgri/Barc")!
+    static let website = URL(string: "https://barc.cc")!
+    static let repository = URL(string: "https://github.com/mcgri/Barc")!
     static let upstreamWebsite = URL(string: "https://github.com/kylmora/kylmora")!
 
     static var licenseURL: URL {
         Bundle.main.url(forResource: "LICENSE", withExtension: nil)
-            ?? website.appending(path: "blob/main/LICENSE")
+            ?? repository.appending(path: "blob/main/LICENSE")
     }
 
     static var noticeURL: URL {
         Bundle.main.url(forResource: "NOTICE", withExtension: nil)
-            ?? website.appending(path: "blob/main/NOTICE")
+            ?? repository.appending(path: "blob/main/NOTICE")
     }
 
     /// `CFBundleShortVersionString`, the version people see.
@@ -65,7 +66,7 @@ enum UpdateCheck {
     // A fork must not offer packages from its upstream browser's update feed.
     // Configure a Barc-owned feed when signed releases are available.
     static let feedURL: URL? = nil
-    static let unconfigured = "Barc updates are not configured yet. Builds and source are available at github.com/mcgri/Barc."
+    static let unconfigured = "Barc updates are not configured yet. New builds are announced at barc.cc and published at github.com/mcgri/Barc."
 
     struct Release: Decodable, Equatable {
         let version: String

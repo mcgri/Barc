@@ -38,7 +38,8 @@ struct BarcIdentityTests {
     func noUpstreamFeed() async {
         #expect(UpdateCheck.feedURL == nil)
         #expect(await UpdateCheck.run() == .unreachable(UpdateCheck.unconfigured))
-        #expect(AppInfo.website.absoluteString == "https://github.com/mcgri/Barc")
+        #expect(AppInfo.website.absoluteString == "https://barc.cc")
+        #expect(AppInfo.repository.absoluteString == "https://github.com/mcgri/Barc")
         #expect(SupportContact.issues.absoluteString == "https://github.com/mcgri/Barc/issues")
     }
 }

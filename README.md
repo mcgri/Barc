@@ -1,15 +1,56 @@
-<!-- Modified for Barc: application identity, purpose and legal documentation, 2026-10-28. -->
-# Barc
+<!-- Modified for Barc: application identity, purpose, website and legal documentation, 2026-10-28. -->
+<p align="center">
+  <a href="https://barc.cc"><img src="Resources/Icon/barc-icon.png" width="128" height="128" alt="Barc app icon"></a>
+</p>
 
-Barc is a browser I build for myself. What matters to me is whether I like using it.
+<h1 align="center">Barc</h1>
 
-My goal is to reduce the browser's footprint while maintaining the original Arc feel. I'm still too lazy, and maybe too old, to get used to a new way of browsing.
+<p align="center"><strong>Too lazy to learn a new browser. So I built one.</strong></p>
 
-Some things, including passkeys, aren't working in this private build yet. I'll get to them eventually. I hope.
+<p align="center">
+  <a href="https://barc.cc">barc.cc</a> ·
+  <a href="https://github.com/mcgri/Barc/releases/tag/v0.0.6">Download 0.0.6</a> ·
+  <a href="#build-and-run">Build from source</a> ·
+  <a href="https://github.com/mcgri/Barc/issues">Issues and ideas</a>
+</p>
+
+<p align="center">
+  macOS 14+ · Apple Silicon &amp; Intel · WebKit · 0 bytes of telemetry · Apache-2.0
+</p>
+
+[![Barc: too lazy to learn a new browser, so I built one.](https://barc.cc/og.png)](https://barc.cc)
+
+## R.I.P. Arc
+
+Arc didn't crash. It was just forgotten. No dramatic shutdown, no farewell tour: the updates got quieter, and the sidebar I loved slowly became a museum piece.
+
+The sensible move was to learn a new browser. That takes about two weeks of retraining your hands and grumbling. I'm too lazy, and maybe too old, to get used to a new way of browsing. So I built my own instead, which also takes about two weeks. It did not take two weeks.
+
+Barc is a browser I build for myself. What matters to me is whether I like using it. My goal is to reduce the browser's footprint while keeping the original Arc feel: vertical sidebar, Spaces, profiles, favourites, folders and archives.
 
 Zero monitoring. No built-in AI. You already have your own GPT subscriptions :D
 
-I forked [Kylmora](https://github.com/kylmora/kylmora) to get there. You're welcome to use Barc, share feedback, contribute, or fork it and make it your own.
+Some things, including passkeys, aren't working in this private build yet. I'll get to them eventually. I hope.
+
+You're welcome to use Barc, share feedback, contribute, or fork it and make it your own. The jokes and the stats live at **[barc.cc](https://barc.cc)**.
+
+## Numbers, with straight faces
+
+| | |
+|---|---|
+| **Engine** | WebKit, the engine macOS already ships. No private copy of Chromium riding along. |
+| **App size** | About 9.6 MB (local build). Smaller than most landing-page hero videos. |
+| **Telemetry** | 0 bytes. I'm the only user. I know what I clicked. I was there. |
+| **Built-in AI** | None. |
+| **Inactive profiles** | Pages start hibernating after 1 minute. Drafts, calls and downloads stay awake. |
+| **Background tabs** | 2 GB memory limit by default. The heaviest tabs sleep first, like at a party. |
+| **Generic element hiding off** | Saves about 18–19 MB per web process. Measured, not vibes. |
+| **Passwords** | Local AES-256-GCM vault. It doesn't sync to anyone's cloud. Not even mine. |
+| **Analytics stack** | A bathroom mirror. User looks tired, but engaged. Retention: 100%. |
+
+## Where Barc comes from
+
+I forked [Kylmora](https://github.com/kylmora/kylmora) to get there: an open-source, native macOS browser on WebKit. Then I bent it until it felt like Arc again.
 
 Original browser: [Kylmora source code](https://github.com/kylmora/kylmora) and [kylmora.com](https://kylmora.com).
 
@@ -20,7 +61,7 @@ Barc started with Kylmora's source code and full Git history, preserving the ori
 Download [Barc 0.0.6](https://github.com/mcgri/Barc/releases/tag/v0.0.6) for **Apple Silicon or Intel Macs running macOS 14 or later**.
 
 - Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
-- Version 0.0.6 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Version 0.0.6 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch (Apple doesn't know me either); see [Apple's guidance](https://support.apple.com/en-us/102445).
 - Browser profiles and migration data are not included. Import your own data after opening Barc.
 
 ## Build and run
@@ -48,9 +89,13 @@ The output is in `build/release/`, with checksums and release notes. Version tag
 
 ## Memory and sleeping profiles
 
+Tabs nap more than I do. Here is exactly when, and what never gets put to bed.
+
 Inactive profiles begin hibernating eligible pages after one minute. Drafts, calls, transfers, picture-in-picture, and Keep Awake pages stay open. Login storage and sidebar organization are kept, and only the page or split you return to reloads. Change the timeout under Settings → General → **Hibernate inactive profiles after**. When background tabs use more than the **Background tab memory limit** (2 GB by default), the heaviest ones sleep first; a background tab using 500 MB or more sleeps after three minutes. Turning off Settings → Advanced Blocking → **Hide generic page elements** saves about 18–19 MB per web process. The [memory-efficiency notes](docs/memory-efficiency.md) explain the protections, other performance changes, and verification.
 
 ## Import from Arc
+
+Bring your whole Arc life, even the 400 tabs you swore you'd read.
 
 Open Settings → Import → **Import from Arc…**, choose `~/Library/Application Support/Arc`, then review the detected profiles and data categories. The Arc action under Settings → Sync opens the same importer.
 
@@ -78,6 +123,18 @@ Imported passwords use Barc's encrypted local vault. This is a one-time copy, wi
 
 Saved-account suggestions work on email-first and password login steps. Click the login field, or press the down arrow while it is focused, to choose an account. Suggestions use only the current profile and leave keyboard focus in the field. Typing dismisses them, and no popup appears when there are no saved logins.
 
+## Release notes, but honest
+
+It's version 0.0.6. Let's manage expectations.
+
+- **Passkeys:** not working in this private build yet. The current build does not have Apple's browser permission for iCloud passkeys or the iCloud Passwords extension.
+- **Notarization:** builds are ad-hoc signed, so macOS gives Barc a suspicious look on first launch.
+- **Updates:** no automatic release feed yet, so nothing phones home. New versions appear at [barc.cc](https://barc.cc) and in [Releases](https://github.com/mcgri/Barc/releases), like it's 2009.
+- **Some Arc data stays in Arc:** extensions, IndexedDB, payment cards, passkeys and back/forward stacks can't come across. Some sites will ask you to sign in again.
+- **Support team:** me. Response times depend on mood, weather and whether the coffee worked.
+
+Per-release details live in [docs/releases](docs/releases).
+
 ## Barc identity
 
 - App and executable: `Barc`
@@ -97,7 +154,9 @@ The icon source is [Resources/Icon/barc-icon.png](Resources/Icon/barc-icon.png).
 
 ## Updates and support
 
-Barc has no automatic release feed configured yet. Automatic checks default to off, and the update checker returns an explanatory status without contacting Kylmora. Source and future builds belong in [this repository](https://github.com/mcgri/Barc).
+The website is [barc.cc](https://barc.cc). Barc's **Help → Barc Website** menu item and Settings → About link there; source, releases and issues stay in [this repository](https://github.com/mcgri/Barc).
+
+Barc has no automatic release feed configured yet. Automatic checks default to off, and the update checker returns an explanatory status without contacting Kylmora or anyone else.
 
 Reports and feature requests open editable drafts in [Barc's GitHub issues](https://github.com/mcgri/Barc/issues). Nothing is published until the user submits it on GitHub. Reports do not go to Kylmora's contact service. See [SECURITY.md](SECURITY.md) for vulnerability reporting.
 
@@ -125,3 +184,5 @@ Original browser copyright notice: © 2026 Kylmora · kylmora.com. Barc-specific
 Barc is not an official Kylmora release and is not affiliated with or endorsed by Kylmora, Arc or The Browser Company. Their names and marks belong to their respective owners. The Apache license does not grant rights to use upstream trademarks. The Barc B icon is separate artwork inspired by Arc's visual style; Arc's original icon is not bundled as Barc's icon.
 
 The software is provided without warranties, subject to the terms in `LICENSE`. These notes supplement the license and do not replace or change it.
+
+Barc is not affiliated with The Browser Company or Arc. Arc is a trademark of its owner; Barc just misses it.
