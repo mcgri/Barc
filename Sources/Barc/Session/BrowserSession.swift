@@ -106,7 +106,8 @@ final class BrowserSession {
             ? .shared : LiveFolderStore(fileURL:sessionStore.fileURL.deletingPathExtension().appendingPathExtension("live-folders.json"))
         self.liveFolders = LiveFolderManager(store:liveStore)
 
-        let restored = settings.restoresSession ? sessionStore.load() : nil
+        // Drain temporary decoder objects before constructing the tab models.
+        let restored = settings.restoresSession ? autoreleasepool { sessionStore.load() } : nil
 
         if let restored, let spaces = Self.spaces(from: restored), !spaces.isEmpty {
             self.spaces = spaces

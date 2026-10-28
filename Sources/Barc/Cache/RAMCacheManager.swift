@@ -27,6 +27,10 @@ public final class RAMCacheManager {
     }
 
 
+    nonisolated static func memoryCapacity(for mode: CacheMode) -> Int {
+        mode == .disabled ? 0 : 4 * 1024 * 1024
+    }
+
     // MARK: - Status & Inspection
 
     public var isRAMOnly: Bool {
@@ -55,22 +59,20 @@ public final class RAMCacheManager {
     /// Configures `URLCache.shared` and triggers disk cache cleanup according to current settings.
     public func applyCacheConfiguration() {
         let mode = Settings.shared.cacheMode
-        let ramCapacityMB = Settings.shared.ramCacheCapacityMB
-        let ramBytes = ramCapacityMB * 1024 * 1024
 
         switch mode {
         case .standard:
-            // 64 MB memory, 500 MB disk
+            // URLSession resources only; WebKit manages its own memory cache.
             URLCache.shared = URLCache(
-                memoryCapacity: 64 * 1024 * 1024,
+                memoryCapacity: Self.memoryCapacity(for: mode),
                 diskCapacity: 500 * 1024 * 1024,
                 diskPath: nil
             )
 
         case .ramOnly:
-            // Configured RAM capacity, strictly 0 bytes on disk
+            // Bound auxiliary resource caching independently of WebKit.
             URLCache.shared = URLCache(
-                memoryCapacity: ramBytes,
+                memoryCapacity: Self.memoryCapacity(for: mode),
                 diskCapacity: 0,
                 diskPath: nil
             )
@@ -80,7 +82,7 @@ public final class RAMCacheManager {
         case .disabled:
             // 0 bytes memory, 0 bytes disk
             URLCache.shared = URLCache(
-                memoryCapacity: 0,
+                memoryCapacity: Self.memoryCapacity(for: mode),
                 diskCapacity: 0,
                 diskPath: nil
             )
@@ -178,7 +180,7 @@ public final class RAMCacheManager {
 
     public func formattedDiskUsage() -> String {
         if isRAMOnly {
-            return "0 KB (SSD writes disabled)"
+            return "Disk cache periodically cleared"
         }
         if isCacheDisabled {
             return "Disabled"
@@ -188,10 +190,10 @@ public final class RAMCacheManager {
 
     public func formattedSummary() -> String {
         if isCacheDisabled {
-            return "Cache disabled (Always network fetch)"
+            return "Auxiliary cache disabled; WebKit caches periodically cleared"
         }
         if isRAMOnly {
-            return "RAM: \(formattedMemoryUsage()) · Disk: 0 KB (Protected)"
+            return "RAM: \(formattedMemoryUsage()) · Disk cache periodically cleared"
         }
         return "RAM: \(formattedMemoryUsage()) · Disk: \(formattedDiskUsage())"
     }

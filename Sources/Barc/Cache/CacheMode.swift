@@ -5,31 +5,30 @@ import Foundation
 public enum CacheMode: String, CaseIterable, Codable, Sendable {
     /// Standard WebKit caching with disk persistence and volatile memory cache.
     case standard = "standard"
-    /// RAM-Only caching. Zero bytes written to SSD. All cached resources are held
-    /// strictly in volatile system memory and discarded on tab close or app exit.
+    /// Auxiliary memory caching with periodic WebKit disk-cache cleanup.
     case ramOnly = "ramOnly"
-    /// No caching. Always reload fresh content directly from the network.
+    /// Disable auxiliary caching and clear existing WebKit caches.
     case disabled = "disabled"
 
     public var title: String {
         switch self {
         case .standard:
-            return "Standard (Disk & RAM)"
+            return "Standard"
         case .ramOnly:
-            return "RAM-Only (Zero SSD writes)"
+            return "Reduced disk caching"
         case .disabled:
-            return "Disabled (Always fetch fresh)"
+            return "Minimal caching"
         }
     }
 
     public var summary: String {
         switch self {
         case .standard:
-            return "Caches pages and images to disk and RAM for fastest reloads across sessions."
+            return "Uses a 4 MB auxiliary memory cache and disk caching; WebKit manages page caching."
         case .ramOnly:
-            return "Keeps all cache in volatile system RAM only. Prevents SSD wear and leaves zero forensic disk traces."
+            return "Disables auxiliary disk caching and periodically clears WebKit disk caches. WebKit controls its memory cache and may write data between cleanups."
         case .disabled:
-            return "Bypasses all caches and always retrieves web resources directly from the network."
+            return "Disables auxiliary caching and clears WebKit caches when applied. WebKit may cache subsequent page loads."
         }
     }
 }

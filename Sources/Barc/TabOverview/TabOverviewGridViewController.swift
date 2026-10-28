@@ -166,6 +166,11 @@ final class TabOverviewGridViewController: NSViewController {
                 guard let self else { return }
                 self.view.removeFromSuperview()
                 self.cancellables.removeAll()
+                // Detached cards otherwise retain their decoded thumbnail images.
+                for card in self.cards { card.removeFromSuperview() }
+                self.cards.removeAll()
+                self.currentTabs.removeAll()
+                self.selectedIndex = nil
                 if let prev = self.previousFirstResponder {
                     self.view.window?.makeFirstResponder(prev)
                 }

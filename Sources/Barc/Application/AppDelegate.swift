@@ -49,6 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        MemoryRelief.shared.start()
         if SidebarReview.requested {
             AppPaths.ensureSupportDirectory()
             let session = SidebarReview.makeSession();self.session = session
