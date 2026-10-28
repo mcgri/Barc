@@ -17,10 +17,10 @@ Barc started with Kylmora's source code and full Git history, preserving the ori
 
 ## Download and install
 
-Download [Barc 0.0.5](https://github.com/mcgri/Barc/releases/tag/v0.0.5) for **Apple Silicon or Intel Macs running macOS 14 or later**.
+Download [Barc 0.0.6](https://github.com/mcgri/Barc/releases/tag/v0.0.6) for **Apple Silicon or Intel Macs running macOS 14 or later**.
 
 - Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
-- Version 0.0.5 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Version 0.0.6 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch; see [Apple's guidance](https://support.apple.com/en-us/102445).
 - Browser profiles and migration data are not included. Import your own data after opening Barc.
 
 ## Build and run
@@ -41,14 +41,14 @@ make test
 Local builds are ad-hoc signed. To create universal `.dmg` and `.pkg` installers locally:
 
 ```sh
-Tools/package-unsigned-release.sh 0.0.5
+Tools/package-unsigned-release.sh 0.0.6
 ```
 
 The output is in `build/release/`, with checksums and release notes. Version tags trigger the release workflow. It uses signed/notarized packaging when Barc's signing credentials are configured; otherwise it publishes installers explicitly marked as unnotarized.
 
 ## Memory and sleeping profiles
 
-Inactive profiles begin hibernating eligible pages after one minute. Drafts, calls, transfers, picture-in-picture, and Keep Awake pages stay open. Login storage and sidebar organization are kept, and only the page or split you return to reloads. Change the timeout under Settings → General → **Hibernate inactive profiles after**. The [memory-efficiency notes](docs/memory-efficiency.md) explain the protections, other performance changes, and verification.
+Inactive profiles begin hibernating eligible pages after one minute. Drafts, calls, transfers, picture-in-picture, and Keep Awake pages stay open. Login storage and sidebar organization are kept, and only the page or split you return to reloads. Change the timeout under Settings → General → **Hibernate inactive profiles after**. When background tabs use more than the **Background tab memory limit** (2 GB by default), the heaviest ones sleep first; a background tab using 500 MB or more sleeps after three minutes. Turning off Settings → Advanced Blocking → **Hide generic page elements** saves about 18–19 MB per web process. The [memory-efficiency notes](docs/memory-efficiency.md) explain the protections, other performance changes, and verification.
 
 ## Import from Arc
 
