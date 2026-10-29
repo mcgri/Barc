@@ -12,6 +12,9 @@ final class WebContentViewController: NSViewController {
     /// Cmd-F. Lazy because it subscribes to the session on `install`, which
     /// must not happen before there is a view to install into.
     private lazy var find = FindController(session: session)
+    /// The anti-fingerprinting switch floated over sites known to refuse it.
+    /// Lazy for the same reason as `find`.
+    private lazy var fingerprintingToggle = FingerprintingToggleController(session: session)
     /// Option-click a link to peek at it. Owns its own overlay over the page.
     private let glance = GlanceController()
     /// Toasts appear over the page, inset 8 points from its bottom-leading
@@ -157,6 +160,7 @@ final class WebContentViewController: NSViewController {
         super.viewDidLoad()
         container.onNewTab = { [weak self] in self?.onNewTab?() }
         find.install(in: container)
+        fingerprintingToggle.install(in: container)
         session.showToast = { [weak self] toast in self?.toasts.show(toast) }
         SiteSettings.shared.addChangeObserver { [weak self] in self?.updateTopBar() }
 

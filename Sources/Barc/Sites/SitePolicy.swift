@@ -10,8 +10,11 @@ import WebKit
 /// of those is a script Barc puts in the page: the behaviour scripts are
 /// added once per controller, and a one-line policy script carrying the
 /// resolved settings for the page's site is replaced on every main-frame
-/// navigation. The behaviour scripts read the policy when they are used,
-/// not when they load, so the order the two arrive in does not matter.
+/// navigation. Most behaviour scripts read the policy when they are used,
+/// but anti-fingerprinting and the hostile-behaviour blocker decide once, as
+/// they load, so the policy script is always the first script on the
+/// controller. Added after them, it arrived too late: both ran on every site
+/// whatever the setting said, and GoDaddy's sign-in refused Barc for it.
 ///
 /// Notifications and geolocation are provided, not just gated: the page's
 /// calls come to Barc over a message handler, and Barc answers them with the
@@ -72,13 +75,14 @@ final class SitePolicy: NSObject {
         }
         guard let data = try? JSONSerialization.data(withJSONObject: policy) else { return }
         let source = Self.policyPrefix + String(decoding: data, as: UTF8.self) + ";"
+        // WebKit runs document-start scripts in the order they were added, so
+        // the policy goes first. The other features that re-add scripts keep
+        // the rest in order, so it stays first after they run.
+        guard controller.userScripts.first?.source != source else { return }
         let others = controller.userScripts.filter { !$0.source.hasPrefix(Self.policyPrefix) }
-        guard others.count != controller.userScripts.count || !controller.userScripts.contains(where: { $0.source == source }) else {
-            return
-        }
         controller.removeAllUserScripts()
-        for script in others { controller.addUserScript(script) }
         controller.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        for script in others { controller.addUserScript(script) }
     }
 
     // MARK: - Notifications

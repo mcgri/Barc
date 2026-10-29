@@ -102,4 +102,24 @@ struct AntiFingerprintingTests {
         #expect(command?.title == "Toggle Anti-Fingerprinting Protection")
         #expect(command?.symbolName == "shield.lefthalf.filled")
     }
+
+    @Test("Known sites: the listed host and its subdomains, nothing else")
+    func knownSites() {
+        #expect(FingerprintingCompatibility.isKnown(URL(string: "https://sso.godaddy.com/?app=o365&realm=pass")))
+        #expect(FingerprintingCompatibility.isKnown(URL(string: "https://eu.sso.godaddy.com/login")))
+        #expect(FingerprintingCompatibility.isKnown(URL(string: "https://SSO.GoDaddy.com/")))
+        #expect(!FingerprintingCompatibility.isKnown(URL(string: "https://godaddy.com/")))
+        #expect(!FingerprintingCompatibility.isKnown(URL(string: "https://notsso.godaddy.com/")))
+        #expect(!FingerprintingCompatibility.isKnown(URL(string: "https://example.com/")))
+        #expect(!FingerprintingCompatibility.isKnown(nil))
+    }
+
+    @Test("The floating toggle is offered on known sites unless closed there or the protection is off everywhere")
+    func toggleHost() {
+        let url = URL(string: "https://sso.godaddy.com/login")
+        #expect(FingerprintingCompatibility.toggleHost(for: url, protectionEnabled: true, dismissed: []) == "sso.godaddy.com")
+        #expect(FingerprintingCompatibility.toggleHost(for: url, protectionEnabled: false, dismissed: []) == nil)
+        #expect(FingerprintingCompatibility.toggleHost(for: url, protectionEnabled: true, dismissed: ["sso.godaddy.com"]) == nil)
+        #expect(FingerprintingCompatibility.toggleHost(for: URL(string: "https://example.com/"), protectionEnabled: true, dismissed: []) == nil)
+    }
 }

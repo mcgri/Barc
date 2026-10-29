@@ -226,6 +226,43 @@ struct SitePolicyScriptTests {
         #expect(location == "deny")
     }
 
+    @Test("The policy script is the first on the controller, and stays first when it changes")
+    func policyRunsFirst() {
+        let file = FileManager.default.temporaryDirectory.appending(path: "barc-sites-\(UUID().uuidString).json")
+        let settings = SiteSettings(file: file)
+        let policy = SitePolicy(settings: settings)
+        let controller = WKUserContentController()
+        policy.attach(controller)
+        let count = controller.userScripts.count
+        policy.apply(for: URL(string: "https://site.example/")!, to: controller)
+        settings.update { $0.set("off", for: "other.example", in: .antiFingerprinting) }
+        policy.apply(for: URL(string: "https://other.example/")!, to: controller)
+        let scripts = controller.userScripts
+        #expect(scripts.count == count + 1)
+        #expect(scripts.first?.source.hasPrefix("window.__barcSite = ") == true)
+        #expect(scripts.first?.source.contains("\"antiFingerprinting\":\"off\"") == true)
+        #expect(scripts.filter { $0.source.hasPrefix("window.__barcSite = ") }.count == 1)
+    }
+
+    @Test("Anti-fingerprinting off for a site leaves the page's own readouts in place")
+    func antiFingerprintingOffReachesThePage() async throws {
+        // Which built-ins are still WebKit's own. Masked ones are Barc's
+        // functions, or getters defined on the object itself.
+        let probe = """
+            [Object.getOwnPropertyDescriptor(screen, 'availWidth') === undefined,
+             HTMLCanvasElement.prototype.toDataURL.toString().indexOf('[native code]') >= 0,
+             Event.prototype.preventDefault.toString().indexOf('[native code]') >= 0].join(',')
+            """
+        let protected = await page("<html><body></body></html>") { _ in }
+        #expect(try await protected.evaluateJavaScript(probe) as? String == "false,false,false")
+
+        let off = await page("<html><body></body></html>") {
+            $0.set("off", for: "site.example", in: .antiFingerprinting)
+            $0.set("off", for: "site.example", in: .blockHostileBehaviour)
+        }
+        #expect(try await off.evaluateJavaScript(probe) as? String == "true,true,true")
+    }
+
     @Test("Never auto-play refuses play() before any gesture")
     func autoplayRefused() async throws {
         let webView = await page("<html><body><video id=v></video></body></html>") {
