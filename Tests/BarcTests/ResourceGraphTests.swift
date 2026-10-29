@@ -201,7 +201,7 @@ struct ResourceSnapshotTests {
 @Suite("Task Manager button")
 @MainActor
 struct ActivityButtonTests {
-    @Test("The sidebar footer carries Downloads, Task Manager and Archive")
+    @Test("The sidebar carries Downloads, Task Manager and Archive")
     func footerHasActivityButton() {
         let session = TestSession.make().0
         let sidebar = SidebarViewController(session: session)

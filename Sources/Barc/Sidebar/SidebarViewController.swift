@@ -708,7 +708,7 @@ final class SidebarViewController: NSViewController {
                 DownloadManager.shared.showList()
             }
         ]
-        // The Task Manager sits beside Downloads rather than opposite Archive
+        // The Task Manager is listed beside Downloads rather than opposite Archive
         // because it belongs to the same family: a browser-wide window that is
         // about the browser, not about this space. It opens the same one as
         // Shift-Command-U -- the gauge is for the people who never learn the
@@ -723,6 +723,10 @@ final class SidebarViewController: NSViewController {
             )
         }
         diaFooter.setLeadingActions(actions)
+        // Shown after the window controls, where "why is the fan on" is asked.
+        let gauge = diaFooter.performanceButton
+        gauge?.setTintColors(enabled: Style.Colors.headerNavigationInk, disabled: Style.Colors.headerDisabledNavigationInk)
+        diaHeader.setAccessory(gauge)
     }
 
     private func findActiveMediaTab() -> Tab? {

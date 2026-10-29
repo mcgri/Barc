@@ -27,9 +27,12 @@ struct SidebarHeaderReferenceTests {
 
     @Test("The complete header renders with real window controls and browser navigation")
     func renderedHeader() throws {
+        // The measured reference has no performance gauge beside the lights.
+        let settings = Settings(defaults:UserDefaults(suiteName:"header-reference.\(UUID())")!)
+        settings.showsTaskManagerInSidebar = false
         let session = TestSession.make().0
         session.activeSpace.look.appearance = .light
-        let sidebar = SidebarViewController(session:session)
+        let sidebar = SidebarViewController(session:session,settings:settings)
         let bar = ContentTopBar()
         sidebar.installBrowserControls([bar])
         bar.addressField.show(display:"mail.google.com",url:URL(string:"https://mail.google.com/"))

@@ -17,7 +17,7 @@ final class TaskManagerSettingsViewController: NSViewController, SettingsWidePan
     private let session: BrowserSession
     private let settings: Settings
     private let sidebarSwitch = NSButton(
-        checkboxWithTitle: "Show the performance gauge beside Home at the bottom of the sidebar",
+        checkboxWithTitle: "Show the performance gauge beside the window controls at the top of the sidebar",
         target: nil,
         action: nil
     )

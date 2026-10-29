@@ -104,7 +104,10 @@ struct ToolbarLayoutTests {
     @Test("Sidebar navigation follows the Arc reference while keeping utilities in the same row", arguments: [190.0, 214.0, 228.0, 300.0])
     func sidebarNavigation(width: Double) throws {
         let bar = ContentTopBar()
-        let sidebar = SidebarViewController(session: TestSession.make().0)
+        // The Arc reference has no performance gauge beside the window controls.
+        let settings = Settings(defaults: UserDefaults(suiteName: "toolbar-layout.\(UUID())")!)
+        settings.showsTaskManagerInSidebar = false
+        let sidebar = SidebarViewController(session: TestSession.make().0, settings: settings)
         sidebar.installBrowserControls([bar])
         let host = UITestSupport.host(sidebar.view, width: width, height: 800)
         host.layoutSubtreeIfNeeded()

@@ -1,11 +1,18 @@
 // Modified for Barc: Arc-style shared traffic-light and navigation row, 2026-10-24.
+// Modified for Barc: the performance gauge beside the window controls, 2026-10-29.
 import AppKit
 
 /// Window controls and navigation share the top band. The Space label is hosted below Favorites.
+///
+/// An accessory -- the performance gauge -- sits straight after the window
+/// controls, ahead of navigation. Navigation moves along for it, and drops
+/// to its own row that much sooner as the sidebar narrows.
 @MainActor
 final class SidebarHeaderView: NSView {
     let spaceButton = MenuLabelButton()
     private var navigation: NSView?
+    private var accessory: NSView?
+    private var accessoryLeading: NSLayoutConstraint?
     private var navigationLeading: NSLayoutConstraint?
     private var navigationTop: NSLayoutConstraint?
     private var headerHeight: NSLayoutConstraint!
@@ -62,9 +69,31 @@ final class SidebarHeaderView: NSView {
         needsLayout = true
     }
 
+    /// Puts `view`, 24 points square, after the window controls; nil takes
+    /// the current one away.
+    func setAccessory(_ view: NSView?) {
+        accessory?.removeFromSuperview()
+        accessory = view
+        accessoryLeading = nil
+        if let view {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+            let leading = view.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Style.Metrics.trafficLightWidth)
+            accessoryLeading = leading
+            NSLayoutConstraint.activate([leading, view.topAnchor.constraint(equalTo: topAnchor, constant: 12)])
+        }
+        needsLayout = true
+    }
+
+    /// The accessory and the gap after it.
+    private var accessoryWidth: CGFloat { accessory == nil ? 0 : 24 + 3 }
+
     override func layout() {
-        let compact = hostsTrafficLights && navigation != nil && navigation?.isHidden != true && bounds.width < 214
-        navigationLeading?.constant = hostsTrafficLights && !compact ? Style.Metrics.trafficLightWidth : Style.Metrics.sidebarInset
+        let compact = hostsTrafficLights && navigation != nil && navigation?.isHidden != true
+            && bounds.width < 214 + accessoryWidth
+        let lead = hostsTrafficLights ? Style.Metrics.trafficLightWidth : Style.Metrics.sidebarInset
+        accessoryLeading?.constant = lead
+        navigationLeading?.constant = compact ? Style.Metrics.sidebarInset : lead + accessoryWidth
         navigationTop?.constant = compact ? Style.Metrics.titlebarHeight : 12
         headerHeight.constant = compact ? Style.Metrics.titlebarHeight + (navigation?.frame.height ?? 24) : Style.Metrics.titlebarHeight
         super.layout()

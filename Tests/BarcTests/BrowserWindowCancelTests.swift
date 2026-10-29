@@ -14,6 +14,11 @@ struct BrowserWindowCancelTests {
         let kept = session.newTab(url: URL(string: "https://kept.example/")!)
         kept.setKeepsInSidebar(true)
         session.selectTab(ordinary)
+        // Measured without the performance gauge, which pushes navigation to
+        // its own row at the default width.
+        let showsGauge = Settings.shared.showsTaskManagerInSidebar
+        Settings.shared.showsTaskManagerInSidebar = false
+        defer { Settings.shared.showsTaskManagerInSidebar = showsGauge }
         let controller = BrowserWindowController(session: session)
         let window = try #require(controller.window)
         window.isReleasedWhenClosed = false
