@@ -1,6 +1,9 @@
 import Foundation
 
-/// Sites known to refuse Barc while anti-fingerprinting is on.
+/// Sites known to refuse Barc while its anti-fingerprinting script is on.
+///
+/// Only consulted where WebKit's own protection is unavailable and Barc
+/// falls back to the script (`NativeFingerprintingProtection`).
 ///
 /// Bot checks such as Akamai's read the very values the protection masks
 /// (canvas, audio, WebGL, screen, hardware) and refuse a browser whose

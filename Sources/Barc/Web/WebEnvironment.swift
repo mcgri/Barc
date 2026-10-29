@@ -170,6 +170,10 @@ final class WebEnvironment {
         configuration.preferences.isElementFullscreenEnabled = true
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        // WebKit's own fingerprinting protection, where this WebKit has it.
+        // Every page made here starts with the global choice; a tab's pages
+        // get their site's choice on each navigation (`Tab`).
+        NativeFingerprintingProtection.set(settings.antiFingerprintingEnabled, in: configuration.defaultWebpagePreferences)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
 
         PageHibernationGuard.shared.attach(configuration.userContentController)

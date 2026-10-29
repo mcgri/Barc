@@ -1352,6 +1352,9 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
             // The per-site choices that ride on the navigation itself.
             preferences.allowsContentJavaScript = sites.allowsJavaScript(for: url)
             preferences.preferredContentMode = sites.prefersMobile(for: url) ? .mobile : .desktop
+            NativeFingerprintingProtection.set(
+                Settings.shared.antiFingerprintingEnabled && sites.usesAntiFingerprinting(for: url), in: preferences
+            )
             // A per-site choice first, then the space's, then WebKit's own.
             webView.customUserAgent = sites.userAgent(for: url) ?? tab?.overrides?.userAgent
             ContentBlocker.shared.applySiteChoice(for: url, to: webView.configuration.userContentController)

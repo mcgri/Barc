@@ -4,6 +4,10 @@ import Combine
 /// Floats the anti-fingerprinting switch over pages on sites known to refuse
 /// the protection (`FingerprintingCompatibility`).
 ///
+/// Only where Barc falls back to its anti-fingerprinting script: WebKit's own
+/// protection (`NativeFingerprintingProtection`) leaves nothing for those
+/// sites to refuse, so with it the switch has nothing to offer.
+///
 /// The switch writes the site's own setting, the same one the Websites pane
 /// and the page's Site Settings show, and reloads the tab: the protection is
 /// decided as the page's scripts load, so a page already open keeps what it
@@ -62,7 +66,9 @@ final class FingerprintingToggleController {
     private func refresh() {
         let url = activeURL
         guard let host = FingerprintingCompatibility.toggleHost(
-            for: url, protectionEnabled: settings.antiFingerprintingEnabled, dismissed: dismissed
+            for: url,
+            protectionEnabled: settings.antiFingerprintingEnabled && !NativeFingerprintingProtection.isAvailable,
+            dismissed: dismissed
         ) else {
             setVisible(false)
             return

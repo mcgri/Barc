@@ -28,14 +28,22 @@ final class SitePolicy: NSObject {
 
     private let settings: SiteSettings
     private let centre: WebNotificationCentre
+    /// WebKit's own fingerprinting protection does the anti-fingerprinting
+    /// script's job, so where it is available the script stands down.
+    private let nativeFingerprinting: Bool
     private let controllers = NSHashTable<WKUserContentController>.weakObjects()
     private let location = LocationProvider()
     /// The tab behind a web view, for reports that belong to a tab.
     var tabResolver: ((WKWebView) -> Tab?)?
 
-    init(settings: SiteSettings = .shared, centre: WebNotificationCentre = .shared) {
+    init(
+        settings: SiteSettings = .shared,
+        centre: WebNotificationCentre = .shared,
+        nativeFingerprinting: Bool = NativeFingerprintingProtection.isAvailable
+    ) {
         self.settings = settings
         self.centre = centre
+        self.nativeFingerprinting = nativeFingerprinting
     }
 
     /// Adds the behaviour scripts and the message handler once.
@@ -46,6 +54,10 @@ final class SitePolicy: NSObject {
         for script in SiteBehaviourScripts.all {
             controller.addUserScript(script)
         }
+        // The defaults until a navigation brings a site's own values. A web
+        // view that never goes through a tab -- Glance, panels -- would
+        // otherwise run every script with no policy at all.
+        apply(for: nil, to: controller)
     }
 
     /// Calculates a deterministic seed for a given space identity.
@@ -67,7 +79,7 @@ final class SitePolicy: NSObject {
         policy["canvasNoise"] = Settings.shared.canvasNoiseEnabled
         policy["audioNoise"] = Settings.shared.audioNoiseEnabled
         policy["hardwareMasking"] = Settings.shared.hardwareMaskingEnabled
-        if !Settings.shared.antiFingerprintingEnabled {
+        if !Settings.shared.antiFingerprintingEnabled || nativeFingerprinting {
             policy["antiFingerprinting"] = "off"
         }
         if !Settings.shared.blockHostilePageBehaviour {

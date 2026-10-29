@@ -189,7 +189,9 @@ struct SitePolicyScriptTests {
         let file = FileManager.default.temporaryDirectory.appending(path: "barc-sites-\(UUID().uuidString).json")
         let settings = SiteSettings(file: file)
         settings.update(configure)
-        let policy = SitePolicy(settings: settings)
+        // These tests are about Barc's scripts, so the anti-fingerprinting
+        // script runs even where WebKit's own protection would replace it.
+        let policy = SitePolicy(settings: settings, nativeFingerprinting: false)
         let configuration = WKWebViewConfiguration()
         policy.attach(configuration.userContentController)
         let url = URL(string: "https://site.example/")!
@@ -233,12 +235,14 @@ struct SitePolicyScriptTests {
         let policy = SitePolicy(settings: settings)
         let controller = WKUserContentController()
         policy.attach(controller)
+        // Attaching brings the default policy, first, before any navigation.
+        #expect(controller.userScripts.first?.source.hasPrefix("window.__barcSite = ") == true)
         let count = controller.userScripts.count
         policy.apply(for: URL(string: "https://site.example/")!, to: controller)
         settings.update { $0.set("off", for: "other.example", in: .antiFingerprinting) }
         policy.apply(for: URL(string: "https://other.example/")!, to: controller)
         let scripts = controller.userScripts
-        #expect(scripts.count == count + 1)
+        #expect(scripts.count == count)
         #expect(scripts.first?.source.hasPrefix("window.__barcSite = ") == true)
         #expect(scripts.first?.source.contains("\"antiFingerprinting\":\"off\"") == true)
         #expect(scripts.filter { $0.source.hasPrefix("window.__barcSite = ") }.count == 1)

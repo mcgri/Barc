@@ -119,7 +119,11 @@ final class PrivacySettingsViewController: NSViewController {
             box.action = #selector(antiFingerprintingChanged)
             form.addRow("", box)
         }
-        form.addNote("Prevents tracking scripts from fingerprinting your device through Canvas, WebGL, AudioContext, or hardware specs. Each Space uses independent seeded noise.")
+        if NativeFingerprintingProtection.isAvailable {
+            form.addNote("Uses WebKit's own fingerprinting protection, the one Safari uses: Canvas and AudioContext readouts get noise and the screen reports its full size, without changing the page's scripts, so sign-in checks that refuse altered browsers still accept Barc. WebKit chooses the noise, so the three options above do not apply.")
+        } else {
+            form.addNote("Prevents tracking scripts from fingerprinting your device through Canvas, WebGL, AudioContext, or hardware specs. Each Space uses independent seeded noise.")
+        }
 
         form.addSection("Content blocker")
         for (control, selector) in [
@@ -212,7 +216,9 @@ final class PrivacySettingsViewController: NSViewController {
         audioNoiseCheckbox.state = settings.audioNoiseEnabled ? .on : .off
         hardwareMaskingCheckbox.state = settings.hardwareMaskingEnabled ? .on : .off
 
-        let fpActive = settings.antiFingerprintingEnabled
+        // The three options shape Barc's script; WebKit's own protection
+        // has no such switches.
+        let fpActive = settings.antiFingerprintingEnabled && !NativeFingerprintingProtection.isAvailable
         canvasNoiseCheckbox.isEnabled = fpActive
         audioNoiseCheckbox.isEnabled = fpActive
         hardwareMaskingCheckbox.isEnabled = fpActive
@@ -225,7 +231,9 @@ final class PrivacySettingsViewController: NSViewController {
         settings.canvasNoiseEnabled = canvasNoiseCheckbox.state == .on
         settings.audioNoiseEnabled = audioNoiseCheckbox.state == .on
         settings.hardwareMaskingEnabled = hardwareMaskingCheckbox.state == .on
-        let fpActive = settings.antiFingerprintingEnabled
+        // The three options shape Barc's script; WebKit's own protection
+        // has no such switches.
+        let fpActive = settings.antiFingerprintingEnabled && !NativeFingerprintingProtection.isAvailable
         canvasNoiseCheckbox.isEnabled = fpActive
         audioNoiseCheckbox.isEnabled = fpActive
         hardwareMaskingCheckbox.isEnabled = fpActive
