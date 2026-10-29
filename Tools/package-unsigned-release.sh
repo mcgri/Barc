@@ -59,7 +59,7 @@ hdiutil verify "$out/$stem.dmg"
 cat > "$out/RELEASE-NOTES.md" <<NOTES
 # Barc $version
 
-Barc is a personal fork of [Kylmora](https://github.com/kylmora/kylmora), built for my own taste. My goal is to reduce the browser's footprint while maintaining the original Arc feel.
+Barc is a personal browser, built for my own taste. My goal is to reduce the browser's footprint while maintaining the original Arc feel.
 
 $(if [[ -f "docs/releases/$version.md" ]]; then cat "docs/releases/$version.md"; fi)
 
@@ -83,6 +83,6 @@ This release is **ad-hoc signed and not notarized by Apple**. The installer pack
 
 Browser profiles, browsing history, saved passwords, cookies and local migration captures are **not bundled**. Automatic updates are not configured yet; download updates from this release page.
 
-The source is licensed under Apache License 2.0. Original Kylmora notices and third-party licenses are included in the app. This is an independent fork, with no affiliation with Kylmora, Arc or The Browser Company.
+The source is licensed under Apache License 2.0. Original notices and third-party licenses are included in the app. Barc has no affiliation with Arc or The Browser Company.
 NOTES
 printf 'Installers ready in %s\n' "$out"
