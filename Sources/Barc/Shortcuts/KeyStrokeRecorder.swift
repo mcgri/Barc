@@ -12,13 +12,21 @@ final class KeyStrokeRecorder {
     }
 
     private var monitor: Any?
+    /// Weak, so a recorder that goes away mid-recording does not leave the
+    /// dispatcher standing aside.
+    private static weak var listening: KeyStrokeRecorder?
 
     var isRecording: Bool { monitor != nil }
+
+    /// Whether any recorder is listening: the shortcut dispatcher stands
+    /// aside so the stroke is recorded rather than performed.
+    static var isAnyRecording: Bool { listening?.isRecording == true }
 
     /// Starts listening. `onStroke` gets each acceptable stroke and returns
     /// whether recording should stop; `onCancel` runs for Escape.
     func start(onStroke: @escaping (Stroke) -> Bool, onCancel: @escaping () -> Void) {
         stop()
+        Self.listening = self
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let keyCode = event.keyCode
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
@@ -42,6 +50,7 @@ final class KeyStrokeRecorder {
     func stop() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
+        if Self.listening === self { Self.listening = nil }
     }
 
     /// Whether a stroke can be a shortcut on its own: it has a modifier, or

@@ -404,8 +404,8 @@ final class ShortcutManager {
             title: "Copy Visible Area to Clipboard",
             category: .tools,
             selector: #selector(BrowserWindowController.copyVisibleAreaToClipboard(_:)),
-            defaultKey: "3",
-            defaultModifiers: [.command, .shift, .control]
+            defaultKey: "w",
+            defaultModifiers: [.option]
         ),
         ShortcutDefinition(
             id: "capture-full-page",
@@ -420,8 +420,8 @@ final class ShortcutManager {
             title: "Copy Full Page to Clipboard",
             category: .tools,
             selector: #selector(BrowserWindowController.copyFullPageToClipboard(_:)),
-            defaultKey: "4",
-            defaultModifiers: [.command, .shift, .control]
+            defaultKey: "q",
+            defaultModifiers: [.option]
         ),
         ShortcutDefinition(
             id: "toggle-reader-mode",
@@ -547,14 +547,25 @@ final class ShortcutManager {
             guard selector != nil || isCommand else { return nil }
             return Binding(id: id, key: custom.key, modifiers: custom.modifiers, secondKey: custom.secondKey, selector: selector)
         }
-        // Web content can claim modified arrows before menu key equivalents.
-        // Route sidebar traversal before the page while preserving remaps/clears.
-        let navigation = ["next-tab","previous-tab","next-space","previous-space"].compactMap { id -> Binding? in
-            guard !customBindings.contains(where:{ $0.id == id }),let shortcut = effectiveShortcut(for:id),
-                  !shortcut.key.isEmpty,let selector = definition(for:id)?.selector else { return nil }
-            return Binding(id:id,key:shortcut.key,modifiers:shortcut.modifiers,secondKey:nil,selector:selector)
+        // Web content can claim modified arrows before menu key equivalents,
+        // and a key with only ⌥ or ⇧ is a character to a text field or a page
+        // before a menu sees it (⌥Q types œ). Route both ahead of the page
+        // while preserving remaps/clears.
+        let navigation: Set<String> = ["next-tab","previous-tab","next-space","previous-space"]
+        let early = definitions.compactMap { def -> Binding? in
+            guard !customBindings.contains(where:{ $0.id == def.id }),let shortcut = effectiveShortcut(for:def.id),
+                  !shortcut.key.isEmpty else { return nil }
+            guard navigation.contains(def.id) || Self.isTyped(shortcut.modifiers) else { return nil }
+            return Binding(id:def.id,key:shortcut.key,modifiers:shortcut.modifiers,secondKey:nil,selector:def.selector)
         }
-        return customBindings+navigation
+        return customBindings+early
+    }
+
+    /// Whether a shortcut's keys would type: some modifier, but neither ⌘
+    /// nor ⌃.
+    static func isTyped(_ modifiers: NSEvent.ModifierFlags) -> Bool {
+        let flags = modifiers.intersection([.command,.option,.control,.shift])
+        return !flags.isEmpty && flags.isDisjoint(with: [.command,.control])
     }
 
     /// Binds a chord: the leader stroke, then `secondKey` on its own.

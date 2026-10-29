@@ -32,7 +32,8 @@ final class ShortcutDispatcher {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let swallow = MainActor.assumeIsolated { () -> Bool in
-                guard let self, let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return false }
+                guard let self, !KeyStrokeRecorder.isAnyRecording,
+                      let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return false }
                 // Typing in a text field is typing, not a chord's second stroke.
                 if event.modifierFlags.intersection(Self.shortcutModifiers).isEmpty,
                    event.window?.firstResponder is NSTextView, self.pendingLeader == nil {

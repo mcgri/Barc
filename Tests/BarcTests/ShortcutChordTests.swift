@@ -55,6 +55,33 @@ struct ShortcutChordTests {
         #expect(dispatcher.decide(key:"\u{F700}",modifiers:[.control,.function,.numericPad]) == .perform(id:"next-tab"))
     }
 
+    @Test("Keys that would type (⌥Q, ⌥W) go to the dispatcher ahead of the page, and follow remaps")
+    func typedKeysDispatchEarly() {
+        let (manager,file) = makeManager();defer { try? FileManager.default.removeItem(at:file) }
+        let dispatcher = ShortcutDispatcher();dispatcher.bindings = { manager.dispatcherBindings }
+        #expect(manager.effectiveShortcut(for:"copy-full-page")?.key == "q")
+        #expect(manager.displayString(for:"copy-full-page") == "⌥Q")
+        #expect(manager.displayString(for:"copy-visible-area") == "⌥W")
+        #expect(dispatcher.decide(key:"q",modifiers:[.option]) == .perform(id:"copy-full-page"))
+        #expect(dispatcher.decide(key:"w",modifiers:[.option]) == .perform(id:"copy-visible-area"))
+        #expect(dispatcher.decide(key:"q",modifiers:[.command]) == .pass, "⌘Q stays the menu's Quit")
+        #expect(!manager.dispatcherBindings.contains { $0.id == "new-tab" }, "⌘ shortcuts stay on the menu")
+        manager.setShortcut(id:"copy-full-page",key:"4",modifiers:[.command,.shift,.control])
+        #expect(dispatcher.decide(key:"q",modifiers:[.option]) == .pass)
+        #expect(!manager.dispatcherBindings.contains { $0.id == "copy-full-page" })
+        manager.clearShortcut(id:"copy-visible-area")
+        #expect(dispatcher.decide(key:"w",modifiers:[.option]) == .pass)
+    }
+
+    @Test("Only ⌥ and ⇧ without ⌘ or ⌃ count as typing")
+    func typedModifiers() {
+        #expect(ShortcutManager.isTyped([.option]))
+        #expect(ShortcutManager.isTyped([.option,.shift,.function]))
+        #expect(!ShortcutManager.isTyped([]))
+        #expect(!ShortcutManager.isTyped([.option,.command]))
+        #expect(!ShortcutManager.isTyped([.control]))
+    }
+
     @Test("A custom command's key is a binding with no selector, and conflicts are found")
     func commandKeys() {
         let (manager, file) = makeManager()

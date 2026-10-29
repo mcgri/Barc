@@ -847,7 +847,7 @@ enum CommandCatalog {
             title: "Copy Visible Area to Clipboard",
             subtitle: "Copy screenshot of visible page directly to clipboard",
             symbolName: "doc.on.clipboard",
-            shortcut: "⌃⇧⌘3",
+            shortcut: "⌥W",
             keywords: ["screenshot", "capture", "copy", "clipboard", "snapshot", "visible"]
         ),
         CommandCandidate(
@@ -879,7 +879,7 @@ enum CommandCatalog {
             title: "Copy Full Page to Clipboard",
             subtitle: "Copy entire scrollable webpage image directly to clipboard",
             symbolName: "doc.on.clipboard.fill",
-            shortcut: "⌃⇧⌘4",
+            shortcut: "⌥Q",
             keywords: ["screenshot", "full page", "copy", "clipboard", "snapshot", "scroll"]
         ),
 
