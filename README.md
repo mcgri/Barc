@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="https://barc.cc">barc.cc</a> ·
-  <a href="https://github.com/mcgri/Barc/releases/tag/v0.0.7">Download 0.0.7</a> ·
+  <a href="https://github.com/mcgri/Barc/releases/tag/v0.0.8">Download 0.0.8</a> ·
   <a href="#build-and-run">Build from source</a> ·
   <a href="https://github.com/mcgri/Barc/issues">Issues and ideas</a>
 </p>
@@ -58,10 +58,10 @@ Barc started with Kylmora's source code and full Git history, preserving the ori
 
 ## Download and install
 
-Download [Barc 0.0.7](https://github.com/mcgri/Barc/releases/tag/v0.0.7) for **Apple Silicon or Intel Macs running macOS 14 or later**.
+Download [Barc 0.0.8](https://github.com/mcgri/Barc/releases/tag/v0.0.8) for **Apple Silicon or Intel Macs running macOS 14 or later**.
 
 - Open the `.dmg` and drag Barc to Applications, or use the `.pkg` installer.
-- Version 0.0.7 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch (Apple doesn't know me either); see [Apple's guidance](https://support.apple.com/en-us/102445).
+- Version 0.0.8 is ad-hoc signed and **not notarized by Apple**. macOS may prevent first launch (Apple doesn't know me either); see [Apple's guidance](https://support.apple.com/en-us/102445).
 - Browser profiles and migration data are not included. Import your own data after opening Barc.
 
 ## Build and run
@@ -82,7 +82,7 @@ make test
 Local builds are ad-hoc signed. To create universal `.dmg` and `.pkg` installers locally:
 
 ```sh
-Tools/package-unsigned-release.sh 0.0.7
+Tools/package-unsigned-release.sh 0.0.8
 ```
 
 The output is in `build/release/`, with checksums and release notes. Version tags trigger the release workflow. It uses signed/notarized packaging when Barc's signing credentials are configured; otherwise it publishes installers explicitly marked as unnotarized.
@@ -125,7 +125,7 @@ Saved-account suggestions work on email-first and password login steps. Click th
 
 ## Release notes, but honest
 
-It's version 0.0.7. Let's manage expectations.
+It's version 0.0.8. Let's manage expectations.
 
 - **Passkeys:** not working in this private build yet. The current build does not have Apple's browser permission for iCloud passkeys or the iCloud Passwords extension.
 - **Notarization:** builds are ad-hoc signed, so macOS gives Barc a suspicious look on first launch.
