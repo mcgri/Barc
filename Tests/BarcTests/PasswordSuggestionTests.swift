@@ -44,6 +44,7 @@ struct PasswordSuggestionTests {
         #expect(window.firstResponder === responder)
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
             windowNumber: window.windowNumber, context: nil, characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+        try await takeKey(window)
         NSApp.sendEvent(event)
         #expect(await selection.value == nil)
         #expect(!panel.isVisible)
@@ -89,6 +90,7 @@ struct PasswordSuggestionTests {
                 isARepeat: false, keyCode: code))
             NSApp.sendEvent(event)
         }
+        try await takeKey(window)
         if highlight { try key(125, "\u{f701}") }
         try key(36, "\r")
         #expect(await selection.value == (highlight ? first : nil))
@@ -181,6 +183,17 @@ struct PasswordSuggestionTests {
         for _ in 0..<200 where web.isLoading { try await Task.sleep(for: .milliseconds(10)) }
         _ = try await web.evaluateJavaScript("document.getElementById('email').focus()")
         return (web, window)
+    }
+
+    /// Synthetic keystrokes reach the page only through the key window. In a
+    /// full run, windows from suites running alongside can take key status
+    /// after this one was set up, so claim it again right before typing.
+    private func takeKey(_ window: NSWindow) async throws {
+        for _ in 0..<100 where !window.isKeyWindow {
+            window.makeKeyAndOrderFront(nil)
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        try await Task.sleep(for: .milliseconds(50))
     }
 
     private func suggestionPanel(in window: NSWindow) async throws -> NSWindow {
