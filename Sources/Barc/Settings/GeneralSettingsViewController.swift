@@ -15,6 +15,7 @@ final class GeneralSettingsViewController: NSViewController {
     private let backgroundMemoryPopUp = NSPopUpButton()
     private let profileHibernationPopUp = NSPopUpButton()
     private let suspensionPopUp = NSPopUpButton()
+    private let compactJavaScriptMemory = NSButton(checkboxWithTitle: "Keep page memory compact", target: nil, action: nil)
     private let archivePopUp = NSPopUpButton()
     private let idleBadgePopUp = NSPopUpButton()
     private let defaultBrowserBanner = DefaultBrowserBanner()
@@ -134,6 +135,11 @@ final class GeneralSettingsViewController: NSViewController {
         form.addRow("Background tab memory limit", SettingsForm.fill(backgroundMemoryPopUp))
         form.addNote("When background tabs use more than this, the heaviest ones sleep first. Tabs you used in the last two minutes, drafts, calls, transfers and Keep Awake tabs stay open.")
 
+        compactJavaScriptMemory.target = self
+        compactJavaScriptMemory.action = #selector(compactJavaScriptMemoryChanged)
+        form.addRow("Page memory", compactJavaScriptMemory)
+        form.addNote("Pages clean up unused JavaScript memory sooner instead of letting it pile up. Large web apps may use slightly more processor time. Applies to pages opened after the change.")
+
         suspensionPopUp.addItems(withTitles: Settings.suspensionChoices.map(Self.suspensionTitle))
         suspensionPopUp.target = self
         suspensionPopUp.action = #selector(suspensionChanged)
@@ -226,6 +232,7 @@ final class GeneralSettingsViewController: NSViewController {
         profileHibernationPopUp.selectItem(withTitle: Self.suspensionTitle(settings.profileHibernationMinutes))
         backgroundMemoryPopUp.selectItem(at: Settings.backgroundMemoryChoices.firstIndex(of: settings.backgroundMemoryGB) ?? 2)
         suspensionPopUp.selectItem(withTitle: Self.suspensionTitle(settings.tabSuspensionMinutes))
+        compactJavaScriptMemory.state = settings.compactsJavaScriptMemory ? .on : .off
         archivePopUp.selectItem(withTitle: Self.archiveTitle(settings.tabArchiveHours))
         idleBadgePopUp.selectItem(withTitle: settings.tabIdleBadgeMode.title)
         reloadDefaultBrowser()
@@ -348,6 +355,10 @@ final class GeneralSettingsViewController: NSViewController {
         let index = backgroundMemoryPopUp.indexOfSelectedItem
         guard Settings.backgroundMemoryChoices.indices.contains(index) else { return }
         settings.backgroundMemoryGB = Settings.backgroundMemoryChoices[index]
+    }
+
+    @objc private func compactJavaScriptMemoryChanged() {
+        settings.compactsJavaScriptMemory = compactJavaScriptMemory.state == .on
     }
 
     @objc private func suspensionChanged() {

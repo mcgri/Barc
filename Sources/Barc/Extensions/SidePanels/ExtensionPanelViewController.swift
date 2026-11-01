@@ -258,6 +258,8 @@ final class ExtensionPanelViewController: NSViewController, WKScriptMessageHandl
 
         teardownWebView()
         let configuration = context.webViewConfiguration ?? WKWebViewConfiguration()
+        // A side panel can stay open all day, like a tab.
+        JavaScriptMemoryTuning.apply(to: configuration)
         configuration.userContentController.addUserScript(WKUserScript(
             source: ExtensionSidebarShim.page,
             injectionTime: .atDocumentStart,

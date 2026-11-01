@@ -20,6 +20,7 @@ final class Settings {
         static let suspensionMinutes = "tabSuspensionMinutes"
         static let backgroundMemoryGB = "backgroundMemoryGB"
         static let archiveHours = "tabArchiveHours"
+        static let compactsJavaScriptMemory = "compactsJavaScriptMemory"
         static let idleBadge = "tabIdleBadgeMode"
         static let compactMode = "compactModeEnabled"
         static let compactHidesToolbar = "compactModeHidesToolbar"
@@ -198,6 +199,9 @@ final class Settings {
             // is the one tab-lifecycle setting that has to be switched on
             // deliberately rather than discovered after the fact.
             Key.archiveHours: 0,
+            // On. Pages collect JavaScript garbage at the pre-2024 pace; see
+            // `JavaScriptMemoryTuning`.
+            Key.compactsJavaScriptMemory: true,
             Key.idleBadge: TabIdleBadgeMode.asleep.rawValue,
             Key.compactMode: false,
             Key.compactHidesToolbar: false,
@@ -893,6 +897,13 @@ final class Settings {
     }
     var profileHibernationDelay: TimeInterval? {
         profileHibernationMinutes > 0 ? TimeInterval(profileHibernationMinutes) * 60 : nil
+    }
+
+    /// Whether pages use JavaScriptCore's classic, tighter heap growth.
+    /// Reaches pages opened after the change.
+    var compactsJavaScriptMemory: Bool {
+        get { defaults.bool(forKey: Key.compactsJavaScriptMemory) }
+        set { defaults.set(newValue, forKey: Key.compactsJavaScriptMemory) }
     }
 
     /// Choices offered in Settings. Zero means never suspend.

@@ -175,6 +175,7 @@ final class WebEnvironment {
         // get their site's choice on each navigation (`Tab`).
         NativeFingerprintingProtection.set(settings.antiFingerprintingEnabled, in: configuration.defaultWebpagePreferences)
         configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        JavaScriptMemoryTuning.apply(to: configuration)
 
         PageHibernationGuard.shared.attach(configuration.userContentController)
 
@@ -231,6 +232,7 @@ final class WebEnvironment {
             configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
         }
         PageHibernationGuard.shared.attach(configuration.userContentController)
+        JavaScriptMemoryTuning.apply(to: configuration)
         let webView = GlanceWebView(frame: frame, configuration: configuration)
         views.setObject(IdentityBox(identity(for: configuration.websiteDataStore), purpose: purpose), forKey:webView)
         webView.allowsBackForwardNavigationGestures = true
