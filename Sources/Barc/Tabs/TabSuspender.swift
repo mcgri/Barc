@@ -185,7 +185,14 @@ final class TabSuspender {
             for member in members {
                 guard member.allowsAutomaticHibernation, let view = member.currentWebView,
                       !protectsTransfer(view), await inspectPage(view),
-                      member.currentWebView === view else { safe = false; break }
+                      member.currentWebView === view else {
+                    safe = false
+                    // Why a due tab stayed awake; invisible otherwise outside the Task Manager.
+                    if Metrics.isLoggingEnabled {
+                        Metrics.log("sweep kept host=\(member.url.host ?? "-") reason=\(member.automaticSleepExplanation)")
+                    }
+                    break
+                }
                 checkedViews[member.id] = view
             }
             // Revalidate after all asynchronous checks. Switching back or

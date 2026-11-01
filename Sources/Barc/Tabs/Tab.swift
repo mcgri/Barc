@@ -598,7 +598,7 @@ final class Tab: Identifiable {
     var allowsAutomaticHibernation: Bool {
         guard let view = loadedWebView else { return false }
         return !keepsAwake && !isLocked && !isLoading && document == nil
-            && autoReloadInterval == nil && !isInPictureInPicture && !isPlayingMedia
+            && autoReloadInterval == nil && !isInPictureInPicture && !isPlayingAudio
             && PageHibernationGuard.nativeActivityAllowsSleep(view)
     }
 
@@ -612,7 +612,7 @@ final class Tab: Identifiable {
         if document != nil { return "Document is open" }
         if autoReloadInterval != nil { return "Automatic reload is enabled" }
         if isInPictureInPicture { return "Picture in Picture is active" }
-        if isPlayingMedia { return "Media is playing" }
+        if isPlayingAudio { return "Media is playing" }
         if view.cameraCaptureState != .none || view.microphoneCaptureState != .none { return "Camera or microphone is in use" }
         if DownloadManager.shared.protectsFromHibernation(view) { return "Transfer is in progress" }
         return PageHibernationGuard.shared.sleepExplanation(for: view)

@@ -118,8 +118,12 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         guard let page = pages.object(forKey: view) else { return false }
         page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
-        guard Self.nativeActivityAllowsSleep(view),
-              page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }), !page.overflow else { return false }
+        guard Self.nativeActivityAllowsSleep(view) else { return false }
+        guard !page.overflow else { page.protection = "Too many frames to check"; return false }
+        guard page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }) else {
+            page.protection = "Page safety scripts have not registered"
+            return false
+        }
         page.viewport = nil
         var viewport: PageViewport?
         let generation = page.generation
@@ -130,7 +134,18 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             guard !Task.isCancelled else { return false }
             let token = WebNotificationCentre.javaScriptString(frame.token)
             let script = "({safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), reason: window.__barcHibernation && window.__barcHibernation.reason, children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY})"
-            guard let inspection = await inspect(script, frame: frame, in: view) else { return false }
+            guard let inspection = await inspect(script, frame: frame, in: view) else {
+                page.protection = frame.info.isMainFrame ? "Page did not answer the safety check" : "A frame did not answer the safety check (\(frame.info.securityOrigin.host))"
+                return false
+            }
+            if inspection.gone {
+                guard !frame.info.isMainFrame else { return false }
+                let key = frame.kind + frame.token
+                page.frames[key] = nil
+                page.realtimeFrames.remove(key)
+                page.busyWorkFrames.remove(key)
+                continue
+            }
             guard inspection.safe else {
                 page.protection = inspection.reason
                 return false
@@ -139,14 +154,127 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             childCounts[frame.kind, default: 0] += inspection.children
             frameCounts[frame.kind, default: 0] += 1
         }
-        // A sandboxed or not-yet-registered iframe makes the inventory incomplete.
-        guard frameCounts.allSatisfy({ $0.value == 1 + (childCounts[$0.key] ?? 0) }) else { return false }
-        guard !Task.isCancelled, page.generation == generation, page.busyWorkFrames.isEmpty,
-              Self.nativeActivityAllowsSleep(view) else { return false }
+        // A frame Barc's scripts never reached makes the inventory incomplete:
+        // most often one the content blocker stopped, which keeps an empty
+        // document Barc cannot register in. Look such frames up in WebKit's
+        // own frame tree and inspect them directly; anything that could hold
+        // input, or any frame that cannot be inspected, still refuses.
+        if !frameCounts.allSatisfy({ $0.value == 1 + (childCounts[$0.key] ?? 0) }) {
+            guard await unregisteredFramesAreInert(in: view, page: page) else {
+                page.protection = "An embedded frame could not be checked (\(frameCounts.map { "\($0.key) \($0.value) of \(1 + (childCounts[$0.key] ?? 0))" }.sorted().joined(separator: ", ")))"
+                return false
+            }
+        }
+        guard !Task.isCancelled, page.generation == generation else { page.protection = "Page changed during the safety check"; return false }
+        guard page.busyWorkFrames.isEmpty else { page.protection = "Upload or form request in progress"; return false }
+        guard Self.nativeActivityAllowsSleep(view) else { return false }
         page.viewport = viewport
         page.protection = "Ready to sleep when idle"
         page.approvedRevision = page.activityRevision
         return true
+    }
+
+    /// WebKit's identifier for a frame, the same for every report about it.
+    private static func frameID(_ info: WKFrameInfo) -> UInt64? {
+        guard info.responds(to: Selector(("_handle"))), let handle = info.value(forKey: "_handle") as? NSObject,
+              handle.responds(to: Selector(("frameID"))) else { return nil }
+        return handle.value(forKey: "frameID") as? UInt64
+    }
+
+    /// Every frame in the page, from WebKit, including frames no script reached.
+    private static func frameInfos(of view: WKWebView) async -> [WKFrameInfo]? {
+        let selector = Selector(("_frames:"))
+        guard view.responds(to: selector) else { return nil }
+        return await withCheckedContinuation { continuation in
+            let reply = FrameTreeReply(continuation)
+            let block: @convention(block) (AnyObject?) -> Void = { root in
+                var infos: [WKFrameInfo] = []
+                func walk(_ node: NSObject) {
+                    guard node.responds(to: Selector(("info"))), let info = node.value(forKey: "info") as? WKFrameInfo else { return }
+                    infos.append(info)
+                    guard node.responds(to: Selector(("childFrames"))) else { return }
+                    for child in (node.value(forKey: "childFrames") as? [NSObject]) ?? [] { walk(child) }
+                }
+                if let root = root as? NSObject { walk(root) }
+                reply.finish(root == nil ? nil : infos)
+            }
+            view.perform(selector, with: block)
+        }
+    }
+
+    private final class FrameTreeReply: @unchecked Sendable {
+        private var continuation: CheckedContinuation<[WKFrameInfo]?, Never>?
+        init(_ continuation: CheckedContinuation<[WKFrameInfo]?, Never>) { self.continuation = continuation }
+        func finish(_ infos: [WKFrameInfo]?) {
+            let continuation = continuation
+            self.continuation = nil
+            continuation?.resume(returning: infos)
+        }
+    }
+
+    /// True when every frame missing from either content world holds nothing
+    /// to protect: no field, editor or design-mode document, and no script of
+    /// its own that could be doing work. Checked from Barc's isolated world,
+    /// which runs even where the page's scripts do not.
+    private func unregisteredFramesAreInert(in view: WKWebView, page: Page) async -> Bool {
+        guard let tree = await Self.frameInfos(of: view) else { return false }
+        var registered: [String: Set<UInt64>] = [:]
+        for frame in page.frames.values {
+            guard let id = Self.frameID(frame.info) else { return false }
+            registered[frame.kind, default: []].insert(id)
+        }
+        let script = "({editable: document.designMode === 'on' || !!document.querySelector('input:not([type=hidden]), textarea, select, [contenteditable]:not([contenteditable=\"false\"]), [role=\"textbox\"]'), scripts: document.scripts.length})"
+        for info in tree {
+            guard let id = Self.frameID(info) else { return false }
+            if registered["barcDraftGuard"]?.contains(id) == true, registered["barcWorkGuard"]?.contains(id) == true { continue }
+            guard !info.isMainFrame else { return false }
+            let inert: Bool = await withCheckedContinuation { continuation in
+                let reply = InertReply(continuation)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(1))
+                    reply.finish(false)
+                }
+                view.evaluateJavaScript(script, in: info, in: .defaultClient) { outcome in
+                    switch outcome {
+                    case .success(let value):
+                        let result = value as? [String: Any]
+                        reply.finish(result?["editable"] as? Bool == false && (result?["scripts"] as? Int) == 0)
+                    // Left the page while we looked: nothing remains to protect.
+                    case .failure(let error) where Self.isFrameGone(error): reply.finish(true)
+                    case .failure: reply.finish(false)
+                    }
+                }
+            }
+            guard inert else { return false }
+        }
+        return true
+    }
+
+    private final class InertReply: @unchecked Sendable {
+        private var continuation: CheckedContinuation<Bool, Never>?
+        init(_ continuation: CheckedContinuation<Bool, Never>) { self.continuation = continuation }
+        func finish(_ result: Bool) {
+            let continuation = continuation
+            self.continuation = nil
+            continuation?.resume(returning: result)
+        }
+    }
+
+    private static func exceptionMessage(_ error: Error) -> String? {
+        let error = error as NSError
+        guard error.domain == WKErrorDomain, error.code == WKError.javaScriptExceptionOccurred.rawValue else { return nil }
+        return error.userInfo["WKJavaScriptExceptionMessage"] as? String
+    }
+
+    /// WebKit's refusal to run any script in a document whose sandbox forbids it.
+    static func isScriptingDisabled(_ error: Error) -> Bool {
+        exceptionMessage(error) == "Cannot execute JavaScript in this document"
+    }
+
+    /// WebKit's answer for a frame that has left the page.
+    static func isFrameGone(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == WKErrorDomain && error.code == WKError.javaScriptInvalidFrameTarget.rawValue
     }
 
     private struct Inspection {
@@ -154,6 +282,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         let reason: String
         let children: Int
         let viewport: PageViewport?
+        /// The frame is no longer in the page.
+        var gone = false
     }
     private final class Reply {
         var continuation: CheckedContinuation<Inspection?, Never>?
@@ -195,7 +325,24 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                     default: "Waiting for page safety check"
                     }
                     reply.finish(Inspection(safe:safe, reason:reason, children:children, viewport:viewport))
-                case .failure: reply.finish(nil)
+                case .failure(let error):
+                    // Page JavaScript is switched off in this document: a
+                    // sandboxed frame without allow-scripts, like the blank one
+                    // YouTube embeds. Nothing the page runs there can start an
+                    // upload, a call or media, so the page-world check has
+                    // nothing to find. Drafts are still checked from Barc's own
+                    // world, which does run there, and playing media natively.
+                    // Any other failure still refuses.
+                    if Self.isFrameGone(error) {
+                        // Removed without a pagehide Barc could hear, as with a
+                        // script-free ad frame. Its document, and any draft in
+                        // it, no longer exists.
+                        reply.finish(Inspection(safe: true, reason: "", children: 0, viewport: nil, gone: true))
+                    } else if frame.kind == "barcWorkGuard", Self.isScriptingDisabled(error) {
+                        reply.finish(Inspection(safe: true, reason: "", children: 0, viewport: nil))
+                    } else {
+                        reply.finish(nil)
+                    }
                 }
             }
         }
@@ -211,9 +358,26 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       const edited = new Set(), defaults = new WeakMap();
       let unknownEdit = false;
       const report = event => bridge.postMessage({token, event});
-      const editorFor = event => event.target instanceof Element
-        ? event.target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]') : null;
+      // Read the real target inside open shadow roots: at the document a
+      // component's own text field is retargeted to its host element, which
+      // is not an editor and would otherwise make every keystroke "unknown".
+      const editorFor = event => {
+        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        const origin = path.length && path[0] instanceof Element ? path[0] : event.target;
+        return origin instanceof Element
+          ? origin.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]') : null;
+      };
       const rich = el => !el.matches('input, textarea, select');
+      // A query typed into a search or filter box is not unsaved work. Single-
+      // page apps keep it in the box indefinitely (a Gmail search, a YouTube
+      // query), which would otherwise keep the whole tab awake for days.
+      const searchWords = /search|query|filter/i;
+      const isSearchField = el => el.tagName === 'INPUT'
+        && (el.type === 'search' || el.getAttribute('role') === 'searchbox'
+          || !!el.closest('[role="search"], search')
+          || el.name === 'q' || el.id === 'q'
+          || [el.name, el.id, el.getAttribute('aria-label'), el.getAttribute('placeholder')]
+               .some(value => !!value && searchWords.test(value)));
       const hasContent = el => !!(el.textContent.trim() || el.querySelector('img, video, audio, object, embed, canvas, svg, input[type="file"]'));
       function initialState(el, beforeEdit = false) {
         // An input-only rich-editor event has an unknown original state.
@@ -237,6 +401,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         // Application-level custom events are not evidence of text entry.
         // Native editing in an unrecognised control must still fail closed.
         if (!editor && !event.isTrusted) return;
+        if (editor && isSearchField(editor)) return;
         // Saved read-only values can emit framework input/change events.
         // A field that already contains an edit stays protected if a save
         // temporarily locks it; becoming read-only is not proof of a save.
@@ -248,6 +413,29 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
           edited.add(editor);
         }
         report('change');
+      }
+      // In a sandboxed document without allow-scripts no listener runs, not
+      // even Barc's, so typing there is never observed. Find out once, and
+      // in that case compare the fields themselves with their markup at check
+      // time: with page scripts off, only the person (or a parent page)
+      // changes them. Rich editors there count as drafts, to fail safe.
+      let listenersRun = false;
+      document.addEventListener('barc-draft-probe', () => { listenersRun = true; }, {once: true});
+      document.dispatchEvent(new Event('barc-draft-probe'));
+      function unobservedDraft() {
+        if (document.designMode === 'on') return true;
+        for (const el of document.querySelectorAll('input, textarea, select')) {
+          if (el.tagName === 'SELECT') {
+            if (Array.from(el.options).some(option => option.selected !== option.defaultSelected)) return true;
+          } else if (['checkbox', 'radio'].includes(el.type)) {
+            if (el.checked !== el.defaultChecked) return true;
+          } else if (el.type === 'file') {
+            if (el.files && el.files.length) return true;
+          } else if (!['hidden', 'submit', 'button', 'reset', 'image'].includes(el.type) && !isSearchField(el)) {
+            if (el.value !== el.defaultValue) return true;
+          }
+        }
+        return Array.from(document.querySelectorAll('[contenteditable]:not([contenteditable="false"]), [role="textbox"]')).some(hasContent);
       }
       document.addEventListener('focusin', rememberBeforeEdit, true);
       document.addEventListener('pointerdown', rememberBeforeEdit, true);
@@ -272,6 +460,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       }
       function isSafe() {
         if (unknownEdit || document.designMode === 'on') return false;
+        if (!listenersRun && unobservedDraft()) return false;
         for (const el of edited) {
           // A removed editor can still hold unsaved work. Do not interpret
           // removal or a submit event as proof that a message was sent.
@@ -301,7 +490,17 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       const token = globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()) + Date.now();
       const peers = new Set(), tracks = new Set(), streams = new WeakSet();
       let pending = 0, captureRequests = 0;
-      const realtime = () => peers.size > 0 || captureRequests > 0 || Array.from(tracks).some(t => t.readyState !== 'ended');
+      // A peer is a call while it is being set up and once it has someone on
+      // the other end. Bot-detection and fingerprinting scripts make peers only
+      // to gather local network candidates and never connect them (signed-in
+      // ChatGPT keeps one open); after the setup window those no longer keep a
+      // tab awake. Read lazily so a test can shorten the window.
+      const born = new WeakMap();
+      const setupWindow = () => typeof globalThis.__barcTestPeerSetupMs === 'number' ? globalThis.__barcTestPeerSetupMs : 60000;
+      const liveCall = peer => !!peer.remoteDescription || ['connecting', 'connected'].includes(peer.connectionState)
+        || performance.now() - (born.get(peer) ?? 0) < setupWindow();
+      const livePeers = () => Array.from(peers).filter(liveCall).length;
+      const realtime = () => livePeers() > 0 || captureRequests > 0 || Array.from(tracks).some(t => t.readyState !== 'ended');
       let reportedRealtime = false, reason = '';
       const report = event => {
         reportedRealtime = realtime();
@@ -352,7 +551,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
           const Original = window.RTCPeerConnection;
           window.RTCPeerConnection = new Proxy(Original, {construct(target, args, newTarget) {
             const peer = Reflect.construct(target, args, newTarget);
-            peers.add(peer); report('change');
+            peers.add(peer); born.set(peer, performance.now()); report('change');
+            // Tell Barc when an unanswered peer stops counting as a call.
+            setTimeout(() => report('change'), setupWindow() + 1);
+            peer.addEventListener('signalingstatechange', () => report('change'));
             peer.addEventListener('connectionstatechange', () => {
               if (peer.connectionState === 'closed') peers.delete(peer);
               report('change');
@@ -405,9 +607,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         // of our instance wrapper. Cached bridge state is not a sleep veto.
         if (reportedRealtime !== realtime()) report('change');
         if (!reliable) { reason = 'unknown'; return false; }
-        if (captureRequests > 0 || peers.size > 0 || tracks.size > 0) { reason = 'call'; return false; }
+        if (captureRequests > 0 || livePeers() > 0 || tracks.size > 0) { reason = 'call'; return false; }
         if (pending !== 0) { reason = 'upload'; return false; }
-        if (Array.from(document.querySelectorAll('audio, video')).some(el => !el.paused && !el.ended)) { reason = 'media'; return false; }
+        // Audible media only. A muted autoplay clip (a news homepage, a feed)
+        // is decoration, not something the person is listening to.
+        if (Array.from(document.querySelectorAll('audio, video')).some(el => !el.paused && !el.ended && !el.muted && el.volume > 0)) { reason = 'media'; return false; }
         reason = '';
         return true;
       }

@@ -80,6 +80,34 @@ struct LivePageHibernationTests {
         #expect(await MemoryTestPage.safe(view))
     }
 
+    @Test("A network probe that never connects stops counting as a call after its setup window")
+    func unansweredProbe() async throws {
+        let view = try await MemoryTestPage.make()
+        _ = try await view.callAsyncJavaScript("globalThis.__barcTestPeerSetupMs = 2000; window.probe = new RTCPeerConnection({iceServers: []}); probe.createDataChannel(''); await probe.setLocalDescription(await probe.createOffer()); return true", arguments: [:], in: nil, contentWorld: .page)
+        #expect(!(await MemoryTestPage.safe(view)), "A new peer may still be a call being set up")
+        try await Task.sleep(for: .milliseconds(2500))
+        #expect(await MemoryTestPage.safe(view), "Gathering candidates with nobody on the other end is not a call")
+    }
+
+    @Test("An answered call stays protected after the setup window until it closes")
+    func answeredCall() async throws {
+        let view = try await MemoryTestPage.make()
+        _ = try await view.callAsyncJavaScript("""
+            globalThis.__barcTestPeerSetupMs = 200;
+            window.caller = new RTCPeerConnection(); caller.createDataChannel('chat');
+            await caller.setLocalDescription(await caller.createOffer());
+            window.callee = new RTCPeerConnection();
+            await callee.setRemoteDescription(caller.localDescription);
+            await callee.setLocalDescription(await callee.createAnswer());
+            await caller.setRemoteDescription(callee.localDescription);
+            return true
+            """, arguments: [:], in: nil, contentWorld: .page)
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(!(await MemoryTestPage.safe(view)), "A call with a remote party stays awake")
+        _ = try await view.evaluateJavaScript("caller.close(); callee.close(); true")
+        #expect(await MemoryTestPage.safe(view))
+    }
+
     @Test("An upload stays protected while its request is pending")
     func upload() async throws {
         let fakeNetwork = "window.fetch = function() { return new Promise(resolve => { window.finishUpload=resolve; }); };"
