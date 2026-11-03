@@ -2,6 +2,8 @@
 // Modified for Barc: application identity and isolated screenshot test inputs, 2026-10-24.
 import AppKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import WebKit
 
 /// The scope of a webpage screenshot capture.
@@ -121,23 +123,46 @@ public enum ScreenshotService {
         }
     }
 
-    /// Converts an `NSImage` to PNG `Data`.
+    /// Converts an `NSImage` to PNG `Data`, straight from its largest bitmap.
+    ///
+    /// The route through `tiffRepresentation` made an uncompressed copy of the
+    /// whole image and decoded it again before compressing. For a full-page
+    /// capture that peaked above 600 MB and left about 250 MB in the app for
+    /// good; encoding the bitmap itself peaks near the image's own size.
     public static func pngData(from image: NSImage) -> Data? {
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData) else {
-            return nil
+        autoreleasepool {
+            guard let bitmap = largestBitmap(of: image) else { return nil }
+            let data = NSMutableData()
+            guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else { return nil }
+            CGImageDestinationAddImage(destination, bitmap, nil)
+            return CGImageDestinationFinalize(destination) ? data as Data : nil
         }
-        return bitmap.representation(using: .png, properties: [:])
     }
 
-    /// Copies image and PNG data to the destination; browser actions use the
-    /// system clipboard, while a test can supply its own named pasteboard.
+    /// The highest-resolution bitmap behind an image: a Retina capture keeps
+    /// every pixel rather than whatever suits the current screen.
+    private static func largestBitmap(of image: NSImage) -> CGImage? {
+        let representations = image.representations.sorted { $0.pixelsWide * $0.pixelsHigh > $1.pixelsWide * $1.pixelsHigh }
+        for representation in representations {
+            if let bitmap = representation.cgImage(forProposedRect: nil, context: nil, hints: nil) { return bitmap }
+        }
+        return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+    }
+
+    /// Copies the image as PNG data to the destination; browser actions use
+    /// the system clipboard, while a test can supply its own named pasteboard.
+    ///
+    /// Only the PNG goes on the clipboard. Handing over the image itself let
+    /// the clipboard keep it alive inside Barc at full size until something
+    /// else was copied, and with it the bitmap WebKit captured.
     public static func copyImageToClipboard(image: NSImage, pasteboard: NSPasteboard = .general) {
         pasteboard.clearContents()
-        pasteboard.writeObjects([image])
         if let png = pngData(from: image) {
             pasteboard.setData(png, forType: .png)
+        } else {
+            pasteboard.writeObjects([image])
         }
+        MemoryRelief.shared.requestRelief()
     }
 
     /// Saves an `NSImage` to disk in the user's Downloads directory (or specified directory).

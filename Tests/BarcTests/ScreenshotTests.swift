@@ -71,6 +71,40 @@ struct ScreenshotTests {
         #expect(types.contains(.png) || types.contains(.tiff))
     }
 
+    @Test("Copying puts PNG on the clipboard without a TIFF copy of the image")
+    func clipboardIsPNGOnly() throws {
+        let pboard = NSPasteboard(name: .init("barc.screenshot-png-only.\(UUID())"))
+        defer { pboard.releaseGlobally() }
+        let image = NSImage(size: NSSize(width: 64, height: 64))
+        image.lockFocus()
+        NSColor.systemGreen.setFill()
+        NSRect(x: 0, y: 0, width: 64, height: 64).fill()
+        image.unlockFocus()
+        ScreenshotService.copyImageToClipboard(image: image, pasteboard: pboard)
+        // Writing the image itself made AppKit build an uncompressed TIFF of
+        // it; for a full-page capture that and the old TIFF-based PNG route
+        // each left about 120 MB stranded in Barc.
+        // macOS still offers a TIFF converted on request; what matters is
+        // that Barc no longer makes one up front.
+        #expect(pboard.pasteboardItems?.first?.types == [.png])
+        let png = try #require(pboard.data(forType: .png))
+        #expect(NSBitmapImageRep(data: png)?.pixelsWide ?? 0 >= 64)
+    }
+
+    @Test("PNG conversion keeps every pixel of a Retina capture")
+    func retinaPNG() throws {
+        let rep = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 200, pixelsHigh: 120, bitsPerSample: 8,
+                                                samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                                bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = NSSize(width: 100, height: 60)
+        let image = NSImage(size: rep.size)
+        image.addRepresentation(rep)
+        let png = try #require(ScreenshotService.pngData(from: image))
+        let decoded = try #require(NSBitmapImageRep(data: png))
+        #expect(decoded.pixelsWide == 200)
+        #expect(decoded.pixelsHigh == 120)
+    }
+
     @Test("Saving screenshot to disk creates file and avoids filename collisions")
     func testSaveImageToDisk() throws {
         let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
