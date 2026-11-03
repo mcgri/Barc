@@ -1230,6 +1230,35 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
         return child.webView()
     }
 
+    /// `<input type="file">`, attach buttons and upload areas.
+    @MainActor
+    func webView(
+        _ webView: WKWebView,
+        runOpenPanelWith parameters: WKOpenPanelParameters,
+        initiatedByFrame frame: WKFrameInfo,
+        completionHandler: @escaping @MainActor ([URL]?) -> Void
+    ) {
+        FileUploadPanel.run(parameters, for: webView, completion: completionHandler)
+    }
+
+    @MainActor
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor () -> Void) {
+        PageDialogs.alert(message, frame: frame, in: webView, completion: completionHandler)
+    }
+
+    @MainActor
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (Bool) -> Void) {
+        PageDialogs.confirm(message, frame: frame, in: webView, completion: completionHandler)
+    }
+
+    @MainActor
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
+                 initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping @MainActor (String?) -> Void) {
+        PageDialogs.prompt(prompt, defaultText: defaultText, frame: frame, in: webView, completion: completionHandler)
+    }
+
     @MainActor
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         tab?.navigationStarted()
