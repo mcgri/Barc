@@ -174,7 +174,11 @@ struct MemoryIntegrationTests {
         #expect(changes == 30)
         #expect(store.encodingPassCount == before)
         tab.setNote("Persist this note")
-        try await Task.sleep(for:.milliseconds(1200))
+        // The save is debounced. Under a full parallel suite it can land well
+        // after the debounce, so wait for it rather than a fixed time.
+        for _ in 0..<50 where store.encodingPassCount == before {
+            try await Task.sleep(for:.milliseconds(100))
+        }
         #expect(store.encodingPassCount == before + 1)
         #expect(store.load()?.spaces.first?.tabs.first?.note == "Persist this note")
         observer.cancel()
