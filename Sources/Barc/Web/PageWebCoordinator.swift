@@ -85,6 +85,15 @@ final class PageWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         DownloadManager.shared.adopt(download)
     }
 
+    /// "Download Image" and "Download Linked File" on WebKit's own context
+    /// menu. WebKit hands those downloads to this private navigation-delegate
+    /// method; with nothing answering, each had no delegate and was dropped.
+    @MainActor
+    @objc(_webView:contextMenuDidCreateDownload:)
+    func webView(_ webView: WKWebView, contextMenuDidCreate download: WKDownload) {
+        DownloadManager.shared.adopt(download)
+    }
+
     @MainActor
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         DownloadManager.shared.adopt(download)

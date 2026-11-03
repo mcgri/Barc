@@ -1399,6 +1399,13 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
             // `pendingDownloadURLs`). Anchored on the main frame only; a
             // sub-frame download attribute is honoured by the response's own
             // disposition, not tracked here.
+            // WebKit will not load a data: URL as a page, so allowing it never
+            // reaches a response to convert and the click did nothing. Here
+            // the action's own download policy works, with the page's name.
+            if url?.scheme?.lowercased() == "data" {
+                decisionHandler(.download, preferences)
+                return
+            }
             if let url, navigationAction.targetFrame?.isMainFrame ?? true {
                 pendingDownloadURLs.insert(url)
             }
@@ -1523,6 +1530,15 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
 
     @MainActor
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        DownloadManager.shared.adopt(download)
+    }
+
+    /// "Download Image" and "Download Linked File" on WebKit's own context
+    /// menu. WebKit hands those downloads to this private navigation-delegate
+    /// method; with nothing answering, each had no delegate and was dropped.
+    @MainActor
+    @objc(_webView:contextMenuDidCreateDownload:)
+    func webView(_ webView: WKWebView, contextMenuDidCreate download: WKDownload) {
         DownloadManager.shared.adopt(download)
     }
 

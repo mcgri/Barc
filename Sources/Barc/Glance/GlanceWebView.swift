@@ -18,6 +18,8 @@ import WebKit
 @MainActor
 final class GlanceWebView: WKWebView {
     private var pendingLink: URL?
+    /// Tests see the finished menu here, as it is about to show.
+    static var testMenuWillOpen: ((NSMenu) -> Void)?
 
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
@@ -31,6 +33,7 @@ final class GlanceWebView: WKWebView {
             event: event,
             pendingLink: link
         )
+        Self.testMenuWillOpen?(menu)
     }
 
     @objc private func openLinkInGlance() {
