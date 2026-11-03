@@ -69,6 +69,17 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             page.realtimeFrames = page.realtimeFrames.filter { !$0.hasPrefix(name) }
             page.busyWorkFrames = page.busyWorkFrames.filter { !$0.hasPrefix(name) }
             page.overflow = false
+        } else if event == "register", let frame = Self.frameID(message.frameInfo) {
+            // A child frame has a new document. Its old document says "gone"
+            // on pagehide, but that message can be lost (a process swap, a
+            // frame torn down mid-navigation); the old entry would then fail
+            // its token check against the new document on every sweep and keep
+            // the tab awake for good, as GitHub's did for hours.
+            for (stale, entry) in page.frames where entry.kind == name && entry.token != token && Self.frameID(entry.info) == frame {
+                page.frames[stale] = nil
+                page.realtimeFrames.remove(stale)
+                page.busyWorkFrames.remove(stale)
+            }
         }
         page.activityRevision += 1
         page.approvedRevision = nil
@@ -103,6 +114,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         !view.isLoading && view.cameraCaptureState == .none && view.microphoneCaptureState == .none
     }
 
+    /// Which native activity refused, rather than a generic wait.
+    static func nativeActivityExplanation(_ view: WKWebView) -> String {
+        view.isLoading ? "Page is still loading" : "Camera or microphone is in use"
+    }
+
     func capturedViewport(of view: WKWebView) -> PageViewport? { pages.object(forKey:view)?.viewport }
     func sleepExplanation(for view: WKWebView) -> String {
         pages.object(forKey: view)?.protection ?? "Waiting for page safety check"
@@ -124,7 +140,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
         page.protectionDetail = ""
-        guard Self.nativeActivityAllowsSleep(view) else { return false }
+        guard Self.nativeActivityAllowsSleep(view) else { page.protection = Self.nativeActivityExplanation(view); return false }
         guard !page.overflow else { page.protection = "Too many frames to check"; return false }
         guard page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }) else {
             page.protection = "Page safety scripts have not registered"
@@ -139,13 +155,19 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         for frame in frames {
             guard !Task.isCancelled else { return false }
             let token = WebNotificationCentre.javaScriptString(frame.token)
-            let script = "({safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), reason: window.__barcHibernation && window.__barcHibernation.reason, children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY, detail: window.__barcHibernation && window.__barcHibernation.detail})"
+            let script = "({stale: !(window.__barcHibernation && window.__barcHibernation.token === \(token)), safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), reason: window.__barcHibernation && window.__barcHibernation.reason, children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY, detail: window.__barcHibernation && window.__barcHibernation.detail})"
             guard let inspection = await inspect(script, frame: frame, in: view) else {
                 page.protection = frame.info.isMainFrame ? "Page did not answer the safety check" : "A frame did not answer the safety check (\(frame.info.securityOrigin.host))"
                 return false
             }
-            if inspection.gone {
-                guard !frame.info.isMainFrame else { return false }
+            if inspection.gone || inspection.stale {
+                // A stale entry names a document this frame no longer shows;
+                // the one it shows now is checked by its own entry or, if it
+                // never registered, by the frame inventory below.
+                guard !frame.info.isMainFrame else {
+                    if inspection.stale { page.protection = "Page changed since its safety check registered" }
+                    return false
+                }
                 let key = frame.kind + frame.token
                 page.frames[key] = nil
                 page.realtimeFrames.remove(key)
@@ -178,7 +200,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             page.protectionDetail = "a frame reported work after its check"
             return false
         }
-        guard Self.nativeActivityAllowsSleep(view) else { return false }
+        guard Self.nativeActivityAllowsSleep(view) else { page.protection = Self.nativeActivityExplanation(view); return false }
         page.viewport = viewport
         page.protection = "Ready to sleep when idle"
         page.approvedRevision = page.activityRevision
@@ -296,6 +318,9 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         let viewport: PageViewport?
         /// The frame is no longer in the page.
         var gone = false
+        /// The frame shows a different document from the one this entry
+        /// registered for.
+        var stale = false
     }
     private final class Reply {
         var continuation: CheckedContinuation<Inspection?, Never>?
@@ -334,10 +359,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                     case "call": "Call or screen sharing in progress"
                     case "upload": "Upload or form request in progress"
                     case "media": "Media is playing"
+                    case "unknown": "Page safety check could not hook into this page"
                     default: "Waiting for page safety check"
                     }
                     reply.finish(Inspection(safe:safe, reason:reason, detail:(result?["detail"] as? String).map { String($0.prefix(160)) } ?? "",
-                                            children:children, viewport:viewport))
+                                            children:children, viewport:viewport, stale: result?["stale"] as? Bool == true))
                 case .failure(let error):
                     // Page JavaScript is switched off in this document: a
                     // sandboxed frame without allow-scripts, like the blank one

@@ -93,6 +93,24 @@ struct HibernationCompletedWorkTests {
         #expect(await MemoryTestPage.safe(view))
     }
 
+    @Test("A frame whose old document's goodbye was lost does not keep the page awake once it shows a new one")
+    func lostGoodbye() async throws {
+        let view = try await MemoryTestPage.make(html: "<iframe id='child' srcdoc='<p>First</p>'></iframe>")
+        #expect(await MemoryTestPage.safe(view))
+        // Swallow the old document's "gone", as a process swap or a teardown
+        // mid-navigation can, then give the frame a new document.
+        _ = try await view.evaluateJavaScript("""
+            child.contentWindow.webkit.messageHandlers.barcWorkGuard.postMessage = () => {};
+            window.reloaded = false; child.onload = () => { window.reloaded = true; };
+            child.srcdoc = '<p>Second</p>'; true
+            """)
+        for _ in 0..<300 {
+            if try await view.evaluateJavaScript("window.reloaded") as? Bool == true { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await MemoryTestPage.safe(view), "GitHub stayed awake for hours on the stale entry this leaves behind")
+    }
+
     @Test("Removing an idle iframe does not permanently block the parent")
     func removedFrame() async throws {
         let view = try await MemoryTestPage.make(html: "<iframe srcdoc='<p>Idle child</p>'></iframe>")
