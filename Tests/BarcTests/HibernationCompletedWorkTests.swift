@@ -51,6 +51,32 @@ struct HibernationCompletedWorkTests {
         #expect(await MemoryTestPage.safe(view))
     }
 
+    @Test("An editor that stays out of the page stops protecting it; one still in the page does not")
+    func abandonedEditor() async throws {
+        let view = try await MemoryTestPage.make(html: "<textarea id='sent'></textarea><textarea id='kept'></textarea>")
+        _ = try await view.callAsyncJavaScript("globalThis.__barcTestRemovedDraftMs = 200", arguments: [:], in: nil, contentWorld: .defaultClient)
+        // An app unmounting the edit box of a message it just sent, text and all.
+        _ = try await view.evaluateJavaScript("sent.dispatchEvent(new Event('beforeinput', {bubbles:true})); sent.value='Sent message'; sent.dispatchEvent(new Event('input', {bubbles:true})); sent.remove(); true")
+        #expect(!(await MemoryTestPage.safe(view)), "A field just taken out of the page may be put back")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await MemoryTestPage.safe(view), "A field that stayed out of the page is gone from the person's view")
+        _ = try await view.evaluateJavaScript("kept.dispatchEvent(new Event('beforeinput', {bubbles:true})); kept.value='Unsent'; kept.dispatchEvent(new Event('input', {bubbles:true})); true")
+        #expect(!(await MemoryTestPage.safe(view)))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!(await MemoryTestPage.safe(view)), "A draft still on the page stays protected however long it waits")
+    }
+
+    @Test("A removed editor put back into the page protects it again")
+    func reattachedEditor() async throws {
+        let view = try await MemoryTestPage.make(html: "<div id='panel'><textarea id='draft'></textarea></div>")
+        _ = try await view.callAsyncJavaScript("globalThis.__barcTestRemovedDraftMs = 200", arguments: [:], in: nil, contentWorld: .defaultClient)
+        _ = try await view.evaluateJavaScript("draft.dispatchEvent(new Event('beforeinput', {bubbles:true})); draft.value='Unsent'; draft.dispatchEvent(new Event('input', {bubbles:true})); window.held=draft; draft.remove(); true")
+        #expect(!(await MemoryTestPage.safe(view)))
+        _ = try await view.evaluateJavaScript("panel.append(held); true")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!(await MemoryTestPage.safe(view)), "Time spent out of the page does not count once the field is back")
+    }
+
     @Test("Deleting existing content is still an unsaved edit, even in a detached editor")
     func unsavedDeletion() async throws {
         let view = try await MemoryTestPage.make(html: "<textarea id='draft'>Original note</textarea><div id='editor' contenteditable='true'>Original rich note</div>")

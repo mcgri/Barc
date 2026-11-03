@@ -69,7 +69,9 @@ struct UneditedPageHibernationTests {
         "<input id='editor' name='q'>",
         "<input id='editor' name='search_query' role='combobox'>",
         "<input id='editor' placeholder='Filter projects'>",
-        "<search><input id='editor'></search>"
+        "<search><input id='editor'></search>",
+        "<input id='editor' aria-label='Go to file'>",
+        "<input id='editor' placeholder='Find or create a branch…'>"
     ])
     func searchQuery(html: String) async throws {
         let view = try await MemoryTestPage.make(html: html)

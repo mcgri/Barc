@@ -126,6 +126,43 @@ struct LivePageHibernationTests {
         #expect(await MemoryTestPage.safe(view))
     }
 
+    /// A page whose fetch never answers, wrapped by the guard like the real one.
+    private func pageWithSilentNetwork() async throws -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        config.userContentController.addUserScript(WKUserScript(source: "window.fetch = function() { return new Promise(() => {}); };",
+                                                                injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        PageHibernationGuard.shared.attach(config.userContentController)
+        let view = WKWebView(frame: .zero, configuration: config)
+        try await MemoryTestPage.load(view, html: "<p>Request fixture</p>")
+        _ = try await view.evaluateJavaScript("globalThis.__barcTestRequestWindowMs = 200; true")
+        return view
+    }
+
+    @Test("A request that stays open past the window is a long poll, not an upload")
+    func longPoll() async throws {
+        let view = try await pageWithSilentNetwork()
+        _ = try await view.evaluateJavaScript("fetch('/channel/bind', {method:'POST', body:'count=1'}); true")
+        #expect(!(await MemoryTestPage.safe(view)), "A form request just sent is protected")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await MemoryTestPage.safe(view), "Gmail keeps a request like this open all day")
+    }
+
+    @Test("A request carrying a file stays protected for as long as it takes")
+    func longUpload() async throws {
+        let view = try await pageWithSilentNetwork()
+        _ = try await view.evaluateJavaScript("fetch('/upload', {method:'POST', body:new Blob([new Uint8Array(70000)])}); true")
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!(await MemoryTestPage.safe(view)))
+    }
+
+    @Test("Opening a request again does not leave the cancelled one counted forever")
+    func reopenedRequest() async throws {
+        let view = try await MemoryTestPage.make()
+        _ = try await view.evaluateJavaScript("const request = new XMLHttpRequest(); request.open('POST', '/first'); request.send('one'); request.open('GET', '/second'); true")
+        #expect(await MemoryTestPage.safe(view), "open() cancels the request in flight without a loadend event")
+    }
+
     @Test("Uninstrumented documents never grant permission")
     func unknown() async throws {
         let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent()

@@ -25,6 +25,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         var realtimeFrames: Set<String> = []
         var busyWorkFrames: Set<String> = []
         var protection = "Waiting for page safety check"
+        /// Which field or request the refusal is about, for the measurement log.
+        var protectionDetail = ""
     }
     private struct Frame {
         let kind: String
@@ -105,6 +107,9 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     func sleepExplanation(for view: WKWebView) -> String {
         pages.object(forKey: view)?.protection ?? "Waiting for page safety check"
     }
+    func sleepDetail(for view: WKWebView) -> String {
+        pages.object(forKey: view)?.protectionDetail ?? ""
+    }
 
     /// An earlier member of a split can change while another is inspected.
     /// Call immediately before retiring the group, without another suspension.
@@ -118,6 +123,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         guard let page = pages.object(forKey: view) else { return false }
         page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
+        page.protectionDetail = ""
         guard Self.nativeActivityAllowsSleep(view) else { return false }
         guard !page.overflow else { page.protection = "Too many frames to check"; return false }
         guard page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }) else {
@@ -133,7 +139,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         for frame in frames {
             guard !Task.isCancelled else { return false }
             let token = WebNotificationCentre.javaScriptString(frame.token)
-            let script = "({safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), reason: window.__barcHibernation && window.__barcHibernation.reason, children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY})"
+            let script = "({safe: !!(window.__barcHibernation && window.__barcHibernation.token === \(token) && window.__barcHibernation.isSafe()), reason: window.__barcHibernation && window.__barcHibernation.reason, children: document.querySelectorAll('iframe, frame').length, url: location.href, x: scrollX, y: scrollY, detail: window.__barcHibernation && window.__barcHibernation.detail})"
             guard let inspection = await inspect(script, frame: frame, in: view) else {
                 page.protection = frame.info.isMainFrame ? "Page did not answer the safety check" : "A frame did not answer the safety check (\(frame.info.securityOrigin.host))"
                 return false
@@ -148,6 +154,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             }
             guard inspection.safe else {
                 page.protection = inspection.reason
+                page.protectionDetail = inspection.detail
                 return false
             }
             if frame.info.isMainFrame, frame.kind == "barcDraftGuard" { viewport = inspection.viewport }
@@ -166,7 +173,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             }
         }
         guard !Task.isCancelled, page.generation == generation else { page.protection = "Page changed during the safety check"; return false }
-        guard page.busyWorkFrames.isEmpty else { page.protection = "Upload or form request in progress"; return false }
+        guard page.busyWorkFrames.isEmpty else {
+            page.protection = "Upload or form request in progress"
+            page.protectionDetail = "a frame reported work after its check"
+            return false
+        }
         guard Self.nativeActivityAllowsSleep(view) else { return false }
         page.viewport = viewport
         page.protection = "Ready to sleep when idle"
@@ -280,6 +291,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     private struct Inspection {
         let safe: Bool
         let reason: String
+        var detail = ""
         let children: Int
         let viewport: PageViewport?
         /// The frame is no longer in the page.
@@ -324,7 +336,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                     case "media": "Media is playing"
                     default: "Waiting for page safety check"
                     }
-                    reply.finish(Inspection(safe:safe, reason:reason, children:children, viewport:viewport))
+                    reply.finish(Inspection(safe:safe, reason:reason, detail:(result?["detail"] as? String).map { String($0.prefix(160)) } ?? "",
+                                            children:children, viewport:viewport))
                 case .failure(let error):
                     // Page JavaScript is switched off in this document: a
                     // sandboxed frame without allow-scripts, like the blank one
@@ -370,8 +383,9 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       const rich = el => !el.matches('input, textarea, select');
       // A query typed into a search or filter box is not unsaved work. Single-
       // page apps keep it in the box indefinitely (a Gmail search, a YouTube
-      // query), which would otherwise keep the whole tab awake for days.
-      const searchWords = /search|query|filter/i;
+      // query, GitHub's "Go to file" and "Find a branch"), which would
+      // otherwise keep the whole tab awake for days.
+      const searchWords = /search|query|filter|\bfind\b|\bgo to\b|\bjump to\b/i;
       const isSearchField = el => el.tagName === 'INPUT'
         && (el.type === 'search' || el.getAttribute('role') === 'searchbox'
           || !!el.closest('[role="search"], search')
@@ -458,24 +472,45 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         if (['checkbox','radio'].includes(el.type)) return el.checked !== initial;
         return !['hidden','submit','button','reset','image'].includes(el.type) && el.value !== initial;
       }
+      // An editor the page has taken out of the document still protects it for
+      // a while: a framework can move a field and put it back, and a submit
+      // event is no proof of a save. After that it is gone from the person's
+      // view for good. Apps unmount the edit box of a sent message, a renamed
+      // title or a closed dialog with the text still in it, and holding every
+      // such page awake for days cost gigabytes. Read lazily for tests.
+      const removedWindow = () => typeof globalThis.__barcTestRemovedDraftMs === 'number' ? globalThis.__barcTestRemovedDraftMs : 120000;
+      const removedSince = new WeakMap();
+      function abandoned(el) {
+        if (el.isConnected) { removedSince.delete(el); return false; }
+        if (!removedSince.has(el)) removedSince.set(el, performance.now());
+        return performance.now() - removedSince.get(el) >= removedWindow();
+      }
+      // Which field holds the draft, for Barc's measurement log. Labels and
+      // names only: field values never leave the page.
+      let detail = '';
+      const describe = el => {
+        const label = el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('name') || el.id || '';
+        return el.tagName.toLowerCase() + (el.tagName === 'INPUT' ? '[' + el.type + ']' : '')
+          + (label ? ' "' + String(label).slice(0, 40) + '"' : '') + (el.isConnected ? '' : ' (removed)');
+      };
       function isSafe() {
-        if (unknownEdit || document.designMode === 'on') return false;
-        if (!listenersRun && unobservedDraft()) return false;
+        detail = '';
+        if (unknownEdit) { detail = 'edit in a control Barc could not identify'; return false; }
+        if (document.designMode === 'on') { detail = 'design mode'; return false; }
+        if (!listenersRun && unobservedDraft()) { detail = 'field in a document without scripts'; return false; }
         for (const el of edited) {
-          // A removed editor can still hold unsaved work. Do not interpret
-          // removal or a submit event as proof that a message was sent.
-          if (hasDraft(el)) return false;
+          if (hasDraft(el) && !abandoned(el)) { detail = describe(el); return false; }
           edited.delete(el);
         }
         // Saved task titles and descriptions are not drafts just because they
         // contain text or differ from HTML defaults. File selections remain
         // protected even when no editing event was delivered.
         for (const el of document.querySelectorAll('input[type="file"]')) {
-          if (el.files && el.files.length) return false;
+          if (el.files && el.files.length) { detail = describe(el); return false; }
         }
         return true;
       }
-      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe, get reason() { return 'draft'; }}});
+      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe, get reason() { return 'draft'; }, get detail() { return detail; }}});
       report('register');
       window.addEventListener('pagehide', () => report('gone'));
       window.addEventListener('pageshow', e => { if (e.persisted) report('register'); });
@@ -489,7 +524,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       const bridge = window.webkit.messageHandlers.barcWorkGuard;
       const token = globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()) + Date.now();
       const peers = new Set(), tracks = new Set(), streams = new WeakSet();
-      let pending = 0, captureRequests = 0;
+      let captureRequests = 0;
       // A peer is a call while it is being set up and once it has someone on
       // the other end. Bot-detection and fingerprinting scripts make peers only
       // to gather local network candidates and never connect them (signed-in
@@ -501,13 +536,57 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         || performance.now() - (born.get(peer) ?? 0) < setupWindow();
       const livePeers = () => Array.from(peers).filter(liveCall).length;
       const realtime = () => livePeers() > 0 || captureRequests > 0 || Array.from(tracks).some(t => t.readyState !== 'ended');
-      let reportedRealtime = false, reason = '';
+      // Requests that send something. One carrying a file or a lot of data is
+      // an upload for as long as it takes. Anything else still open after a
+      // minute is a long poll or a stream, not a form waiting to be saved:
+      // Gmail keeps one open all day, which used to keep it awake for days.
+      const requests = new Map();
+      const requestWindow = () => typeof globalThis.__barcTestRequestWindowMs === 'number' ? globalThis.__barcTestRequestWindowMs : 60000;
+      const bodySize = body => {
+        try {
+          if (body == null) return 0;
+          if (typeof body === 'string') return body.length;
+          if (body instanceof Blob) return body.size;
+          if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) return body.byteLength;
+          if (typeof ReadableStream === 'function' && body instanceof ReadableStream) return Infinity;
+          if (body instanceof FormData) {
+            let size = 0;
+            for (const value of body.values()) size += value instanceof Blob ? value.size : String(value).length;
+            return size;
+          }
+          return String(body).length;
+        } catch (error) { return Infinity; }
+      };
+      const target = (method, url) => {
+        try { const address = new URL(String(url), location.href); return method + ' ' + address.host + address.pathname.slice(0, 60); }
+        catch (error) { return method; }
+      };
+      const openRequests = () => {
+        const now = performance.now();
+        return Array.from(requests.values()).filter(r => r.upload || now - r.start < requestWindow());
+      };
+      let reportedRealtime = false, reportedBusy = false, reason = '', detail = '';
+      const busy = () => openRequests().length > 0 || realtime() || !reliable;
       const report = event => {
         reportedRealtime = realtime();
-        bridge.postMessage({token, event, realtime: reportedRealtime,
-                            busy: pending !== 0 || reportedRealtime || !reliable});
+        reportedBusy = busy();
+        bridge.postMessage({token, event, realtime: reportedRealtime, busy: reportedBusy});
       };
-      const change = delta => { pending += delta; report('change'); };
+      let ageCheck = 0;
+      const begin = (key, body, label) => {
+        // Forget long polls that never finished rather than let them pile up.
+        if (requests.size >= 256) {
+          for (const [other, request] of requests) {
+            if (!request.upload && performance.now() - request.start >= requestWindow()) requests.delete(other);
+          }
+        }
+        requests.set(key, {start: performance.now(), upload: bodySize(body) >= 65536, label});
+        report('change');
+        // Tell Barc when the request stops counting.
+        clearTimeout(ageCheck);
+        ageCheck = setTimeout(() => report('change'), requestWindow() + 1);
+      };
+      const end = key => { if (requests.delete(key)) report('change'); };
       let reliable = true;
       function trackCapture(track) {
         if (tracks.has(track)) return;
@@ -571,51 +650,67 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
           const original = devices[name];
           devices[name] = function() {
             captureRequests++;
-            change(1);
+            report('change');
             try { return original.apply(this, arguments).then(stream => {
               trackStream(stream);
               return stream;
-            }).finally(() => { captureRequests--; change(-1); }); }
-            catch (error) { captureRequests--; change(-1); throw error; }
+            }).finally(() => { captureRequests--; report('change'); }); }
+            catch (error) { captureRequests--; report('change'); throw error; }
           };
         }
         const fetch = window.fetch;
         window.fetch = function(input, init) {
           const method = String(init && init.method || input && input.method || 'GET').toUpperCase();
-          const uploading = !['GET','HEAD'].includes(method);
-          if (!uploading) return fetch.apply(this, arguments);
-          change(1);
-          try { return fetch.apply(this, arguments).finally(() => change(-1)); }
-          catch (error) { change(-1); throw error; }
+          if (['GET','HEAD'].includes(method)) return fetch.apply(this, arguments);
+          const key = {};
+          begin(key, init && init.body, target(method, input && input.url || input));
+          try { return fetch.apply(this, arguments).finally(() => end(key)); }
+          catch (error) { end(key); throw error; }
         };
         const open = XMLHttpRequest.prototype.open, send = XMLHttpRequest.prototype.send;
-        const methods = new WeakMap();
-        XMLHttpRequest.prototype.open = function(method) { methods.set(this, String(method).toUpperCase()); return open.apply(this, arguments); };
+        const methods = new WeakMap(), addresses = new WeakMap();
+        XMLHttpRequest.prototype.open = function(method, url) {
+          // Opening a request again cancels the one in flight without any
+          // event, so it would otherwise count as in progress forever.
+          end(this);
+          methods.set(this, String(method).toUpperCase());
+          addresses.set(this, url);
+          return open.apply(this, arguments);
+        };
         XMLHttpRequest.prototype.send = function(body) {
-          if (body == null && ['GET','HEAD'].includes(methods.get(this))) return send.apply(this, arguments);
-          change(1);
-          let done = false;
-          const finish = () => { if (!done) { done = true; change(-1); } };
-          this.addEventListener('loadend', finish, {once:true});
-          try { return send.apply(this, arguments); } catch (error) { finish(); throw error; }
+          const method = methods.get(this);
+          if (body == null && ['GET','HEAD'].includes(method)) return send.apply(this, arguments);
+          const request = this;
+          begin(request, body, target(method || 'POST', addresses.get(request)));
+          request.addEventListener('loadend', () => end(request), {once:true});
+          try { return send.apply(this, arguments); } catch (error) { end(request); throw error; }
         };
       } catch (error) { reliable = false; }
       function isSafe() {
         for (const peer of peers) if (peer.signalingState === 'closed') peers.delete(peer);
         for (const track of tracks) if (track.readyState === 'ended') tracks.delete(track);
         // Recheck live state even when a site used a prototype method instead
-        // of our instance wrapper. Cached bridge state is not a sleep veto.
-        if (reportedRealtime !== realtime()) report('change');
+        // of our instance wrapper, or a request aged out while timers were
+        // throttled. Cached bridge state is not a sleep veto.
+        if (reportedRealtime !== realtime() || reportedBusy !== busy()) report('change');
+        detail = '';
         if (!reliable) { reason = 'unknown'; return false; }
         if (captureRequests > 0 || livePeers() > 0 || tracks.size > 0) { reason = 'call'; return false; }
-        if (pending !== 0) { reason = 'upload'; return false; }
+        const inFlight = openRequests();
+        if (inFlight.length) {
+          const oldest = inFlight[0];
+          reason = 'upload';
+          detail = inFlight.length + (inFlight.length === 1 ? ' request, ' : ' requests, oldest ')
+            + oldest.label + ' open ' + Math.round((performance.now() - oldest.start) / 1000) + ' s' + (oldest.upload ? ', large body' : '');
+          return false;
+        }
         // Audible media only. A muted autoplay clip (a news homepage, a feed)
         // is decoration, not something the person is listening to.
         if (Array.from(document.querySelectorAll('audio, video')).some(el => !el.paused && !el.ended && !el.muted && el.volume > 0)) { reason = 'media'; return false; }
         reason = '';
         return true;
       }
-      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe, get reason() { return reason; }}});
+      Object.defineProperty(window, '__barcHibernation', {value: {token, isSafe, get reason() { return reason; }, get detail() { return detail; }}});
       report('register');
       window.addEventListener('pagehide', () => report('gone'));
       window.addEventListener('pageshow', e => { if (e.persisted) report('register'); });

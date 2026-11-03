@@ -189,7 +189,8 @@ final class TabSuspender {
                     safe = false
                     // Why a due tab stayed awake; invisible otherwise outside the Task Manager.
                     if Metrics.isLoggingEnabled {
-                        Metrics.log("sweep kept host=\(member.url.host ?? "-") reason=\(member.automaticSleepExplanation)")
+                        let detail = member.currentWebView.map { PageHibernationGuard.shared.sleepDetail(for: $0) } ?? ""
+                        Metrics.log("sweep kept host=\(member.url.host ?? "-") reason=\(member.automaticSleepExplanation)\(detail.isEmpty ? "" : " detail=\(detail)")")
                     }
                     break
                 }
