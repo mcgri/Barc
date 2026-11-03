@@ -144,6 +144,23 @@ extension Toast {
     /// has to say so. Silently removing tabs is the complaint every browser
     /// with this feature has earned; a line and an Undo is the whole of the
     /// difference between "it tidied up" and "it lost my tabs".
+    /// Raised by the sidebar's clean-up button.
+    static func cleanedUp(count: Int, days: Int, undo: @escaping () -> Void) -> Toast {
+        Toast(
+            symbolName: "archivebox",
+            message: count == 1 ? "Archived 1 tab unused for \(days) days" : "Archived \(count) tabs unused for \(days) days",
+            action: Action(title: "Undo", handler: undo),
+            duration: 6,
+            identity: "tab-archiving"
+        )
+    }
+
+    /// The clean-up button found nothing old enough, which is worth saying:
+    /// a click with no visible result reads as a broken button.
+    static func nothingToCleanUp(days: Int) -> Toast {
+        Toast(symbolName: "checkmark.circle", message: "No tabs unused for \(days) days", identity: "tab-archiving")
+    }
+
     static func archived(count: Int, undo: @escaping () -> Void) -> Toast {
         Toast(
             symbolName: "archivebox",

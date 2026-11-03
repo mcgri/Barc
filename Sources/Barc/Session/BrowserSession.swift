@@ -1822,7 +1822,7 @@ final class BrowserSession {
     /// Takes tabs out of the sidebar and into the archive, whole: the saved
     /// interaction state goes with them, so restoring one brings back its
     /// scroll position and its back-forward list rather than just an address.
-    func archive(_ tabs: [Tab]) {
+    func archive(_ tabs: [Tab], announce: ((Int, @escaping () -> Void) -> Toast)? = nil) {
         // Capture complete arrangements before detaching any pane. A partial
         // explicit pane request still removes only that pane.
         let requested = Set(tabs.map(\.id))
@@ -1867,7 +1867,37 @@ final class BrowserSession {
         changes.send(.structure)
         changes.send(.activeTab)
         scheduleSave()
-        showToast?(.archived(count:archivedIDs.count,undo:{ [weak self] in self?.undoArchive(archivedIDs) }))
+        let undo: () -> Void = { [weak self] in self?.undoArchive(archivedIDs) }
+        showToast?(announce?(archivedIDs.count, undo) ?? .archived(count:archivedIDs.count,undo:undo))
+    }
+
+    /// The sidebar's clean-up button: archives the tabs in the active space
+    /// that have not been on screen for `days` days.
+    ///
+    /// The same rule as automatic archiving with a fixed threshold, so the
+    /// same tabs stay: pinned tabs and Essentials, Keep in Sidebar and Keep
+    /// Awake, live folders, the tabs on screen, and a split unless every pane
+    /// is old. Only sleeping tabs qualify, so a tab still holding a page
+    /// because of an unsent draft, a call or an upload stays too. Archived
+    /// tabs keep their history and can be restored, and the toast offers Undo.
+    @discardableResult
+    func cleanUpUnusedTabs(days: Int = 7, now: Date = .now) -> Int {
+        let space = activeSpace
+        let stale = space.isPrivate ? [] : TabArchiving.candidates(
+            among: space.tabs,
+            protecting: visibleTabIDs,
+            threshold: TimeInterval(days) * 86_400,
+            isPinned: { [unowned self] in isPinned($0) },
+            isProviderManaged: { [unowned self] in isInLiveFolder($0) },
+            cohorts: splitCohorts,
+            now: now
+        )
+        guard !stale.isEmpty else {
+            showToast?(.nothingToCleanUp(days: days))
+            return 0
+        }
+        archive(stale) { count, undo in .cleanedUp(count: count, days: days, undo: undo) }
+        return stale.count
     }
 
     /// Puts back everything the last sweep took, for the toast's Undo.

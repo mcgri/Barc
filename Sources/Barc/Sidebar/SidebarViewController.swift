@@ -3295,9 +3295,17 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
         let header = ActionRowView()
         header.show(symbolName: "plus", title: "New Tab")
         header.onPress = { [weak self] in self?.newTab() }
+        // Archives tabs nobody has looked at for a week (see
+        // `BrowserSession.cleanUpUnusedTabs`). Its toast says what went and
+        // offers Undo, or says there was nothing to tidy.
+        let cleanUp = IconButton(symbolName: "archivebox", label: "Clean Up Tabs Unused for 7 Days") { [weak self] in
+            self?.session.cleanUpUnusedTabs()
+        }
+        cleanUp.translatesAutoresizingMaskIntoConstraints = false
 
         let container = NSView()
         container.addSubview(header)
+        container.addSubview(cleanUp)
         let divider = SidebarSectionDivider()
         divider.isHidden = !hasVisibleRetainedRows
         divider.translatesAutoresizingMaskIntoConstraints = false
@@ -3311,8 +3319,10 @@ extension SidebarViewController: NSTableViewDataSource, NSTableViewDelegate {
                 equalTo: container.leadingAnchor,
                 constant: Style.Metrics.sidebarInset
             ),
-            header.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor),
-            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: hasVisibleRetainedRows ? 12 : 0)
+            header.trailingAnchor.constraint(lessThanOrEqualTo: cleanUp.leadingAnchor, constant: -4),
+            header.centerYAnchor.constraint(equalTo: container.centerYAnchor, constant: hasVisibleRetainedRows ? 12 : 0),
+            cleanUp.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -10),
+            cleanUp.centerYAnchor.constraint(equalTo: header.centerYAnchor)
         ])
         return container
     }
