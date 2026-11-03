@@ -60,6 +60,10 @@ enum TabSuspension {
     static let warningThreshold: TimeInterval = 60
     static let heavyThreshold: UInt64 = 500 * 1024 * 1024
     static let heavyDelay: TimeInterval = 180
+    /// A page past a gigabyte (a big ClickUp or Jira board) costs more in one
+    /// minute out of sight than a reload costs when it comes back.
+    static let veryHeavyThreshold: UInt64 = 1024 * 1024 * 1024
+    static let veryHeavyDelay: TimeInterval = 60
     static let budgetGrace: TimeInterval = 120
 
     /// Both pressure levels share one memory-cache purge interval.
@@ -158,9 +162,13 @@ enum TabSuspension {
         var chosen = Set(tabs.lazy.filter { tab in
             guard tab.isLoaded, !protected.contains(tab.id) else { return false }
             guard let minimumIdle else { return true }
-            let heavy = trigger == .idle && !tab.sharedProcess && tab.processID != nil
-                && (tab.footprint ?? 0) >= heavyThreshold
-            let threshold = heavy ? min(minimumIdle, heavyDelay) : minimumIdle
+            // Only a process this tab has to itself says what sleeping it frees.
+            let attributable = trigger == .idle && !tab.sharedProcess && tab.processID != nil
+            let footprint = tab.footprint ?? 0
+            let fastDelay: TimeInterval? = !attributable ? nil
+                : footprint >= veryHeavyThreshold ? veryHeavyDelay
+                : footprint >= heavyThreshold ? heavyDelay : nil
+            let threshold = fastDelay.map { min(minimumIdle, $0) } ?? minimumIdle
             return now.timeIntervalSince(tab.lastActiveAt) >= threshold
         }.map(\.id))
         // Never unload a recently used or protected sibling to match an older

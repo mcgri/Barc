@@ -73,6 +73,16 @@ struct BackgroundMemoryPolicyTests {
         #expect(TabSuspension.candidateIDs(among: [tab(bytes, pid: 5, age: 60)], protecting: [],
             idleThreshold: 60, trigger: .idle, now: now).count == 1)
     }
+    @Test func pagesPastAGigabyteSleepAfterOneMinute() {
+        let gigabyte = TabSuspension.veryHeavyThreshold
+        let early = tab(gigabyte, pid: 1, age: 59.99), ready = tab(gigabyte, pid: 2, age: 60)
+        let heavyOnly = tab(gigabyte - 1, pid: 3, age: 60), shared = tab(gigabyte, pid: 4, age: 60, shared: true)
+        let chosen = TabSuspension.candidateIDs(among: [early, ready, heavyOnly, shared],
+            protecting: [], idleThreshold: 600, trigger: .idle, now: now)
+        #expect(chosen == [ready.id], "Below a gigabyte the three-minute rule still applies; a shared process is never attributed")
+        #expect(TabSuspension.candidateIDs(among: [ready], protecting: [ready.id],
+            idleThreshold: 600, trigger: .idle, now: now).isEmpty, "Protection still wins")
+    }
     @Test func budgetStopsAfterEnoughMemoryWasReleased() {
         var heavy = tab(900, pid: 1)
         let small = tab(100, pid: 2)
