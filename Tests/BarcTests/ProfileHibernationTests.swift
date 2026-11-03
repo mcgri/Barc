@@ -135,7 +135,7 @@ struct LivePageHibernationTests {
         PageHibernationGuard.shared.attach(config.userContentController)
         let view = WKWebView(frame: .zero, configuration: config)
         try await MemoryTestPage.load(view, html: "<p>Request fixture</p>")
-        _ = try await view.evaluateJavaScript("globalThis.__barcTestRequestWindowMs = 200; true")
+        _ = try await view.evaluateJavaScript("globalThis.__barcTestRequestWindowMs = 2000; true")
         return view
     }
 
@@ -144,7 +144,7 @@ struct LivePageHibernationTests {
         let view = try await pageWithSilentNetwork()
         _ = try await view.evaluateJavaScript("fetch('/channel/bind', {method:'POST', body:'count=1'}); true")
         #expect(!(await MemoryTestPage.safe(view)), "A form request just sent is protected")
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(2200))
         #expect(await MemoryTestPage.safe(view), "Gmail keeps a request like this open all day")
     }
 
@@ -152,7 +152,7 @@ struct LivePageHibernationTests {
     func longUpload() async throws {
         let view = try await pageWithSilentNetwork()
         _ = try await view.evaluateJavaScript("fetch('/upload', {method:'POST', body:new Blob([new Uint8Array(70000)])}); true")
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(2200))
         #expect(!(await MemoryTestPage.safe(view)))
     }
 

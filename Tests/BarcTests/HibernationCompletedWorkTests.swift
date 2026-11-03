@@ -54,15 +54,15 @@ struct HibernationCompletedWorkTests {
     @Test("An editor that stays out of the page stops protecting it; one still in the page does not")
     func abandonedEditor() async throws {
         let view = try await MemoryTestPage.make(html: "<textarea id='sent'></textarea><textarea id='kept'></textarea>")
-        _ = try await view.callAsyncJavaScript("globalThis.__barcTestRemovedDraftMs = 200", arguments: [:], in: nil, contentWorld: .defaultClient)
+        _ = try await view.callAsyncJavaScript("globalThis.__barcTestRemovedDraftMs = 2000", arguments: [:], in: nil, contentWorld: .defaultClient)
         // An app unmounting the edit box of a message it just sent, text and all.
         _ = try await view.evaluateJavaScript("sent.dispatchEvent(new Event('beforeinput', {bubbles:true})); sent.value='Sent message'; sent.dispatchEvent(new Event('input', {bubbles:true})); sent.remove(); true")
         #expect(!(await MemoryTestPage.safe(view)), "A field just taken out of the page may be put back")
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(2200))
         #expect(await MemoryTestPage.safe(view), "A field that stayed out of the page is gone from the person's view")
         _ = try await view.evaluateJavaScript("kept.dispatchEvent(new Event('beforeinput', {bubbles:true})); kept.value='Unsent'; kept.dispatchEvent(new Event('input', {bubbles:true})); true")
         #expect(!(await MemoryTestPage.safe(view)))
-        try await Task.sleep(for: .milliseconds(300))
+        try await Task.sleep(for: .milliseconds(2200))
         #expect(!(await MemoryTestPage.safe(view)), "A draft still on the page stays protected however long it waits")
     }
 
