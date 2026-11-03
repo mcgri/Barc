@@ -158,6 +158,9 @@ struct IdlePageRetentionTests {
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 1000, height: 800))
         let existing = Set(WebEnvironment.shared.liveWebViews.map(ObjectIdentifier.init))
         var kept: Tab?
+        // The floating window gets a page this test made; the shared registry
+        // can hand back another suite's page created meanwhile.
+        var created: WKWebView?
         let adopt: (WKWebView) -> Void = { page in
             page.removeFromSuperview()
             kept = session.adoptGlancedTab(page, after: session.activeTab)
@@ -174,6 +177,7 @@ struct IdlePageRetentionTests {
             close = { glance.dismiss(.applicationQuitting) }
         case .floating:
             let page = try await MemoryTestPage.make(identity: session.activeSpace.identity)
+            created = page
             let controller = FloatingWebWindowController(webView: page)
             controller.onDockBack = { page, _ in adopt(page) }
             page.load(URLRequest(url: url))
@@ -189,7 +193,7 @@ struct IdlePageRetentionTests {
             close = { controller.close() }
         }
         defer { close(); kept?.unload() }
-        let page = try #require(WebEnvironment.shared.liveWebViews.first { !existing.contains(ObjectIdentifier($0)) })
+        let page = try #require(created ?? WebEnvironment.shared.liveWebViews.first { !existing.contains(ObjectIdentifier($0)) })
         for _ in 0..<500 {
             if !page.isLoading, (try? await page.evaluateJavaScript("!!document.getElementById('httpReady')")) as? Bool == true { break }
             try await Task.sleep(for: .milliseconds(10))
