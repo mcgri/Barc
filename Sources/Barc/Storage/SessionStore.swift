@@ -75,6 +75,10 @@ final class SessionStore: @unchecked Sendable {
         try data.write(to: fileURL, options: [.atomic])
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         lastWrittenDigest = digest
+        // Encoding a session of a hundred tabs passes several megabytes
+        // through large allocations; return them instead of keeping them as
+        // empty blocks that still count against Barc.
+        Task { @MainActor in MemoryRelief.shared.requestRelief() }
     }
 
     func clear() {

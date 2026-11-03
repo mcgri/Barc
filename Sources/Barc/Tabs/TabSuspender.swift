@@ -217,6 +217,10 @@ final class TabSuspender {
             await WebPanelViewController.hibernateHiddenPanels(after: delay)
         }
         Metrics.log("sweep trigger=\(trigger) unloaded=\(lastSweepUnloadedCount) loaded=\(session.allTabs.count { $0.isLoaded })")
+        // Sleeping pages frees their state in this process too (session
+        // data, back-forward items, layers). Hand the pages back to macOS
+        // now rather than at the next pressure warning or app switch.
+        if lastSweepUnloadedCount > 0 { MemoryRelief.shared.requestRelief() }
     }
 
     private func candidateIDs(_ trigger: TabSuspension.Trigger) -> Set<Tab.ID> {
