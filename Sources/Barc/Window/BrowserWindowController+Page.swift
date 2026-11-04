@@ -37,12 +37,15 @@ extension BrowserWindowController {
     // MARK: - Printing
 
     @objc func printPage(_ sender: Any?) {
-        guard let webView = session.activeTab?.currentWebView, let window else { return }
-        guard let operation = PagePrinting.operation(for: webView) else {
-            session.showToast?(Toast(symbolName: "printer", message: "Nothing to print yet", identity: "print"))
+        guard let tab = session.activeTab, let window else { return }
+        guard let operation = PagePrinting.operation(for: tab) else {
+            let forbidden = tab.documentView?.document?.allowsPrinting == false
+            session.showToast?(Toast(
+                symbolName: "printer", message: forbidden ? "This PDF does not allow printing" : "Nothing to print yet", identity: "print"
+            ))
             return
         }
-        operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        PagePrinting.run(operation, in: window)
     }
 
     @objc func runPageSetup(_ sender: Any?) {
@@ -51,7 +54,7 @@ extension BrowserWindowController {
     }
 
     @objc func exportPageAsPDF(_ sender: Any?) {
-        guard let tab = session.activeTab, let webView = tab.currentWebView, let window else { return }
+        guard let tab = session.activeTab, let window else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
         panel.canCreateDirectories = true
@@ -61,7 +64,7 @@ extension BrowserWindowController {
             guard response == .OK, let file = panel.url else { return }
             Task { @MainActor in
                 do {
-                    let data = try await PagePrinting.pdfData(of: webView)
+                    guard let data = try await PagePrinting.pdfData(of: tab) else { throw CocoaError(.fileReadUnknown) }
                     try data.write(to: file, options: .atomic)
                     self?.session.showToast?(Toast(
                         symbolName: "doc.richtext", message: "Saved \(file.lastPathComponent)", identity: "export-pdf"

@@ -62,6 +62,13 @@ final class PageWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         PageDialogs.prompt(prompt, defaultText: defaultText, frame: frame, in: webView, completion: completionHandler)
     }
 
+    /// `window.print()`, and with it a site's own Print button.
+    @MainActor
+    @objc(_webView:printFrame:pdfFirstPageSize:completionHandler:)
+    func webView(_ webView: WKWebView, printFrame frame: AnyObject, pdfFirstPageSize: CGSize, completionHandler: @escaping @MainActor () -> Void) {
+        PagePrinting.printFromPage(webView, frame: frame, completion: completionHandler)
+    }
+
     @MainActor
     func webView(
         _ webView: WKWebView,

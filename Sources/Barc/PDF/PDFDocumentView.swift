@@ -94,6 +94,13 @@ final class PDFDocumentView: NSView {
         updatePageLabel()
     }
 
+    /// The print job for the document as shown, rotated pages included. Nil
+    /// until it has arrived, or when the file forbids printing.
+    func printOperation(info: NSPrintInfo) -> NSPrintOperation? {
+        guard let document, document.allowsPrinting else { return nil }
+        return document.printOperation(for: (info.copy() as? NSPrintInfo) ?? info, scalingMode: .pageScaleDownToFit, autoRotate: true)
+    }
+
     /// Puts the cursor in the search field, for ⌘F.
     func focusSearch() {
         window?.makeFirstResponder(searchField)

@@ -10,8 +10,11 @@ final class MemoryHTTPFixture: @unchecked Sendable {
     private var connections: [NWConnection] = []
     private var downloads: [NWConnection] = []
     static let downloadBytes = 1024 * 1024
+    private let pdf: Data?
 
-    init() throws {
+    /// With `pdf`, the fixture also serves it at /report.pdf.
+    init(pdf: Data? = nil) throws {
+        self.pdf = pdf
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parameters)
@@ -45,7 +48,10 @@ final class MemoryHTTPFixture: @unchecked Sendable {
                 else { connection.cancel() }
                 return
             }
-            if text.hasPrefix("GET /download ") {
+            if let pdf, text.hasPrefix("GET /report.pdf") {
+                let header = "HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\nContent-Length: \(pdf.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+                connection.send(content: Data(header.utf8) + pdf, completion: .contentProcessed { _ in connection.cancel() })
+            } else if text.hasPrefix("GET /download ") {
                 downloads.append(connection)
                 let header = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=fixture.bin\r\nContent-Length: \(Self.downloadBytes)\r\nConnection: close\r\n\r\n"
                 connection.send(content: Data(header.utf8) + Data(repeating: 65, count: 1024), completion: .contentProcessed { _ in })
