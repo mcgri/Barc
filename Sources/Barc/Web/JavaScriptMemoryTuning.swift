@@ -21,6 +21,15 @@ import WebKit
 /// route works only when set before Barc itself launches, and every
 /// `WKWebViewConfiguration` has its own pool, so the directory is set on each
 /// configuration rather than once.
+///
+/// A pool carrying the directory must never prewarm. WebKit hands a content
+/// process its `JSC.config` along with its data store, and a prewarmed process
+/// gets its data store only when it is taken, after JavaScriptCore has already
+/// started. Parsing the file then crashes the process (`EXC_BREAKPOINT` in
+/// `JSC::ConfigFile::parse`). WebKit turns prewarming on after a tab's first
+/// process swap, so the crash came at the second, on a navigation still
+/// provisional: WebKit tells no delegate, and the old page simply stays on
+/// screen. Signing in to FreeAgent with Google did exactly that.
 @MainActor
 enum JavaScriptMemoryTuning {
     typealias Options = [(key: String, value: String)]
@@ -34,6 +43,13 @@ enum JavaScriptMemoryTuning {
     }
 
     private static let selector = Selector(("_setJavaScriptConfigurationDirectory:"))
+    private static let allocate = Selector(("alloc"))
+    private static let poolConfiguration = Selector(("_configuration"))
+    private static let poolInitialiser = Selector(("_initWithConfiguration:"))
+    private static let prewarmingKey = "prewarmsProcessesAutomatically"
+
+    /// The pools made here, the only ones allowed to carry the directory.
+    private static let unwarmedPools = NSHashTable<WKProcessPool>.weakObjects()
 
     /// Nil outside a bundled app: under `swift test` `AppPaths` falls back to
     /// the real Barc's folder, and a test must never write into a real profile.
@@ -77,8 +93,37 @@ enum JavaScriptMemoryTuning {
         apply(directory: preparedDirectory, to: configuration.processPool)
     }
 
+    /// Refuses a directory for any pool that can prewarm. Such a page keeps
+    /// WebKit's defaults, which is always safe.
     static func apply(directory: URL?, to pool: WKProcessPool) {
-        guard pool.responds(to: selector) else { return }
+        guard pool.responds(to: selector), directory == nil || unwarmedPools.contains(pool) else { return }
         pool.perform(selector, with: directory)
+    }
+
+    /// Gives a configuration Barc is building a pool that can carry the
+    /// directory. Only for new configurations: one WebKit passes for
+    /// `window.open` has to keep its opener's pool, and WebKit throws if the
+    /// two differ.
+    static func installProcessPool(in configuration: WKWebViewConfiguration,
+                                   enabled: Bool = Settings.shared.compactsJavaScriptMemory) {
+        guard enabled, let pool = makeUnwarmedPool() else { return }
+        configuration.processPool = pool
+    }
+
+    /// A pool like WebKit's default in every way but prewarming, or nil where
+    /// this WebKit cannot make one. The setting has to be made explicitly:
+    /// left unset, WebKit turns prewarming on by itself after a process swap.
+    static func makeUnwarmedPool() -> WKProcessPool? {
+        let template = WKProcessPool()
+        guard template.responds(to: poolConfiguration), template.responds(to: poolInitialiser),
+              let settings = template.perform(poolConfiguration)?.takeUnretainedValue() as? NSObject,
+              settings.responds(to: Selector((prewarmingKey))) else { return nil }
+        settings.setValue(false, forKey: prewarmingKey)
+        // `alloc`'s reference is the one the initialiser consumes.
+        guard let allocated = (WKProcessPool.self as AnyObject).perform(allocate)?.takeUnretainedValue(),
+              let pool = allocated.perform(poolInitialiser, with: settings)?.takeRetainedValue() as? WKProcessPool
+        else { return nil }
+        unwarmedPools.add(pool)
+        return pool
     }
 }

@@ -4,8 +4,9 @@ import WebKit
 
 /// Creates web views, and owns one `WKWebsiteDataStore` per space identity.
 ///
-/// `WKProcessPool` is deliberately absent: Apple deprecated it in macOS 12 and
-/// it no longer affects process sharing, so creating one would be dead weight.
+/// `WKProcessPool` plays no part in identity: Apple deprecated it in macOS 12
+/// and it no longer affects process sharing. The one Barc makes exists only so
+/// `JavaScriptMemoryTuning` can carry its options safely.
 /// Data-store identity controls website-data sharing and isolation. WebKit
 /// decides how many content processes to use; there is no fixed PID per profile.
 /// Stores stay cached across hibernation, including session-only cookies and
@@ -156,6 +157,7 @@ final class WebEnvironment {
 
     func makeConfiguration(for identity: Space.Identity) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
+        JavaScriptMemoryTuning.installProcessPool(in: configuration)
         configuration.websiteDataStore = dataStore(for: identity)
         configuration.suppressesIncrementalRendering = false
         configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
