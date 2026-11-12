@@ -82,7 +82,7 @@ final class ContextMenuSettingsViewController: NSViewController, NSTextFieldDele
         blacklistNote.font = .systemFont(ofSize: 11)
         blacklistNote.textColor = .secondaryLabelColor
 
-        blacklistField.placeholderString = "e.g. Open Image in New Window, Download Video"
+        blacklistField.placeholderString = "e.g. Open Image in New Tab, Download Video"
         blacklistField.delegate = self
 
         let doneButton = NSButton(title: "Done", target: self, action: #selector(doneClicked))

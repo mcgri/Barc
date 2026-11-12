@@ -113,6 +113,7 @@ final class ContextMenuManager: NSObject {
     ) {
         // 1. Remove unwanted system or default items based on user settings
         filterMenuItems(menu)
+        relabelNewWindowItems(menu)
 
         // 2. Add "Search for…" entries if text is selected
         enrichWithSearchItems(menu, webView: webView)
@@ -139,6 +140,21 @@ final class ContextMenuManager: NSObject {
 
         // 7. Clean up consecutive and trailing/leading separators
         cleanSeparators(menu)
+    }
+
+    /// WebKit's "Open Link in New Window" family really opens a tab: Barc has
+    /// one main window, so a page's new window always becomes a tab. Matched by
+    /// WebKit's identifier, which unlike the title is the same in every language.
+    private static func tabTitle(for item: NSMenuItem) -> String? {
+        guard let id = item.identifier?.rawValue, id.hasPrefix("WKMenuItemIdentifierOpen"),
+              id.hasSuffix("InNewWindow") else { return nil }
+        return item.title.replacingOccurrences(of: "New Window", with: "New Tab")
+    }
+
+    private func relabelNewWindowItems(_ menu: NSMenu) {
+        for item in menu.items {
+            if let title = Self.tabTitle(for: item) { item.title = title }
+        }
     }
 
     private func filterMenuItems(_ menu: NSMenu) {
@@ -181,7 +197,7 @@ final class ContextMenuManager: NSObject {
             }
             for hidden in hiddenTitles {
                 guard !hidden.isEmpty else { continue }
-                if titleLower.contains(hidden) {
+                if titleLower.contains(hidden) || Self.tabTitle(for: item)?.lowercased().contains(hidden) == true {
                     toRemove.append(item)
                     break
                 }
