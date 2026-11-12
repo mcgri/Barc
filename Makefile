@@ -19,7 +19,7 @@ APP_BUNDLE  := $(BUILD_DIR)/$(APP_NAME).app
 # failed on the runner at the copy, after a successful compile and link -- and
 # because the release job is the only thing that packages the app, it failed at
 # a tag rather than at a push. Expanded lazily, so this runs after the build.
-BIN ?= $(shell swift build -c $(CONFIG) $(ARCH_FLAGS) --show-bin-path)/$(APP_NAME)
+BIN ?= $(shell swift build -c $(CONFIG) $(ARCH_FLAGS) $(RAM_LOG_SCRATCH) --show-bin-path)/$(APP_NAME)
 # The version in Resources/Info.plist, which is a placeholder and stays one.
 # Releases are tag-driven: CI sets the real version from `vX.Y.Z` before it
 # builds, so the checked-in value is never edited and never true. Local builds
@@ -47,6 +47,21 @@ ICON_MARK    := Resources/Icon/barc-icon.png
 #       --apple-id you@example.com --team-id TEAMID --password <app-specific>
 DEV_ID         ?=
 NOTARY_PROFILE ?=
+# The local RAM history log (Sources/Barc/Diagnostics/RAMHistoryLog.swift). Never
+# in a release: without this flag none of its code is compiled, so there is
+# nothing a release could switch on. It builds in its own scratch directory, so
+# a later release build cannot pick up a binary that has it. Tools/ram-report.py
+# reads what it writes.
+#   make bundle RAM_LOG=1 BUILD_DIR=build/local-ram-log
+RAM_LOG ?=
+ifneq ($(strip $(RAM_LOG)),)
+ifneq ($(strip $(CI)$(GITHUB_ACTIONS)$(DEV_ID)),)
+$(error RAM_LOG is for local builds only: refusing to build it on CI or with a signing identity)
+endif
+RAM_LOG_DEFINE  := -Xswiftc -DBARC_LOCAL_RAM_LOG
+RAM_LOG_SCRATCH := --scratch-path .build-ramlog
+RAM_LOG_SUFFIX  := -ramlog
+endif
 # For the installer package: a 'Developer ID Installer: You (TEAMID)'
 # identity, which is a separate certificate from the Application one. Left
 # empty, `make pkg` builds an unsigned package, which an MDM still installs.
@@ -61,7 +76,7 @@ PKG            := $(BUILD_DIR)/$(APP_NAME)$(PKG_SUFFIX).pkg
 # search automatically when only Command Line Tools are installed.
 TESTING_PLUGINS := $(shell xcode-select -p)/usr/lib/swift/host/plugins/testing
 
-.PHONY: all build bundle run test clean size measure notarize icon pkg
+.PHONY: all build bundle run test test-ramlog clean size measure notarize icon pkg
 
 all: bundle
 
@@ -74,7 +89,7 @@ SWIFT_FLAGS :=
 endif
 
 build:
-	swift build -c $(CONFIG) $(ARCH_FLAGS) $(SWIFT_FLAGS)
+	swift build -c $(CONFIG) $(ARCH_FLAGS) $(SWIFT_FLAGS) $(RAM_LOG_DEFINE) $(RAM_LOG_SCRATCH)
 
 # Package the approved Barc artwork; see Tools/make-icon.py.
 icon: $(ICON)
@@ -107,7 +122,7 @@ bundle: build $(ICON)
 	@# clone with no tags (CI's own `make bundle` check) falls through quietly
 	@# and keeps the placeholder, as it does today.
 	@current=$$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$(APP_BUNDLE)/Contents/Info.plist" 2>/dev/null); \
-	described=$$(git describe --tags --dirty --always 2>/dev/null | sed 's/^v//'); \
+	described=$$(git describe --tags --dirty --always 2>/dev/null | sed 's/^v//')$(RAM_LOG_SUFFIX); \
 	tagged=$$(git describe --tags --abbrev=0 2>/dev/null); \
 	if [ "$$current" = "$(PLACEHOLDER_VERSION)" ] && [ -n "$$tagged" ]; then \
 		commits=$$(git rev-list --count HEAD 2>/dev/null || echo 1); \
@@ -145,6 +160,11 @@ run: bundle
 
 test:
 	swift test -Xswiftc -plugin-path -Xswiftc "$(TESTING_PLUGINS)"
+
+# Those tests are compiled only with the flag, so plain `make test` skips them.
+test-ramlog:
+	swift test --scratch-path .build-ramlog -Xswiftc -DBARC_LOCAL_RAM_LOG \
+		-Xswiftc -plugin-path -Xswiftc "$(TESTING_PLUGINS)" --filter RAMHistoryLogTests
 
 size: bundle
 	@du -sh "$(APP_BUNDLE)"

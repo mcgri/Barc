@@ -20,7 +20,13 @@ stem="Barc-$version-universal"
 
 # Only the built app is packaged. Browser profiles, the checkout and local
 # working material never enter the staging directory.
+unset RAM_LOG
 make bundle BUILD_DIR="$out" ARCHS="arm64 x86_64" DEV_ID=
+# The local RAM history log must never ship.
+if grep -q "barc-local-ram-log" "$app/Contents/MacOS/Barc"; then
+    echo "The local RAM history log is in this build. Refusing to package it." >&2
+    exit 1
+fi
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $version" "$app/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(git rev-list --count HEAD)" "$app/Contents/Info.plist"
 codesign --force --sign - --identifier io.github.mcgri.Barc --entitlements Resources/Barc.entitlements "$app"

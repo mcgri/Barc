@@ -246,6 +246,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// The debounced save would be lost on quit, so write synchronously here.
     func applicationWillTerminate(_ notification: Notification) {
         if SidebarReview.requested { session?.saveNow();return }
+        #if BARC_LOCAL_RAM_LOG
+        RAMHistoryLog.shared.stop()
+        #endif
         CrashReporter.markCleanExit()
         session?.saveNow()
         // A native messaging host is a program Barc started; quitting the
@@ -550,6 +553,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Metrics.reportLaunchIfRequested(stage: "housekeeping-done")
         UpdateController.shared.startBackgroundChecking()
         TabResourceMonitor.shared.startBackgroundMonitoring(session: session)
+        #if BARC_LOCAL_RAM_LOG
+        RAMHistoryLog.shared.start(session: session)
+        #endif
         Metrics.reportLaunchIfRequested(stage: "monitors-started")
         ICloudInboxCoordinator.shared.start(session: session, windowController: controller)
         // First install only. Run before WhatsNew records the current version;
