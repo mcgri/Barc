@@ -326,6 +326,14 @@ final class SidebarViewController: NSViewController {
             guard let self,let target = favoriteTileTarget(id) else { return }
             self.session.removePinnedSite(target.site)
         }
+        pinnedTiles.canReset = { [weak self] id in
+            guard let self,let target = favoriteTileTarget(id),let tab = shownSpace.tab(forPin:target.site.id) else { return false }
+            return session.canResetFavorite(tab)
+        }
+        pinnedTiles.onReset = { [weak self] id in
+            guard let self,let target = favoriteTileTarget(id),let tab = shownSpace.tab(forPin:target.site.id) else { return }
+            session.resetFavorite(tab)
+        }
         pinnedTiles.onRename = { [weak self] id,anchor in
             guard let self,let target = favoriteTileTarget(id) else { return }
             let rect = pinnedTiles.convert(anchor.bounds,from:anchor)

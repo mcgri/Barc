@@ -11,7 +11,9 @@ enum CommandCatalog {
                 return session.activeTab.map { session.canChangeSidebarPin($0) && !$0.isSidebarRetained } ?? false
             case "unpin-tab":
                 return session.activeTab.map { session.canChangeSidebarPin($0) && $0.isSidebarRetained } ?? false
-            case "reset-tab", "replace-pin-with-current-page":
+            case "reset-tab":
+                return session.activeTab.map { session.canResetSidebarPin($0) || session.canResetFavorite($0) } ?? false
+            case "replace-pin-with-current-page":
                 return session.activeTab.map(session.canResetSidebarPin) ?? false
             case "favorite-tab":
                 return session.activeTab.map(session.canFavorite) ?? false

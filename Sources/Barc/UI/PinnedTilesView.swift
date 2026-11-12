@@ -49,6 +49,9 @@ final class PinnedTilesView: NSView {
     var onSelect: ((String) -> Void)?
     /// A tile asked to be unpinned, identified by `PinnedTile.id`.
     var onRemove: ((String) -> Void)?
+    /// Asked as the menu opens, because the tile's page moves after it is drawn.
+    var canReset: ((String) -> Bool)?
+    var onReset: ((String) -> Void)?
     var onChangeIcon: ((String,NSView) -> Void)?
     var onRename: ((String,NSView) -> Void)?
 
@@ -97,6 +100,8 @@ final class PinnedTilesView: NSView {
                 self?.onDragStateChange?(dragging)
             }
             view.onRemove = { [weak self] in self?.onRemove?(tile.id) }
+            view.canReset = { [weak self] in self?.canReset?(tile.id) ?? false }
+            view.onReset = { [weak self] in self?.onReset?(tile.id) }
             view.onRename = { [weak self,weak view] in
                 guard let view else { return };self?.onRename?(tile.id,view)
             }
@@ -305,6 +310,8 @@ private final class PinnedTileView: NSView,NSDraggingSource {
     var onClick: (() -> Void)?
     /// A right-click on the tile asks to unpin it.
     var onRemove: (() -> Void)?
+    var canReset: (() -> Bool)?
+    var onReset: (() -> Void)?
     var onChangeIcon: (() -> Void)?
     var onRename: (() -> Void)?
 
@@ -521,6 +528,13 @@ private final class PinnedTileView: NSView,NSDraggingSource {
         menu.autoenablesItems = false
         menu.allowsContextMenuPlugIns = false
         if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }
+        if canReset?() == true {
+            let reset = NSMenuItem(title: "Reset Tab", action: #selector(resetFromMenu), keyEquivalent: "")
+            reset.target = self
+            reset.image = NSImage(systemSymbolName: "arrow.uturn.backward", accessibilityDescription: nil)
+            menu.addItem(reset)
+            menu.addItem(.separator())
+        }
         let change = NSMenuItem(title:"Change Icon…",action:#selector(changeIconFromMenu),keyEquivalent:"")
         change.target = self;menu.addItem(change)
         let rename = NSMenuItem(title:"Rename…",action:#selector(renameFromMenu),keyEquivalent:"")
@@ -534,6 +548,7 @@ private final class PinnedTileView: NSView,NSDraggingSource {
     }
 
     @objc private func removeFromMenu() { onRemove?() }
+    @objc private func resetFromMenu() { onReset?() }
     @objc private func changeIconFromMenu() { onChangeIcon?() }
     @objc private func renameFromMenu() { onRename?() }
 }

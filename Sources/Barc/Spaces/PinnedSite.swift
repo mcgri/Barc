@@ -39,6 +39,20 @@ struct PinnedSite: Identifiable, Equatable, Sendable {
             && a.path.trimmingTrailingSlash == b.path.trimmingTrailingSlash
     }
 
+    /// Whether `other` is on another host altogether, as Gmail is when a
+    /// signed-out session sends it to Google's marketing page. Looser than
+    /// `matches`: moving around inside a site is not leaving it, and neither
+    /// is a site adding or dropping `www.`.
+    func hasLeftSite(_ other: URL) -> Bool {
+        guard split == nil, let home = Self.siteHost(of: url), let current = Self.siteHost(of: other) else { return false }
+        return home != current
+    }
+
+    private static func siteHost(of url: URL) -> String? {
+        guard let host = url.host()?.lowercased() else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
     /// Navigation rules consider every saved destination in a Favorite unit.
     func contains(_ other:URL) -> Bool {
         matches(other) || split?.members.contains(where:{

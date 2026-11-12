@@ -51,6 +51,29 @@ extension BrowserSession {
             && tab.pinnedPageURL != nil && tab.pinnedPageURL != tab.url && !isInLiveFolder(tab)
     }
 
+    /// A Favorite goes back to its own address. `pinnedPageURL` is a Space
+    /// pin's: on a Favorite's tab it can hold whichever page the tab was on
+    /// when it was kept, a sign-in page included, so it is never used here.
+    func canResetFavorite(_ tab: Tab) -> Bool {
+        favorite(of: tab).map { !$0.site.matches(tab.url) } ?? false
+    }
+
+    @discardableResult
+    func resetFavorite(_ tab: Tab) -> Bool {
+        guard canResetFavorite(tab), let favorite = favorite(of: tab) else { return false }
+        selectSpace(favorite.owner)
+        selectTab(tab)
+        tab.load(favorite.site.url)
+        return true
+    }
+
+    /// A split Favorite has no address of its own: each pane has one.
+    private func favorite(of tab: Tab) -> (owner: Space, site: PinnedSite)? {
+        guard let id = tab.pinnedSiteID, let owner = sidebarOwner(of: tab),
+              let site = owner.pinnedSites.first(where: { $0.id == id }), site.split == nil else { return nil }
+        return (owner, site)
+    }
+
     func todayTabs(in space: Space) -> [Tab] {
         SidebarOrder.items(groups: [], tabs: space.sidebarVisibleTabs.filter {
             $0.groupID == nil && !$0.keepsInSidebar && !$0.isSidebarPlaceholder

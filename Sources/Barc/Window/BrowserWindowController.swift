@@ -1134,7 +1134,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     @objc func resetActivePin(_ sender: Any?) {
         guard let tab = session.activeTab else { return }
-        session.resetSidebarPin(tab)
+        if !session.resetFavorite(tab) { session.resetSidebarPin(tab) }
     }
 
     @objc func duplicateActiveTab(_ sender: Any?) {
@@ -2968,7 +2968,7 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         case #selector(favoriteActiveTab(_:)):
             return session.activeTab.map(session.canFavorite) ?? false
         case #selector(resetActivePin(_:)):
-            return session.activeTab.map(session.canResetSidebarPin) ?? false
+            return session.activeTab.map { session.canResetSidebarPin($0) || session.canResetFavorite($0) } ?? false
         case #selector(selectNextTab(_:)), #selector(selectPreviousTab(_:)):
             return session.canSelectAdjacentTab
         case #selector(selectNextSpace(_:)), #selector(selectPreviousSpace(_:)):

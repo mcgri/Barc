@@ -2660,7 +2660,14 @@ final class BrowserSession {
             return
         }
         if let existing = space.tab(forPin: site.id) {
-            selectTab(existing)
+            // Switching to a Favorite always keeps its page, so nothing left
+            // open there is lost. Clicking the one already on screen is what
+            // brings back a page that has left the site.
+            if existing === space.activeTab, current.hasLeftSite(existing.url) {
+                resetFavorite(existing)
+            } else {
+                selectTab(existing)
+            }
             return
         }
         // An existing tab already on that site is adopted rather than
