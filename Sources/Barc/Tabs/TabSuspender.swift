@@ -25,7 +25,10 @@ final class TabSuspender {
     private let inspectPage: (WKWebView) async -> Bool
     private let validatePage: (WKWebView) -> Bool
     private let protectsTransfer: (WKWebView) -> Bool
+    private let pageRevision: (WKWebView) -> Int?
     private let additionalVisibleProfiles: () -> Set<Space.Identity>
+    /// Tabs whose page refused the last idle sweep; see `SleepRefusal`.
+    private var refusals: [Tab.ID: TabSuspension.SleepRefusal] = [:]
     private var clock = ProfileHibernationClock()
     private var subscription: AnyCancellable?
     private var sweepTask: Task<Void, Never>?
@@ -42,6 +45,7 @@ final class TabSuspender {
          inspectPage: @escaping (WKWebView) async -> Bool = { await PageHibernationGuard.shared.permitsHibernation(of: $0) },
          validatePage: @escaping (WKWebView) -> Bool = { PageHibernationGuard.shared.hasCurrentApproval(for: $0) },
          protectsTransfer: @escaping (WKWebView) -> Bool = { DownloadManager.shared.protectsFromHibernation($0) },
+         pageRevision: @escaping (WKWebView) -> Int? = { PageHibernationGuard.shared.activityRevision(of: $0) },
          additionalVisibleProfiles: @escaping () -> Set<Space.Identity> = { WebEnvironment.shared.visibleIdentities }) {
         self.session = session
         self.settings = settings
@@ -49,6 +53,7 @@ final class TabSuspender {
         self.inspectPage = inspectPage
         self.validatePage = validatePage
         self.protectsTransfer = protectsTransfer
+        self.pageRevision = pageRevision
         self.additionalVisibleProfiles = additionalVisibleProfiles
         subscription = session.changes.sink { [weak self] change in
             switch change {
@@ -164,6 +169,8 @@ final class TabSuspender {
         sweepResources = Dictionary(TabResourceMonitor.shared.sampleAllTabs(in: session).map { ($0.tabId, $0) }, uniquingKeysWith: { first, _ in first })
         archiveIfDue(trigger)
         let candidates = candidateIDs(trigger)
+        // A tab that was shown, or slept, starts afresh next time.
+        refusals = refusals.filter { candidates.contains($0.key) }
         let priority = Dictionary(uniqueKeysWithValues: budgetPriority.enumerated().map { ($0.element, $0.offset) })
         let tabs = session.allTabs.filter { candidates.contains($0.id) }.sorted {
             (priority[$0.id] ?? Int.max) < (priority[$1.id] ?? Int.max)
@@ -179,6 +186,10 @@ final class TabSuspender {
             guard members.allSatisfy({ candidates.contains($0.id) }) else { continue }
             let remaining = candidateIDs(trigger)
             guard members.allSatisfy({ remaining.contains($0.id) }) else { continue }
+            if trigger == .idle, members.contains(where: { member in
+                guard let refusal = refusals[member.id] else { return false }
+                return refusal.defers(revision: member.currentWebView.flatMap(pageRevision), now: uptime())
+            }) { continue }
             let revision = visibilityRevision
             var safe = true
             var checkedViews: [Tab.ID: WKWebView] = [:]
@@ -187,6 +198,10 @@ final class TabSuspender {
                       !protectsTransfer(view), await inspectPage(view),
                       member.currentWebView === view else {
                     safe = false
+                    if trigger == .idle {
+                        refusals[member.id] = .next(after: refusals[member.id],
+                            revision: member.currentWebView.flatMap(pageRevision), at: uptime())
+                    }
                     // Why a due tab stayed awake; invisible otherwise outside the Task Manager.
                     if Metrics.isLoggingEnabled {
                         let detail = member.currentWebView.map { PageHibernationGuard.shared.sleepDetail(for: $0) } ?? ""
@@ -210,6 +225,7 @@ final class TabSuspender {
                 if let view = member.currentWebView { member.retainHibernationViewport(PageHibernationGuard.shared.capturedViewport(of:view)) }
             }
             session.suspend(members)
+            for member in members { refusals[member.id] = nil }
             lastSweepUnloadedCount += members.count
             await Task.yield()
         }

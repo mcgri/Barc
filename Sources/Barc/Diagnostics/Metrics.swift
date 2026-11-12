@@ -55,21 +55,34 @@ enum Metrics {
     /// `log show`, and a file needs no permissions to read back.
     static var logFile: URL { AppPaths.supportDirectory.appending(path: "measurements.log") }
 
+    /// Past this the log starts again, with the previous file kept beside it
+    /// as `measurements.1.log`. Left alone it grew to 15 MB in eight days.
+    static let logLimit: UInt64 = 5 * 1024 * 1024
+
     static func log(_ message: String) {
         guard isLoggingEnabled else { return }
         let stamp = ISO8601DateFormatter().string(from: .now)
         guard let line = "\(stamp) \(message)\n".data(using: .utf8) else { return }
-
-        // Measurement is a diagnostic. Every failure here is swallowed on
-        // purpose: losing a line must never affect the browser.
         AppPaths.ensureSupportDirectory()
-        if let handle = try? FileHandle(forWritingTo: logFile) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: line)
-        } else {
-            do { try line.write(to: logFile) } catch { return }
+        append(line, to: logFile)
+    }
+
+    /// Measurement is a diagnostic. Every failure here is swallowed on
+    /// purpose: losing a line must never affect the browser.
+    static func append(_ line: Data, to file: URL, limit: UInt64 = logLimit) {
+        if let handle = try? FileHandle(forWritingTo: file) {
+            let size = (try? handle.seekToEnd()) ?? 0
+            guard size + UInt64(line.count) > limit else {
+                try? handle.write(contentsOf: line)
+                try? handle.close()
+                return
+            }
+            try? handle.close()
+            let previous = file.deletingPathExtension().appendingPathExtension("1").appendingPathExtension(file.pathExtension)
+            try? FileManager.default.removeItem(at: previous)
+            try? FileManager.default.moveItem(at: file, to: previous)
         }
+        try? line.write(to: file)
     }
 
     /// Logs launch timing and footprint, so the numbers can be collected

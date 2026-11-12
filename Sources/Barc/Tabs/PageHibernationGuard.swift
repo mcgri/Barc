@@ -63,6 +63,15 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         }
         let name = message.name
         let key = name + token
+        // A document the main frame has already left can still be heard from.
+        // On a cross-site hop WebKit swaps processes, and the old page's
+        // pagehide, with any request it sends on the way out, runs after the
+        // new page has registered. Its report would put the old document back
+        // in the inventory, where it failed its token check on every sweep and
+        // kept the tab awake until the next navigation: a day, for a Vercel
+        // preview. Only a register makes a main-frame document current.
+        if message.frameInfo.isMainFrame, event != "register",
+           let current = page.mainTokens[name], current != token { return }
         if event == "register", message.frameInfo.isMainFrame {
             page.frames = page.frames.filter { !$0.key.hasPrefix(name) }
             page.mainTokens[name] = token
@@ -120,6 +129,9 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     }
 
     func capturedViewport(of view: WKWebView) -> PageViewport? { pages.object(forKey:view)?.viewport }
+    /// Moves on every report from the page, so a sweep can tell whether a
+    /// page it refused has done anything since.
+    func activityRevision(of view: WKWebView) -> Int? { pages.object(forKey: view)?.activityRevision }
     func sleepExplanation(for view: WKWebView) -> String {
         pages.object(forKey: view)?.protection ?? "Waiting for page safety check"
     }
@@ -136,16 +148,18 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     }
 
     func permitsHibernation(of view: WKWebView) async -> Bool {
-        guard let page = pages.object(forKey: view) else { return false }
+        // A view no document has reported from is still checked, through the
+        // frame inventory below: a restored tab whose server is down (a
+        // stopped dev server) never commits a page, and used to wait for one
+        // for good. Only an empty about:blank main frame passes that check.
+        let page: Page
+        if let existing = pages.object(forKey: view) { page = existing }
+        else { page = Page(); pages.setObject(page, forKey: view) }
         page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
         page.protectionDetail = ""
         guard Self.nativeActivityAllowsSleep(view) else { page.protection = Self.nativeActivityExplanation(view); return false }
         guard !page.overflow else { page.protection = "Too many frames to check"; return false }
-        guard page.mainTokens.count == 2, page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil }) else {
-            page.protection = "Page safety scripts have not registered"
-            return false
-        }
         page.viewport = nil
         var viewport: PageViewport?
         let generation = page.generation
@@ -161,17 +175,15 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                 return false
             }
             if inspection.gone || inspection.stale {
-                // A stale entry names a document this frame no longer shows;
-                // the one it shows now is checked by its own entry or, if it
-                // never registered, by the frame inventory below.
-                guard !frame.info.isMainFrame else {
-                    if inspection.stale { page.protection = "Page changed since its safety check registered" }
-                    return false
-                }
+                // A stale entry names a document this frame no longer shows: a
+                // child frame that navigated, or a main-frame document the tab
+                // has left. The one it shows now is checked by its own entry
+                // or, if it never registered, by the frame inventory below.
                 let key = frame.kind + frame.token
                 page.frames[key] = nil
                 page.realtimeFrames.remove(key)
                 page.busyWorkFrames.remove(key)
+                if frame.info.isMainFrame, page.mainTokens[frame.kind] == frame.token { page.mainTokens[frame.kind] = nil }
                 continue
             }
             guard inspection.safe else {
@@ -188,9 +200,11 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         // document Barc cannot register in. Look such frames up in WebKit's
         // own frame tree and inspect them directly; anything that could hold
         // input, or any frame that cannot be inspected, still refuses.
-        if !frameCounts.allSatisfy({ $0.value == 1 + (childCounts[$0.key] ?? 0) }) {
+        let registered = page.mainTokens.count == 2 && page.mainTokens.allSatisfy({ page.frames[$0.key + $0.value] != nil })
+        if !registered || !frameCounts.allSatisfy({ $0.value == 1 + (childCounts[$0.key] ?? 0) }) {
             guard await unregisteredFramesAreInert(in: view, page: page) else {
-                page.protection = "An embedded frame could not be checked (\(frameCounts.map { "\($0.key) \($0.value) of \(1 + (childCounts[$0.key] ?? 0))" }.sorted().joined(separator: ", ")))"
+                page.protection = !registered ? "Page safety scripts have not registered"
+                    : "An embedded frame could not be checked (\(frameCounts.map { "\($0.key) \($0.value) of \(1 + (childCounts[$0.key] ?? 0))" }.sorted().joined(separator: ", ")))"
                 return false
             }
         }
@@ -248,7 +262,9 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     /// True when every frame missing from either content world holds nothing
     /// to protect: no field, editor or design-mode document, and no script of
     /// its own that could be doing work. Checked from Barc's isolated world,
-    /// which runs even where the page's scripts do not.
+    /// which runs even where the page's scripts do not. An unregistered main
+    /// frame passes only while it still shows the empty about:blank document
+    /// a load that never committed leaves behind.
     private func unregisteredFramesAreInert(in view: WKWebView, page: Page) async -> Bool {
         guard let tree = await Self.frameInfos(of: view) else { return false }
         var registered: [String: Set<UInt64>] = [:]
@@ -256,11 +272,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             guard let id = Self.frameID(frame.info) else { return false }
             registered[frame.kind, default: []].insert(id)
         }
-        let script = "({editable: document.designMode === 'on' || !!document.querySelector('input:not([type=hidden]), textarea, select, [contenteditable]:not([contenteditable=\"false\"]), [role=\"textbox\"]'), scripts: document.scripts.length})"
+        let script = "({editable: document.designMode === 'on' || !!document.querySelector('input:not([type=hidden]), textarea, select, [contenteditable]:not([contenteditable=\"false\"]), [role=\"textbox\"]'), scripts: document.scripts.length, blank: location.href === 'about:blank'})"
         for info in tree {
             guard let id = Self.frameID(info) else { return false }
             if registered["barcDraftGuard"]?.contains(id) == true, registered["barcWorkGuard"]?.contains(id) == true { continue }
-            guard !info.isMainFrame else { return false }
             let inert: Bool = await withCheckedContinuation { continuation in
                 let reply = InertReply(continuation)
                 Task { @MainActor in
@@ -271,7 +286,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                     switch outcome {
                     case .success(let value):
                         let result = value as? [String: Any]
-                        reply.finish(result?["editable"] as? Bool == false && (result?["scripts"] as? Int) == 0)
+                        reply.finish(result?["editable"] as? Bool == false && (result?["scripts"] as? Int) == 0
+                            && (!info.isMainFrame || result?["blank"] as? Bool == true))
                     // Left the page while we looked: nothing remains to protect.
                     case .failure(let error) where Self.isFrameGone(error): reply.finish(true)
                     case .failure: reply.finish(false)

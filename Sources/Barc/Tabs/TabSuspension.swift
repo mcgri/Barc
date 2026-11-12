@@ -66,6 +66,34 @@ enum TabSuspension {
     static let veryHeavyDelay: TimeInterval = 60
     static let budgetGrace: TimeInterval = 120
 
+    /// A page an idle sweep refused, so one that keeps refusing without doing
+    /// anything is not inspected in every frame every ten seconds for hours.
+    /// Any report from the page asks again on the next sweep, as does memory
+    /// pressure. The cap matters: some reasons lapse without a report (an
+    /// editor removed from the page stops counting after two minutes).
+    struct SleepRefusal: Equatable {
+        /// The page's activity revision when it last refused.
+        let revision: Int?
+        /// Refusals in a row with that revision.
+        let count: Int
+        let at: TimeInterval
+
+        /// Two refusals are asked again on the next sweep; after that a
+        /// page that has not changed waits 30 s, doubling to five minutes.
+        static func delay(afterRefusals count: Int) -> TimeInterval {
+            count < 3 ? 0 : min(30 * pow(2, Double(count - 3)), 300)
+        }
+
+        static func next(after previous: SleepRefusal?, revision: Int?, at now: TimeInterval) -> SleepRefusal {
+            let repeated = previous.map { $0.revision == revision } ?? false
+            return SleepRefusal(revision: revision, count: repeated ? (previous?.count ?? 0) + 1 : 1, at: now)
+        }
+
+        func defers(revision current: Int?, now: TimeInterval) -> Bool {
+            current == revision && now - at < Self.delay(afterRefusals: count)
+        }
+    }
+
     /// Both pressure levels share one memory-cache purge interval.
     static func shouldPurgeMemoryCache(now: TimeInterval, lastPurge: TimeInterval?) -> Bool {
         guard let lastPurge else { return true }
