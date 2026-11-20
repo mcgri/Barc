@@ -35,22 +35,28 @@ enum JavaScriptMemoryTuning {
     typealias Options = [(key: String, value: String)]
 
     /// The most memory JavaScriptCore is told the Mac has.
-    /// Capping at 2 GiB (down from 8 GiB) keeps JSC's heap growth factor tight
-    /// on heavy SPAs while still leaving ample headroom before critical GC.
     static let ramSizeCap: UInt64 = 2 << 30
+    /// Tighter RAM ceiling in minimal-RAM mode so giant SPAs (ClickUp, Figma,
+    /// Linear) enter JSC's critical GC threshold at ~512 MB instead of ~1 GB.
+    static let minimalRAMSizeCap: UInt64 = 1 << 30
 
     /// JavaScriptCore options written to `JSC.config`.
-    /// In minimal-RAM mode, disabling the top-tier FTL JIT avoids 30-100 MB of
-    /// speculative compiler IR and code buffers per heavy WebContent process.
+    /// In minimal-RAM mode, disabling top-tier FTL/OMG JITs, tightening GC
+    /// headroom, and raising the DFG warm-up threshold cut tens to hundreds of
+    /// megabytes of speculative compiler IR and JS heap slack on giant SPAs.
     static func options(
         physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory,
         disableFTLJIT: Bool = Settings.shared.minimalRAMMode
     ) -> Options {
-        var opts: Options = [("forceRAMSize", String(min(physicalMemory, ramSizeCap)))]
+        let cap = disableFTLJIT ? minimalRAMSizeCap : ramSizeCap
+        var opts: Options = [("forceRAMSize", String(min(physicalMemory, cap)))]
         if disableFTLJIT {
             opts.append(("useFTLJIT", "false"))
             opts.append(("useOMGJIT", "false"))
             opts.append(("numberOfDFGCompilerThreads", "1"))
+            opts.append(("concurrentGCMaxHeadroom", "1.15"))
+            opts.append(("thresholdForOptimizeAfterWarmUp", "2500"))
+            opts.append(("maximumOptimizationCandidateBytecodeCost", "20000"))
         }
         return opts
     }

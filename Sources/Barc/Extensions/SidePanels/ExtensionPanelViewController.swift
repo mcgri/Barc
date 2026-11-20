@@ -50,7 +50,7 @@ final class ExtensionPanelViewController: NSViewController, WKScriptMessageHandl
         // edge with square corners reads as something bolted on rather than as
         // part of this window.
         underlay.material = .sidebar
-        underlay.blendingMode = .behindWindow
+        underlay.blendingMode = Settings.shared.minimalRAMMode ? .withinWindow : .behindWindow
         // Greys out with the rest of the window when it loses focus, which a
         // saturated strip beside a greyed page would not.
         underlay.state = .followsWindowActiveState
@@ -63,7 +63,7 @@ final class ExtensionPanelViewController: NSViewController, WKScriptMessageHandl
         cardShadow.cornerRadius = Style.Metrics.contentCornerRadius
         cardShadow.shadowOffset = CGSize(width: 0, height: -Style.Metrics.cardShadowOffset)
         cardShadow.shadowRadius = Style.Metrics.cardShadowRadius
-        cardShadow.shadowOpacity = 1
+        cardShadow.shadowOpacity = Settings.shared.minimalRAMMode ? 0 : 1
         cardShadow.actions = ["bounds": NSNull(), "position": NSNull(), "shadowPath": NSNull()]
 
         card.wantsLayer = true

@@ -301,9 +301,16 @@ final class TabSuspender {
             }
             return state
         }
+        let effectiveBudget: UInt64? = settings.backgroundMemoryBudget.map {
+            settings.minimalRAMMode ? min($0, 768 * 1024 * 1024) : $0
+        }
         budgetPriority = TabSuspension.budgetOrder(among: allStates, protecting: protected,
-            budget: settings.backgroundMemoryBudget, cohorts: session.splitCohorts, now: stamp)
+            budget: effectiveBudget, cohorts: session.splitCohorts, now: stamp)
         var chosen = Set(budgetPriority)
+        let heavyBytes: UInt64 = settings.minimalRAMMode ? 300 * 1024 * 1024 : TabSuspension.heavyThreshold
+        let heavyWait: TimeInterval = settings.minimalRAMMode ? 90 : TabSuspension.heavyDelay
+        let veryHeavyBytes: UInt64 = settings.minimalRAMMode ? 600 * 1024 * 1024 : TabSuspension.veryHeavyThreshold
+        let veryHeavyWait: TimeInterval = settings.minimalRAMMode ? 30 : TabSuspension.veryHeavyDelay
         for profile in session.profiles {
             let members = tabs.filter { $0.identity == profile.identity }
             let tabDelay = profile.preferences.sleepMinutes.map { $0 > 0 ? Double($0) * 60 : nil } ?? settings.tabSuspensionDelay
@@ -317,7 +324,9 @@ final class TabSuspender {
             let memberIDs = Set(members.map(\.id))
             let states = allStates.filter { memberIDs.contains($0.id) }
             chosen.formUnion(TabSuspension.candidateIDs(among: states, protecting: protected,
-                idleThreshold: threshold, trigger: trigger, cohorts: session.splitCohorts, now: stamp))
+                idleThreshold: threshold, trigger: trigger, cohorts: session.splitCohorts,
+                heavyThreshold: heavyBytes, heavyDelay: heavyWait,
+                veryHeavyThreshold: veryHeavyBytes, veryHeavyDelay: veryHeavyWait, now: stamp))
         }
         return chosen
     }

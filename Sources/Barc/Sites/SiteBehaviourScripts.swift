@@ -491,47 +491,34 @@ enum SiteBehaviourScripts {
         });
       }
 
-      function attach(el) {
-        if (!el || el.__barcTracked) { return; }
-        el.__barcTracked = true;
-        if (isMuted) { el.muted = true; }
-
-        var events = ["play", "playing", "pause", "ended", "emptied", "volumechange", "ratechange"];
-        for (var i = 0; i < events.length; i++) {
-          el.addEventListener(events[i], function () {
-            if (!el.paused && !el.ended) {
-              activeMedia.add(el);
-            } else {
-              activeMedia.delete(el);
-            }
-            report();
-          }, true);
+      function handleMediaEvent(event) {
+        var el = event && event.target;
+        if (!el || (el.tagName !== "AUDIO" && el.tagName !== "VIDEO")) { return; }
+        if (isMuted && !el.muted) { el.muted = true; }
+        if (!el.paused && !el.ended) {
+          activeMedia.add(el);
+        } else {
+          activeMedia.delete(el);
         }
-      }
-
-      function scan(root) {
-        if (!root || !root.querySelectorAll) { return; }
-        if (root.matches && root.matches("audio, video")) { attach(root); }
-        var elements = root.querySelectorAll("audio, video");
-        for (var i = 0; i < elements.length; i++) { attach(elements[i]); }
+        activeMedia.forEach(function (item) {
+          if (!item.isConnected) { activeMedia.delete(item); }
+        });
+        report();
       }
 
       function startWatching() {
-        scan(document);
-        var observer = new MutationObserver(function (records) {
-          records.forEach(function (record) {
-            record.addedNodes.forEach(scan);
-          });
-          activeMedia.forEach(function (el) {
-            if (!el.isConnected) { activeMedia.delete(el); }
-          });
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
-        window.addEventListener("pagehide", function () { observer.disconnect(); }, { once: true });
+        var events = ["play", "playing", "pause", "ended", "emptied", "volumechange", "ratechange"];
+        for (var i = 0; i < events.length; i++) {
+          document.addEventListener(events[i], handleMediaEvent, true);
+        }
+        window.addEventListener("pagehide", function () {
+          for (var i = 0; i < events.length; i++) {
+            document.removeEventListener(events[i], handleMediaEvent, true);
+          }
+          activeMedia.clear();
+        }, { once: true });
       }
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", startWatching, { once: true });
-      } else { startWatching(); }
+      startWatching();
       window.addEventListener("pageshow", function (event) { if (event.persisted) { startWatching(); } });
 
       window.__barcMedia = {
@@ -730,18 +717,15 @@ enum SiteBehaviourScripts {
         }
       }
 
-      function scanVideos(root) {
-        if (!root || !root.querySelectorAll) { return; }
-        if (root.matches && root.matches("video")) { enhanceVideoElement(root); }
-        var videos = root.querySelectorAll("video");
-        for (var i = 0; i < videos.length; i++) { enhanceVideoElement(videos[i]); }
+      function onVideoEvent(event) {
+        var el = event && event.target;
+        if (el && el.tagName === "VIDEO") { enhanceVideoElement(el); }
       }
       function startWatching() {
-        scanVideos(document);
-        var observer = new MutationObserver(function (records) {
-          records.forEach(function (record) { record.addedNodes.forEach(scanVideos); });
-        });
-        observer.observe(document.documentElement, { childList: true, subtree: true });
+        var existing = document.querySelectorAll("video");
+        for (var i = 0; i < existing.length; i++) { enhanceVideoElement(existing[i]); }
+        document.addEventListener("loadedmetadata", onVideoEvent, true);
+        document.addEventListener("play", onVideoEvent, true);
         // Only YouTube needs periodic overlay cleanup, and only while visible.
         var cleanupTimer = null;
         function updateCleanup() {
@@ -754,7 +738,8 @@ enum SiteBehaviourScripts {
         document.addEventListener("visibilitychange", updateCleanup);
         updateCleanup();
         window.addEventListener("pagehide", function () {
-          observer.disconnect();
+          document.removeEventListener("loadedmetadata", onVideoEvent, true);
+          document.removeEventListener("play", onVideoEvent, true);
           if (cleanupTimer !== null) { clearInterval(cleanupTimer); }
           document.removeEventListener("visibilitychange", updateCleanup);
         }, { once: true });

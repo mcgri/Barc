@@ -224,13 +224,17 @@ final class SidebarViewController: NSViewController {
 
     private func startIdleTicking() {
         guard idleTimer == nil else { return }
-        let timer = Timer.scheduledTimer(withTimeInterval: Self.idleTickInterval, repeats: true) { [weak self] _ in
+        // Only tick every second when live idle-duration badges are visible;
+        // `.asleep` badges update on suspension events and only need a light
+        // fallback cadence, avoiding 1 Hz main-thread wakeups in minimal-RAM mode.
+        let needsOneSecondTick = settings.tabIdleBadgeMode != .asleep && settings.tabIdleBadgeMode != .never
+        let interval: TimeInterval = (needsOneSecondTick || !settings.minimalRAMMode)
+            ? Self.idleTickInterval
+            : 15
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tickIdleBadges() }
         }
-        // A badge one second stale is not worth waking a sleeping Mac for, so
-        // the tick is entirely tolerant and coalesces with whatever else the
-        // run loop was going to do anyway.
-        timer.tolerance = Self.idleTickInterval
+        timer.tolerance = interval
         idleTimer = timer
     }
 

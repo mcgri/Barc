@@ -176,7 +176,9 @@ final class WebEnvironment {
         // Every page made here starts with the global choice; a tab's pages
         // get their site's choice on each navigation (`Tab`).
         NativeFingerprintingProtection.set(settings.antiFingerprintingEnabled, in: configuration.defaultWebpagePreferences)
-        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        if !settings.minimalRAMMode || settings.showDevelopMenu {
+            configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
+        }
         JavaScriptMemoryTuning.apply(to: configuration)
 
         PageHibernationGuard.shared.attach(configuration.userContentController)
@@ -240,7 +242,7 @@ final class WebEnvironment {
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsMagnification = true
         if #available(macOS 13.3, *) {
-            webView.isInspectable = true
+            webView.isInspectable = !Settings.shared.minimalRAMMode || Settings.shared.showDevelopMenu
         }
         return webView
     }

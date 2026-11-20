@@ -112,16 +112,45 @@ final class SpaceIconStore {
         let name = "\(UUID().uuidString).\(url.pathExtension.lowercased())"
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         try fileManager.copyItem(at: url, to: directory.appending(path: name))
-        cache[name] = image
+        let bitmap = Self.rasterize(image)
+        cache[name] = bitmap
         return name
     }
 
     /// The picture, or nil if the file has gone. Callers draw the dot instead.
+    /// Rasterized to a compact 56x56 (@2x) bitmap so large PNGs and CoreSVG
+    /// vector trees do not stay resident in the UI process.
     func image(named name: String) -> NSImage? {
         if let cached = cache[name] { return cached }
         guard let image = NSImage(contentsOf: directory.appending(path: name)) else { return nil }
-        cache[name] = image
-        return image
+        let bitmap = Self.rasterize(image)
+        cache[name] = bitmap
+        return bitmap
+    }
+
+    private static func rasterize(_ source: NSImage, pointSize: CGFloat = 28) -> NSImage {
+        let px = Int(pointSize * 2)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: px,
+            pixelsHigh: px,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return source }
+        rep.size = NSSize(width: pointSize, height: pointSize)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        source.draw(in: NSRect(x: 0, y: 0, width: pointSize, height: pointSize), from: .zero, operation: .copy, fraction: 1)
+        NSGraphicsContext.restoreGraphicsState()
+        let out = NSImage(size: NSSize(width: pointSize, height: pointSize))
+        out.addRepresentation(rep)
+        return out
     }
 
     /// A duplicated folder owns a separate file, so replacing either icon

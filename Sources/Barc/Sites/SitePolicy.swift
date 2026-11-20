@@ -85,7 +85,7 @@ final class SitePolicy: NSObject {
         if !Settings.shared.blockHostilePageBehaviour {
             policy["blockHostileBehaviour"] = "off"
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: policy) else { return }
+        guard let data = try? JSONSerialization.data(withJSONObject: policy, options: [.sortedKeys]) else { return }
         let source = Self.policyPrefix + String(decoding: data, as: UTF8.self) + ";"
         // WebKit runs document-start scripts in the order they were added, so
         // the policy goes first. The other features that re-add scripts keep

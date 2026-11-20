@@ -153,7 +153,7 @@ final class ContentContainerView: NSView {
         cardShadow.cornerRadius = Style.Metrics.contentCornerRadius
         cardShadow.shadowOffset = CGSize(width: 0, height: -Style.Metrics.cardShadowOffset)
         cardShadow.shadowRadius = Style.Metrics.cardShadowRadius
-        cardShadow.shadowOpacity = 1
+        cardShadow.shadowOpacity = Settings.shared.minimalRAMMode ? 0 : 1
         cardShadow.actions = ["bounds": NSNull(), "position": NSNull(), "shadowPath": NSNull()]
 
         card.wantsLayer = true

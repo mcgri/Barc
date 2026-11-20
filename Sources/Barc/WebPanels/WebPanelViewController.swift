@@ -16,7 +16,9 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
 
     private static let controllers = NSHashTable<WebPanelViewController>.weakObjects()
     private var webViewCache: [UUID: WKWebView] = [:]
-    private var sleepingStates: [UUID: Any] = [:]
+    /// Out-of-line compressed state keys in `InteractionStateStore` so sleeping
+    /// web panels hold 0 bytes of WebKit state in Swift RAM.
+    private var sleepingStateKeys: [UUID: String] = [:]
     private var viewports: [UUID: PageViewport] = [:]
     private var hiddenSince: [UUID: TimeInterval] = [:]
     private let uptime: () -> TimeInterval
@@ -153,7 +155,10 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             webViewCache[id]?.removeFromSuperview()
             webViewCache[id] = nil
         }
-        sleepingStates = sleepingStates.filter { living.contains($0.key) }
+        for (id, key) in sleepingStateKeys where !living.contains(id) {
+            InteractionStateStore.shared.remove(forKey: key)
+        }
+        sleepingStateKeys = sleepingStateKeys.filter { living.contains($0.key) }
         viewports = viewports.filter { living.contains($0.key) }
         hiddenSince = hiddenSince.filter { living.contains($0.key) }
         for id in webViewCache.keys {
@@ -199,7 +204,9 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
             wv.customUserAgent = customUA
         }
 
-        if let state = sleepingStates.removeValue(forKey: panel.id) {
+        if let key = sleepingStateKeys.removeValue(forKey: panel.id),
+           let state = InteractionStateStore.shared.load(forKey: key) {
+            InteractionStateStore.shared.remove(forKey: key)
             wv.interactionState = state
         } else if panel.isScratchpad {
             wv.loadHTMLString(ScratchpadContent.html, baseURL: nil)
@@ -282,7 +289,10 @@ public final class WebPanelViewController: NSViewController, WKNavigationDelegat
                   PageHibernationGuard.nativeActivityAllowsSleep(view),
                   !DownloadManager.shared.protectsFromHibernation(view) else { continue }
             viewports[id] = PageHibernationGuard.shared.capturedViewport(of:view)
-            sleepingStates[id] = view.interactionState
+            if let data = view.interactionState as? Data,
+               let key = InteractionStateStore.shared.store(data, forKey: "webpanel-\(id.uuidString)") {
+                sleepingStateKeys[id] = key
+            }
             view.stopLoading()
             view.navigationDelegate = nil
             view.removeFromSuperview()

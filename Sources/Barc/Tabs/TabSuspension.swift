@@ -167,6 +167,10 @@ enum TabSuspension {
         idleThreshold: TimeInterval?,
         trigger: Trigger,
         cohorts: [Set<Tab.ID>] = [],
+        heavyThreshold: UInt64 = heavyThreshold,
+        heavyDelay: TimeInterval = heavyDelay,
+        veryHeavyThreshold: UInt64 = veryHeavyThreshold,
+        veryHeavyDelay: TimeInterval = veryHeavyDelay,
         now: Date = .now
     ) -> Set<Tab.ID> {
         let minimumIdle: TimeInterval?
