@@ -565,7 +565,7 @@ enum Style {
         /// change without travelling, which every animated surface here honours
         /// by using a zero duration rather than by skipping the change.
         @MainActor static var isReduced: Bool {
-            reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            reduceMotionOverride ?? (Settings.shared.reduceAnimations || NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         }
 
         /// The answer the tests pin, when they are checking the motion itself

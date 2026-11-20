@@ -1,0 +1,270 @@
+diff --git a/Source/WebCore/loader/cache/MemoryCache.cpp b/Source/WebCore/loader/cache/MemoryCache.cpp
+index dd570abcc0..d27a15e37f 100644
+--- a/Source/WebCore/loader/cache/MemoryCache.cpp
++++ b/Source/WebCore/loader/cache/MemoryCache.cpp
+@@ -416,6 +416,13 @@ void MemoryCache::pruneDeadResourcesToSize(unsigned targetSize)
+ 
+ void MemoryCache::setCapacities(unsigned minDeadBytes, unsigned maxDeadBytes, unsigned totalBytes)
+ {
++    // Barc minimal-RAM tuning: cap per-WebContent MemoryCache so each process
++    // holds at most 16 MB total / 4 MB dead decoded images and scripts.
++    constexpr unsigned barcMaxTotal = 16 * 1024 * 1024;
++    constexpr unsigned barcMaxDead = 4 * 1024 * 1024;
++    totalBytes = std::min(totalBytes, barcMaxTotal);
++    maxDeadBytes = std::min(maxDeadBytes, std::min(barcMaxDead, totalBytes));
++    minDeadBytes = std::min(minDeadBytes, maxDeadBytes);
+     ASSERT(minDeadBytes <= maxDeadBytes);
+     ASSERT(maxDeadBytes <= totalBytes);
+     m_minDeadCapacity = minDeadBytes;
+diff --git a/Source/WebCore/platform/graphics/ca/TileController.mm b/Source/WebCore/platform/graphics/ca/TileController.mm
+index d799525ad8..9fc9d2ff5d 100644
+--- a/Source/WebCore/platform/graphics/ca/TileController.mm
++++ b/Source/WebCore/platform/graphics/ca/TileController.mm
+@@ -453,17 +453,16 @@ FloatRect TileController::adjustTileCoverageForDesktopPageScrolling(const FloatR
+ 
+     bool largeVisibleRectChange = !previousVisibleRect.isEmpty() && !visibleRect.intersects(previousVisibleRect);
+ 
+-    // Inflate the coverage rect so that it covers 2x of the visible width and 3x of the visible height.
+-    // These values were chosen because it's more common to have tall pages and to scroll vertically,
+-    // so we keep more tiles above and below the current area.
++    // Barc minimal-RAM tuning: shrink desktop tile over-allocation from 2x*3x (6x viewport)
++    // to 1.15x*1.35x (~1.55x viewport), cutting Retina IOSurface/GPU RAM by ~74%.
+     float widthScale = 1;
+     float heightScale = 1;
+ 
+     if (m_tileCoverage & CoverageForHorizontalScrolling && !largeVisibleRectChange)
+-        widthScale = 2;
++        widthScale = 1.15f;
+ 
+     if (m_tileCoverage & CoverageForVerticalScrolling && !largeVisibleRectChange)
+-        heightScale = 3;
++        heightScale = 1.35f;
+ 
+     coverageSize.scale(widthScale, heightScale);
+ 
+diff --git a/Source/WebKit/NetworkProcess/NetworkResourceLoader.cpp b/Source/WebKit/NetworkProcess/NetworkResourceLoader.cpp
+index 91e708627c..c44c087599 100644
+--- a/Source/WebKit/NetworkProcess/NetworkResourceLoader.cpp
++++ b/Source/WebKit/NetworkProcess/NetworkResourceLoader.cpp
+@@ -127,6 +127,10 @@
+ #if PLATFORM(COCOA)
+ #include "NetworkDataTaskCocoa.h"
+ #include "PathsBlockedForSandboxExtensions.h"
++#include <cstdlib>
++#include <dlfcn.h>
++#include <mach-o/dyld.h>
++#include <string>
+ #include <wtf/cocoa/RuntimeApplicationChecksCocoa.h>
+ #endif
+ 
+@@ -272,6 +276,117 @@ bool NetworkResourceLoader::isSynchronous() const
+     return !!m_synchronousLoadData;
+ }
+ 
++#if PLATFORM(COCOA)
++namespace {
++
++struct BarcRustAdblockState {
++    using NewFromDirFn = void* (*)(const char*, bool);
++    using ShouldBlockFn = bool (*)(const void*, const char*, const char*, const char*);
++
++    void* engine { nullptr };
++    ShouldBlockFn shouldBlock { nullptr };
++
++    BarcRustAdblockState()
++    {
++        if (const char* disabled = std::getenv("BARC_RUST_NETWORK_ADBLOCK"); disabled && disabled[0] == '0')
++            return;
++
++        std::string dylibCandidates[3];
++        size_t candidateCount = 0;
++
++        if (const char* envLib = std::getenv("BARC_RUST_CORE_DYLIB"); envLib && envLib[0])
++            dylibCandidates[candidateCount++] = envLib;
++
++        char execPath[4096];
++        uint32_t execSize = sizeof(execPath);
++        if (_NSGetExecutablePath(execPath, &execSize) == 0) {
++            std::string p(execPath);
++            if (auto pos = p.find("/Contents/Frameworks/WebKit.framework/"); pos != std::string::npos)
++                dylibCandidates[candidateCount++] = p.substr(0, pos) + "/Contents/Frameworks/libbarc_core.dylib";
++        }
++        dylibCandidates[candidateCount++] = "/Volumes/DiskC/browsermigration/Barc/RustCore/target/release/libbarc_core.dylib";
++
++        void* handle = nullptr;
++        for (size_t i = 0; i < candidateCount; ++i) {
++            handle = dlopen(dylibCandidates[i].c_str(), RTLD_LAZY | RTLD_LOCAL);
++            if (handle)
++                break;
++        }
++        if (!handle)
++            return;
++
++        auto newFromDir = reinterpret_cast<NewFromDirFn>(dlsym(handle, "barc_adblock_new_from_dir"));
++        auto blockFn = reinterpret_cast<ShouldBlockFn>(dlsym(handle, "barc_adblock_should_block"));
++        if (!newFromDir || !blockFn)
++            return;
++
++        std::string rulesDir;
++        if (const char* envDir = std::getenv("BARC_ADBLOCK_RULES_DIR"); envDir && envDir[0])
++            rulesDir = envDir;
++        else if (const char* home = std::getenv("HOME"); home && home[0])
++            rulesDir = std::string(home) + "/Library/Application Support/io.github.mcgri.Barc/filter-lists";
++
++        if (rulesDir.empty())
++            return;
++
++        engine = newFromDir(rulesDir.c_str(), false);
++        if (engine)
++            shouldBlock = blockFn;
++    }
++};
++
++static const char* barcResourceTypeForDestination(WebCore::FetchOptions::Destination destination)
++{
++    switch (destination) {
++    case WebCore::FetchOptions::Destination::Script:
++    case WebCore::FetchOptions::Destination::Worker:
++    case WebCore::FetchOptions::Destination::Sharedworker:
++    case WebCore::FetchOptions::Destination::Serviceworker:
++    case WebCore::FetchOptions::Destination::Audioworklet:
++    case WebCore::FetchOptions::Destination::Paintworklet:
++        return "script";
++    case WebCore::FetchOptions::Destination::Image:
++        return "image";
++    case WebCore::FetchOptions::Destination::Style:
++        return "stylesheet";
++    case WebCore::FetchOptions::Destination::Iframe:
++    case WebCore::FetchOptions::Destination::Document:
++        return "sub_frame";
++    case WebCore::FetchOptions::Destination::Font:
++        return "font";
++    case WebCore::FetchOptions::Destination::Audio:
++    case WebCore::FetchOptions::Destination::Video:
++    case WebCore::FetchOptions::Destination::Track:
++        return "media";
++    case WebCore::FetchOptions::Destination::Object:
++    case WebCore::FetchOptions::Destination::Embed:
++        return "object";
++    case WebCore::FetchOptions::Destination::EmptyString:
++    case WebCore::FetchOptions::Destination::Json:
++    case WebCore::FetchOptions::Destination::Text:
++        return "xmlhttprequest";
++    default:
++        return "other";
++    }
++}
++
++static bool barcRustAdblockShouldBlock(const URL& requestURL, const URL& mainDocumentURL, WebCore::FetchOptions::Destination destination)
++{
++    static BarcRustAdblockState state;
++    if (!state.engine || !state.shouldBlock)
++        return false;
++    auto urlUTF8 = requestURL.string().utf8();
++    auto docUTF8 = mainDocumentURL.string().utf8();
++    return state.shouldBlock(
++        state.engine,
++        reinterpret_cast<const char*>(urlUTF8.data()),
++        reinterpret_cast<const char*>(docUTF8.data()),
++        barcResourceTypeForDestination(destination));
++}
++
++} // namespace
++#endif
++
+ void NetworkResourceLoader::start()
+ {
+     startRequest(originalRequest());
+@@ -282,6 +397,15 @@ void NetworkResourceLoader::startRequest(const ResourceRequest& newRequest)
+     ASSERT(RunLoop::isMain());
+     LOADER_RELEASE_LOG("startRequest: hasNetworkLoadChecker=%d", !!m_networkLoadChecker);
+ 
++#if PLATFORM(COCOA)
++    if (!isMainFrameLoad() && newRequest.url().protocolIsInHTTPFamily()) {
++        if (barcRustAdblockShouldBlock(newRequest.url(), m_parameters.mainDocumentURL, m_parameters.options.destination)) {
++            didFailLoading(blockedByContentBlockerError(newRequest));
++            return;
++        }
++    }
++#endif
++
+     m_networkActivityTracker = protect(connectionToWebProcess())->startTrackingResourceLoad(pageID(), coreIdentifier(), isMainFrameLoad());
+ 
+     ASSERT(!m_wasStarted);
+diff --git a/Source/WebKit/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in b/Source/WebKit/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in
+index 6871973220..7c6648a144 100644
+--- a/Source/WebKit/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in
++++ b/Source/WebKit/NetworkProcess/mac/com.apple.WebKit.NetworkProcess.sb.in
+@@ -891,3 +891,9 @@
+         (deny (with telemetry-backtrace) asr-parser-enter)
+         (allow (with telemetry-backtrace) asr-parser-enter
+            (asr-parser-name "com.apple.imageio.png"))))
++
++;; Barc minimal-RAM Rust adblock-rust engine in NetworkProcess
++(allow file-read* file-write*
++    (home-subpath "/Library/Application Support/io.github.mcgri.Barc/filter-lists"))
++(allow file-read* file-map-executable
++    (subpath "/Volumes/DiskC/browsermigration/Barc/RustCore/target/release"))
+diff --git a/Source/WebKit/UIProcess/WebProcessCache.cpp b/Source/WebKit/UIProcess/WebProcessCache.cpp
+index a5a3432e46..41fc932f77 100644
+--- a/Source/WebKit/UIProcess/WebProcessCache.cpp
++++ b/Source/WebKit/UIProcess/WebProcessCache.cpp
+@@ -45,14 +45,15 @@ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebProcessCache);
+ WTF_MAKE_TZONE_ALLOCATED_IMPL(WebProcessCache::CachedProcess);
+ 
+ #if PLATFORM(COCOA)
+-Seconds WebProcessCache::cachedProcessLifetime { 30_min };
+-Seconds WebProcessCache::clearingDelayAfterApplicationResignsActive { 5_min };
++/* Barc minimal-RAM tuning: disable 30-minute zombie WebContent process caching. */
++Seconds WebProcessCache::cachedProcessLifetime { 15_s };
++Seconds WebProcessCache::clearingDelayAfterApplicationResignsActive { 10_s };
+ #else
+-Seconds WebProcessCache::cachedProcessLifetime { 5_min };
++Seconds WebProcessCache::cachedProcessLifetime { 15_s };
+ Seconds WebProcessCache::clearingDelayAfterApplicationResignsActive = cachedProcessLifetime;
+ #endif
+ 
+-int WebProcessCache::capacityOverride { -1 };
++int WebProcessCache::capacityOverride { 0 };
+ static Seconds cachedProcessSuspensionDelay { 30_s };
+ 
+ void WebProcessCache::setCachedProcessSuspensionDelayForTesting(Seconds delay)
+diff --git a/Source/bmalloc/libpas/src/libpas/pas_scavenger.c b/Source/bmalloc/libpas/src/libpas/pas_scavenger.c
+index 82e65dd15d..6d4bfdd5bb 100644
+--- a/Source/bmalloc/libpas/src/libpas/pas_scavenger.c
++++ b/Source/bmalloc/libpas/src/libpas/pas_scavenger.c
+@@ -59,26 +59,28 @@ pas_scavenger_state pas_scavenger_current_state = pas_scavenger_state_no_thread;
+ unsigned pas_scavenger_should_suspend_count = 0;
+ pas_scavenger_data* pas_scavenger_data_instance = NULL;
+ 
+-double pas_scavenger_deep_sleep_timeout_in_milliseconds = 10. * 1000.;
++/* Barc minimal-RAM tuning: return freed bmalloc/libpas pages aggressively
++ * instead of retaining 70%+ dirty fragmentation across WebContent processes. */
++double pas_scavenger_deep_sleep_timeout_in_milliseconds = 3. * 1000.;
+ #ifdef PAS_LIBMALLOC
+ double pas_scavenger_period_in_milliseconds = 10.;
+ uint64_t pas_scavenger_max_epoch_delta = 10ll * 1000ll * 1000ll;
+ #else
+ #if PAS_OS(DARWIN) && PAS_X86_64
+-double pas_scavenger_period_in_milliseconds = 125.;
++double pas_scavenger_period_in_milliseconds = 60.;
+ #else
+-double pas_scavenger_period_in_milliseconds = 100.;
++double pas_scavenger_period_in_milliseconds = 50.;
+ #endif
+ #if PAS_PLATFORM(MAC)
+-uint64_t pas_scavenger_max_epoch_delta = 600ll * 1000ll * 1000ll;
++uint64_t pas_scavenger_max_epoch_delta = 100ll * 1000ll * 1000ll;
+ #else
+-uint64_t pas_scavenger_max_epoch_delta = 300ll * 1000ll * 1000ll;
++uint64_t pas_scavenger_max_epoch_delta = 100ll * 1000ll * 1000ll;
+ #endif
+ #endif
+ 
+ static uint32_t pas_scavenger_tick_count = 0;
+ /* Run thread-local-cache decommit once a N. It should be power of two. */
+-#define PAS_THREAD_LOCAL_CACHE_DECOMMIT_PERIOD_COUNT 128 /* Roughly speaking, it runs once per 13 seconds. */
++#define PAS_THREAD_LOCAL_CACHE_DECOMMIT_PERIOD_COUNT 16 /* ~0.8 seconds instead of ~13 seconds. */
+ 
+ #if PAS_OS(DARWIN)
+ static _Atomic qos_class_t pas_scavenger_requested_qos_class = QOS_CLASS_USER_INITIATED;

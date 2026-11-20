@@ -1,0 +1,20 @@
+[package]
+name = "barc_core"
+version = "0.1.0"
+edition = "2021"
+description = "Minimal-RAM Rust core for Barc: Brave adblock-rust engine for WebKit NetworkProcess + LZ4 out-of-line session state store."
+
+[lib]
+name = "barc_core"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+adblock = { version = "0.13.6", default-features = false, features = ["embedded-domain-resolver"] }
+lz4_flex = "0.14.2"
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

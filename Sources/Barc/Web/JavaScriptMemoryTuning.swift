@@ -35,11 +35,22 @@ enum JavaScriptMemoryTuning {
     typealias Options = [(key: String, value: String)]
 
     /// The most memory JavaScriptCore is told the Mac has.
-    static let ramSizeCap: UInt64 = 8 << 30
+    /// Capping at 2 GiB (down from 8 GiB) keeps JSC's heap growth factor tight
+    /// on heavy SPAs while still leaving ample headroom before critical GC.
+    static let ramSizeCap: UInt64 = 2 << 30
 
     /// JavaScriptCore options written to `JSC.config`.
-    static func options(physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory) -> Options {
-        [("forceRAMSize", String(min(physicalMemory, ramSizeCap)))]
+    /// In minimal-RAM mode, disabling the top-tier FTL JIT avoids 30-100 MB of
+    /// speculative compiler IR and code buffers per heavy WebContent process.
+    static func options(
+        physicalMemory: UInt64 = ProcessInfo.processInfo.physicalMemory,
+        disableFTLJIT: Bool = Settings.shared.minimalRAMMode
+    ) -> Options {
+        var opts: Options = [("forceRAMSize", String(min(physicalMemory, ramSizeCap)))]
+        if disableFTLJIT {
+            opts.append(("useFTLJIT", "false"))
+        }
+        return opts
     }
 
     private static let selector = Selector(("_setJavaScriptConfigurationDirectory:"))
@@ -47,9 +58,14 @@ enum JavaScriptMemoryTuning {
     private static let poolConfiguration = Selector(("_configuration"))
     private static let poolInitialiser = Selector(("_initWithConfiguration:"))
     private static let prewarmingKey = "prewarmsProcessesAutomatically"
+    private static let processCacheKey = "processCacheEnabled"
+    private static let usesSingleProcessKey = "usesSingleWebProcess"
 
     /// The pools made here, the only ones allowed to carry the directory.
     private static let unwarmedPools = NSHashTable<WKProcessPool>.weakObjects()
+    /// Single shared unwarmed pool reused across tabs so WebKit can share
+    /// WebContent processes and avoids spinning up per-tab WebProcessCaches.
+    private static var sharedUnwarmedPool: WKProcessPool?
 
     /// Nil outside a bundled app: under `swift test` `AppPaths` falls back to
     /// the real Barc's folder, and a test must never write into a real profile.
@@ -100,25 +116,40 @@ enum JavaScriptMemoryTuning {
         pool.perform(selector, with: directory)
     }
 
-    /// Gives a configuration Barc is building a pool that can carry the
-    /// directory. Only for new configurations: one WebKit passes for
-    /// `window.open` has to keep its opener's pool, and WebKit throws if the
-    /// two differ.
+    /// Gives a configuration Barc is building a shared pool that can carry the
+    /// directory. Reusing one unwarmed pool across configurations lets WebKit
+    /// coalesce processes instead of leaking one WebProcessCache per tab.
+    /// Only for new configurations: one WebKit passes for `window.open` has to
+    /// keep its opener's pool, and WebKit throws if the two differ.
     static func installProcessPool(in configuration: WKWebViewConfiguration,
                                    enabled: Bool = Settings.shared.compactsJavaScriptMemory) {
-        guard enabled, let pool = makeUnwarmedPool() else { return }
+        guard enabled, let pool = sharedPool() else { return }
         configuration.processPool = pool
     }
 
-    /// A pool like WebKit's default in every way but prewarming, or nil where
-    /// this WebKit cannot make one. The setting has to be made explicitly:
-    /// left unset, WebKit turns prewarming on by itself after a process swap.
+    /// Returns the shared unwarmed pool, creating it once.
+    static func sharedPool() -> WKProcessPool? {
+        if let existing = sharedUnwarmedPool { return existing }
+        let pool = makeUnwarmedPool()
+        sharedUnwarmedPool = pool
+        return pool
+    }
+
+    /// A pool like WebKit's default in every way but prewarming and zombie
+    /// process caching, or nil where this WebKit cannot make one. The setting
+    /// has to be made explicitly: left unset, WebKit turns prewarming on by
+    /// itself after a process swap.
     static func makeUnwarmedPool() -> WKProcessPool? {
         let template = WKProcessPool()
         guard template.responds(to: poolConfiguration), template.responds(to: poolInitialiser),
               let settings = template.perform(poolConfiguration)?.takeUnretainedValue() as? NSObject,
               settings.responds(to: Selector((prewarmingKey))) else { return nil }
         settings.setValue(false, forKey: prewarmingKey)
+        // Stop WebKit from keeping closed/unloaded WebContent processes cached
+        // in RAM for 30 minutes after a tab sleeps.
+        if settings.responds(to: Selector((processCacheKey))) {
+            settings.setValue(false, forKey: processCacheKey)
+        }
         // `alloc`'s reference is the one the initialiser consumes.
         guard let allocated = (WKProcessPool.self as AnyObject).perform(allocate)?.takeUnretainedValue(),
               let pool = allocated.perform(poolInitialiser, with: settings)?.takeRetainedValue() as? WKProcessPool

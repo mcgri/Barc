@@ -21,9 +21,13 @@ struct SessionSnapshot: Codable, Equatable, Sendable {
         /// tabs and for sessions written before shortcuts owned their tab.
         var pinnedSiteID: UUID?
         /// `WKWebView.interactionState`, which carries scroll position, form
-        /// contents and the back-forward list. Absent when the tab was never
-        /// shown, in which case the URL alone is enough.
+        /// contents and the back-forward list. Kept optional for backward
+        /// compatibility with older sessions; new saves store the compressed
+        /// blob out-of-line via `interactionStateKey` so sleeping tabs consume
+        /// zero bytes in Swift heap and `session.json` stays tiny.
         var interactionState: Data?
+        /// Out-of-line compressed state file key in `InteractionStateStore`.
+        var interactionStateKey: String? = nil
         /// When the tab was last on screen. Absent in sessions written before
         /// the idle clock was persisted, which restore as "just now".
         ///

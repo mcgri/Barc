@@ -165,6 +165,9 @@ final class Settings {
         static let cacheMode = "cacheMode"
         static let ramCacheCapacityMB = "ramCacheCapacityMB"
         static let clearDiskCacheOnQuit = "clearDiskCacheOnQuit"
+        static let reduceAnimations = "reduceAnimations"
+        static let minimalRAMMode = "minimalRAMMode"
+        static let backgroundActiveTabSleepMinutes = "backgroundActiveTabSleepMinutes"
     }
 
     private let defaults: UserDefaults
@@ -288,7 +291,7 @@ final class Settings {
             Key.syncWebDAVPassword: "",
             Key.userRulesText: "",
             Key.autoRejectCookieBanners: true,
-            Key.hideGenericPageElements: true,
+            Key.hideGenericPageElements: false,
             Key.blockHostilePageBehaviour: true,
             Key.showDevelopMenu: true,
             Key.mouseGestures: true,
@@ -325,7 +328,10 @@ final class Settings {
             Key.webPanelAlwaysOnTop: true,
             Key.cacheMode: CacheMode.standard.rawValue,
             Key.ramCacheCapacityMB: RAMCacheCapacity.mb128.rawValue,
-            Key.clearDiskCacheOnQuit: false
+            Key.clearDiskCacheOnQuit: false,
+            Key.reduceAnimations: true,
+            Key.minimalRAMMode: true,
+            Key.backgroundActiveTabSleepMinutes: 5
         ])
     }
 
@@ -1589,6 +1595,25 @@ final class Settings {
     var clearDiskCacheOnQuit: Bool {
         get { defaults.bool(forKey: Key.clearDiskCacheOnQuit) }
         set { defaults.set(newValue, forKey: Key.clearDiskCacheOnQuit) }
+    }
+
+    /// Skips UI spring/slide animations and Space-switch PDF snapshots to save
+    /// CoreAnimation/IOSurface memory and main-thread work.
+    var reduceAnimations: Bool {
+        get { defaults.object(forKey: Key.reduceAnimations) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.reduceAnimations) }
+    }
+
+    /// Tighter JSC heap cap (2 GB), FTL JIT off, and background active-tab sleep.
+    var minimalRAMMode: Bool {
+        get { defaults.object(forKey: Key.minimalRAMMode) as? Bool ?? true }
+        set { defaults.set(newValue, forKey: Key.minimalRAMMode) }
+    }
+
+    /// Minutes Barc must be unfocused before even the active tab may sleep (0 = never).
+    var backgroundActiveTabSleepDelay: TimeInterval? {
+        let minutes = defaults.object(forKey: Key.backgroundActiveTabSleepMinutes) as? Int ?? 5
+        return minutes > 0 ? TimeInterval(minutes) * 60 : nil
     }
 }
 

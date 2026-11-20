@@ -227,8 +227,14 @@ final class WebContentViewController: NSViewController {
                     if case .spaces = change { self.updateBookmarksBar() }
                 case .tab(let tab):
                     // A failure or a recovery on the visible tab changes what
-                    // this pane shows; other tabs do not.
+                    // this pane shows; other tabs do not. Do not immediately
+                    // wake an active tab that deliberately slept while Barc was
+                    // unfocused in the background.
                     if tab.id == self.session.activeTab?.id {
+                        if !tab.isLoaded && !NSApp.isActive {
+                            self.container.show(nil, failure: nil, url: tab.displayURL, onRetry: nil)
+                            return
+                        }
                         self.showActiveTab()
                         if !tab.isLoading, let webView = tab.currentWebView {
                             Task { [weak self] in
@@ -249,6 +255,14 @@ final class WebContentViewController: NSViewController {
             }
             .store(in: &cancellables)
         showActiveTab()
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let active = self.session.activeTab, !active.isLoaded else { return }
+                self.showActiveTab()
+            }
+        }
         contentContainer.bookmarksBar.onOpen = { [weak self] url in self?.onOpenBookmark?(url) }
         updateBookmarksBar()
     }

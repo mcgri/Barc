@@ -76,9 +76,20 @@ PKG            := $(BUILD_DIR)/$(APP_NAME)$(PKG_SUFFIX).pkg
 # search automatically when only Command Line Tools are installed.
 TESTING_PLUGINS := $(shell xcode-select -p)/usr/lib/swift/host/plugins/testing
 
-.PHONY: all build bundle run test test-ramlog clean size measure notarize icon pkg
+.PHONY: all build rust-core bundle bundle-custom-webkit run test test-ramlog clean size measure notarize icon pkg
 
 all: bundle
+
+rust-core:
+	@if command -v cargo >/dev/null 2>&1; then \
+		if echo " $(ARCHS) " | grep -q " x86_64 "; then \
+			echo "rust-core: skipping single-arch dylib for universal ARCHS=$(ARCHS)"; \
+		else \
+			cargo build --release --manifest-path RustCore/Cargo.toml; \
+		fi; \
+	else \
+		echo "rust-core: cargo not found; skipping native RustCore dylib"; \
+	fi
 
 # Release builds are optimised for size and dead code is dropped at link:
 # the app is a shell over WebKit, so its own code is rarely the hot path.
@@ -106,9 +117,9 @@ $(ICON): $(ICON_MARK) Tools/make-icon.py
 		&& touch "$(ICON)"; \
 	}
 
-bundle: build $(ICON)
+bundle: build rust-core $(ICON)
 	@rm -rf "$(APP_BUNDLE)"
-	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
+	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources" "$(APP_BUNDLE)/Contents/Frameworks"
 	@cp Resources/Info.plist "$(APP_BUNDLE)/Contents/Info.plist"
 	@# Give a local build a version that says which commit it is.
 	@#
@@ -135,6 +146,11 @@ bundle: build $(ICON)
 	@cp -R LICENSES "$(APP_BUNDLE)/Contents/Resources/"
 	@printf 'APPL????' > "$(APP_BUNDLE)/Contents/PkgInfo"
 	@cp "$(BIN)" "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
+	@if [ -f "RustCore/target/release/libbarc_core.dylib" ] && ! echo " $(ARCHS) " | grep -q " x86_64 "; then \
+		cp "RustCore/target/release/libbarc_core.dylib" "$(APP_BUNDLE)/Contents/Frameworks/libbarc_core.dylib"; \
+		install_name_tool -id "@rpath/libbarc_core.dylib" "$(APP_BUNDLE)/Contents/Frameworks/libbarc_core.dylib"; \
+		codesign --force --sign - "$(APP_BUNDLE)/Contents/Frameworks/libbarc_core.dylib" >/dev/null 2>&1 || true; \
+	fi
 ifeq ($(CONFIG),release)
 	@# The symbol table is not needed to run: stripping it halves the binary.
 	@strip -x -S "$(APP_BUNDLE)/Contents/MacOS/$(APP_NAME)"
@@ -154,6 +170,10 @@ else
 	@echo "signed with $(DEV_ID) (hardened runtime, timestamped)"
 endif
 	@echo "built $(APP_BUNDLE)"
+
+bundle-custom-webkit: rust-core
+	@chmod +x Tools/bundle-custom-webkit.sh
+	@./Tools/bundle-custom-webkit.sh "$(BUILD_DIR)/$(APP_NAME)-CustomWebKit.app"
 
 run: bundle
 	@open "$(APP_BUNDLE)"

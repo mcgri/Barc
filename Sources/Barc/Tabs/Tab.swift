@@ -581,6 +581,9 @@ final class Tab: Identifiable {
         viewport.restore(in: view)
     }
     private var savedInteractionState: Any?
+    /// Key for an out-of-line LZ4-compressed `interactionState` stored on disk
+    /// by `InteractionStateStore` so sleeping tabs hold 0 bytes in Swift RAM.
+    private var savedInteractionStateKey: String?
     /// The web view is replaying `savedInteractionState`. That load is not a
     /// visit: the user went there before, and it was written then. Cleared
     /// by the first commit, which hands over to `suppressesNextVisit`.
@@ -627,7 +630,7 @@ final class Tab: Identifiable {
     ///
     /// Narrower than `isAsleep`: this is specifically the tab that has a saved
     /// scroll position and back-forward list waiting for it.
-    var isSuspended: Bool { loadedWebView == nil && savedInteractionState != nil }
+    var isSuspended: Bool { loadedWebView == nil && (savedInteractionState != nil || savedInteractionStateKey != nil) }
 
     /// No web view, so no memory, so nothing on screen to lose.
     ///
@@ -783,7 +786,20 @@ final class Tab: Identifiable {
         self.groupID = snapshot.groupID
         self.pinnedSiteID = snapshot.pinnedSiteID
         self.pinnedMemberID = snapshot.pinnedSiteID == nil ? nil:snapshot.pinnedMemberID
-        self.savedInteractionState = snapshot.interactionState
+        if let stateKey = snapshot.interactionStateKey {
+            self.savedInteractionStateKey = stateKey
+            self.savedInteractionState = nil
+        } else if let inlineState = snapshot.interactionState {
+            // Migrate legacy inline state out-of-line on restore if persistent
+            // storage is available; otherwise keep in memory (e.g. unit tests).
+            let key = id.uuidString
+            if let storedKey = InteractionStateStore.shared.store(inlineState, forKey: key) {
+                self.savedInteractionStateKey = storedKey
+                self.savedInteractionState = nil
+            } else if inlineState.count <= InteractionStateStore.maxUncompressedBytes {
+                self.savedInteractionState = inlineState
+            }
+        }
         self.savedHibernationViewport = snapshot.hibernationViewport
         // A session written before the clock was persisted restores as "just
         // now", which is the safe direction to be wrong in: a tab is never
@@ -805,16 +821,38 @@ final class Tab: Identifiable {
 
     /// The state needed to bring this tab back after a relaunch.
     func snapshot() -> SessionSnapshot.Tab {
-        SessionSnapshot.Tab(
+        var inlineState: Data? = nil
+        var stateKey: String? = nil
+        if document == nil {
+            if let liveData = loadedWebView?.interactionState as? Data {
+                let key = savedInteractionStateKey ?? id.uuidString
+                if let stored = InteractionStateStore.shared.store(liveData, forKey: key) {
+                    savedInteractionStateKey = stored
+                    stateKey = stored
+                } else if liveData.count <= InteractionStateStore.maxUncompressedBytes {
+                    inlineState = liveData
+                }
+            } else if let existingKey = savedInteractionStateKey {
+                stateKey = existingKey
+            } else if let memData = savedInteractionState as? Data {
+                let key = id.uuidString
+                if let stored = InteractionStateStore.shared.store(memData, forKey: key) {
+                    savedInteractionStateKey = stored
+                    savedInteractionState = nil
+                    stateKey = stored
+                } else if memData.count <= InteractionStateStore.maxUncompressedBytes {
+                    inlineState = memData
+                }
+            }
+        }
+        return SessionSnapshot.Tab(
             url: document?.url ?? url,
             title: document?.title ?? pageTitle,
             groupID: groupID,
             customName: TabNameStore.shared.name(for: id),
             pinnedSiteID: pinnedSiteID,
-            // A PDF was never a WebKit navigation, so the web view's saved
-            // state belongs to the page underneath; restoring the address
-            // fetches the document again.
-            interactionState: document != nil ? nil : (loadedWebView?.interactionState as? Data ?? savedInteractionState as? Data),
+            interactionState: inlineState,
+            interactionStateKey: stateKey,
             lastActiveAt: lastActiveAt,
             // Written only when set, so a session file does not grow a pair of
             // `false`s on every tab the user never touched.
@@ -855,13 +893,33 @@ final class Tab: Identifiable {
             // The start page is drawn over the web view; WebKit gets a blank
             // document so there is a page to navigate away from.
             webView.load(URLRequest(url: URL(string: "about:blank")!))
-        } else if let savedInteractionState {
+        } else if let state = restoreInteractionState() {
             isRestoringDocument = true
-            webView.interactionState = savedInteractionState
+            webView.interactionState = state
         } else {
             webView.load(URLRequest(url: url))
         }
         return webView
+    }
+
+    /// Loads `interactionState` on demand from out-of-line compressed disk
+    /// storage (or in-memory fallback in unit tests).
+    private func restoreInteractionState() -> Any? {
+        if let savedInteractionState { return savedInteractionState }
+        if let key = savedInteractionStateKey,
+           let data = InteractionStateStore.shared.load(forKey: key) {
+            return data
+        }
+        return nil
+    }
+
+    /// Removes any out-of-line compressed state file owned by this tab.
+    func clearStoredInteractionState() {
+        savedInteractionState = nil
+        if let key = savedInteractionStateKey {
+            savedInteractionStateKey = nil
+            InteractionStateStore.shared.remove(forKey: key)
+        }
     }
 
     /// Releases the web view and the WebKit content process backing it, keeping
@@ -869,7 +927,19 @@ final class Tab: Identifiable {
     func unload() {
         guard let webView = loadedWebView else { return }
         failure = nil
-        savedInteractionState = webView.interactionState
+        if let rawData = webView.interactionState as? Data {
+            let key = savedInteractionStateKey ?? id.uuidString
+            if let storedKey = InteractionStateStore.shared.store(rawData, forKey: key) {
+                savedInteractionStateKey = storedKey
+                savedInteractionState = nil
+            } else if rawData.count <= InteractionStateStore.maxUncompressedBytes {
+                savedInteractionState = rawData
+            } else {
+                savedInteractionState = nil
+            }
+        } else {
+            savedInteractionState = webView.interactionState
+        }
         pendingUserURL = nil
         failedURL = nil
         cancellables.removeAll()
@@ -997,7 +1067,7 @@ final class Tab: Identifiable {
             loadedWebView.load(URLRequest(url: url))
         } else {
             // Not shown yet: drop any stale restore state so the new URL wins.
-            savedInteractionState = nil
+            clearStoredInteractionState()
         }
         didChange.send()
     }

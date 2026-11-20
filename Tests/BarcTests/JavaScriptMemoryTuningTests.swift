@@ -24,13 +24,23 @@ struct JavaScriptMemoryTuningTests {
         #expect(JavaScriptMemoryTuning.configuration([("a", "1"), ("b", "two")]) == "jscOptions {\n    a=1\n    b=two\n}\n")
     }
 
-    @Test("JavaScriptCore is told the Mac has at most 8 GB, never more than it really has")
+    @Test("JavaScriptCore is told the Mac has at most 2 GB, never more than it really has")
     func ramSizeCap() {
         let gb: UInt64 = 1 << 30
-        #expect(JavaScriptMemoryTuning.options(physicalMemory: 24 * gb).map(\.value) == ["\(8 * gb)"])
-        #expect(JavaScriptMemoryTuning.options(physicalMemory: 8 * gb).map(\.value) == ["\(8 * gb)"])
-        #expect(JavaScriptMemoryTuning.options(physicalMemory: 4 * gb).map(\.value) == ["\(4 * gb)"])
-        #expect(JavaScriptMemoryTuning.options().map(\.key) == ["forceRAMSize"])
+        #expect(JavaScriptMemoryTuning.options(physicalMemory: 24 * gb, disableFTLJIT: false).map(\.value) == ["\(2 * gb)"])
+        #expect(JavaScriptMemoryTuning.options(physicalMemory: 2 * gb, disableFTLJIT: false).map(\.value) == ["\(2 * gb)"])
+        #expect(JavaScriptMemoryTuning.options(physicalMemory: 1 * gb, disableFTLJIT: false).map(\.value) == ["\(1 * gb)"])
+        #expect(JavaScriptMemoryTuning.options(disableFTLJIT: false).map(\.key) == ["forceRAMSize"])
+        #expect(JavaScriptMemoryTuning.options(disableFTLJIT: true).map(\.key) == ["forceRAMSize", "useFTLJIT"])
+    }
+
+    @Test("Tuned configurations share a single unwarmed process pool")
+    func sharesUnwarmedPool() {
+        let a = WKWebViewConfiguration()
+        let b = WKWebViewConfiguration()
+        JavaScriptMemoryTuning.installProcessPool(in: a, enabled: true)
+        JavaScriptMemoryTuning.installProcessPool(in: b, enabled: true)
+        #expect(a.processPool === b.processPool)
     }
 
     @Test("Turning the setting off writes nothing and leaves WebKit's defaults")

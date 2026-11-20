@@ -38,6 +38,7 @@ final class TabSuspender {
     private var sweepResources: [Tab.ID: TabResourceUsage] = [:]
     private var budgetPriority: [Tab.ID] = []
     private var lastMemoryCachePurge: TimeInterval?
+    private var appResignedAt: TimeInterval?
     private(set) var lastSweepUnloadedCount = 0
 
     init(session: BrowserSession, settings: Settings = .shared,
@@ -113,12 +114,21 @@ final class TabSuspender {
         // deferred, which is exactly when reclaimed memory matters to the user.
         // Sweeping on deactivation releases background tabs on the way out.
         let center = NotificationCenter.default
-        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            let observer = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.requestEvaluation(.idle) }
+        let becomeObserver = center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.appResignedAt = nil
+                self.requestEvaluation(.idle)
             }
-            activationObservers.append(observer)
         }
+        let resignObserver = center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.appResignedAt = self.uptime()
+                self.requestEvaluation(.idle)
+            }
+        }
+        activationObservers.append(contentsOf: [becomeObserver, resignObserver])
 
         let source = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .main)
         source.setEventHandler { [weak self] in
@@ -235,25 +245,54 @@ final class TabSuspender {
         Metrics.log("sweep trigger=\(trigger) unloaded=\(lastSweepUnloadedCount) loaded=\(session.allTabs.count { $0.isLoaded })")
         // Sleeping pages frees their state in this process too (session
         // data, back-forward items, layers). Hand the pages back to macOS
-        // now rather than at the next pressure warning or app switch.
-        if lastSweepUnloadedCount > 0 { MemoryRelief.shared.requestRelief() }
+        // now rather than at the next pressure warning or app switch, and
+        // purge WebKit's in-memory caches periodically when tabs sleep.
+        if lastSweepUnloadedCount > 0 {
+            let now = uptime()
+            if lastMemoryCachePurge == nil || now - (lastMemoryCachePurge ?? 0) >= 300 {
+                lastMemoryCachePurge = now
+                let stores = RAMCacheManager.shared.storesProvider?().map(\.1) ?? [WKWebsiteDataStore.default()]
+                Task { @MainActor in
+                    var seen: Set<ObjectIdentifier> = []
+                    for store in stores where seen.insert(ObjectIdentifier(store)).inserted {
+                        await store.removeData(ofTypes: [WKWebsiteDataTypeMemoryCache], modifiedSince: .distantPast)
+                    }
+                }
+            }
+            MemoryRelief.shared.requestRelief()
+        }
+    }
+
+    /// True when Barc itself has been unfocused in the background long enough
+    /// in minimal-RAM mode that even the front tab may safely sleep.
+    private func maySleepActiveTabInBackground(now: TimeInterval) -> Bool {
+        guard settings.minimalRAMMode,
+              let delay = settings.backgroundActiveTabSleepDelay,
+              let resigned = appResignedAt,
+              !NSApp.isActive else { return false }
+        return now - resigned >= delay
     }
 
     private func candidateIDs(_ trigger: TabSuspension.Trigger) -> Set<Tab.ID> {
         let now = uptime()
         let tabs = session.allTabs
-        var protected = session.visibleTabIDs
+        let allowBackgroundActiveSleep = maySleepActiveTabInBackground(now: now)
+        var protected = allowBackgroundActiveSleep ? Set<Tab.ID>() : session.visibleTabIDs
         for tab in tabs where tab.isLoaded {
             guard let view = tab.currentWebView else { continue }
-            if !tab.allowsAutomaticHibernation || protectsTransfer(view)
-                || (view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor) {
+            let windowVisibleProtection = !allowBackgroundActiveSleep
+                && (view.window?.isVisible == true && !view.isHiddenOrHasHiddenAncestor)
+            if !tab.allowsAutomaticHibernation || protectsTransfer(view) || windowVisibleProtection {
                 protected.insert(tab.id)
             }
         }
         let stamp = Date(timeIntervalSinceReferenceDate: now)
         let allStates = tabs.map { tab -> TabSuspension.TabState in
+            let idleAge = allowBackgroundActiveSleep && session.visibleTabIDs.contains(tab.id)
+                ? (appResignedAt.map { max(0, now - $0) } ?? 0)
+                : clock.tabIdle(tab.id, now: now)
             var state = TabSuspension.TabState(id: tab.id, isLoaded: tab.isLoaded,
-                lastActiveAt: stamp.addingTimeInterval(-clock.tabIdle(tab.id, now: now)), keepsAwake: tab.keepsAwake)
+                lastActiveAt: stamp.addingTimeInterval(-idleAge), keepsAwake: tab.keepsAwake)
             if let usage = sweepResources[tab.id] {
                 state.footprint = usage.hasMeasuredMemory ? usage.memoryBytes : nil
                 state.processID = usage.pid

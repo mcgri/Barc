@@ -423,17 +423,21 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
           ? origin.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]') : null;
       };
       const rich = el => !el.matches('input, textarea, select');
-      // A query typed into a search or filter box is not unsaved work. Single-
-      // page apps keep it in the box indefinitely (a Gmail search, a YouTube
-      // query, GitHub's "Go to file" and "Find a branch"), which would
-      // otherwise keep the whole tab awake for days.
-      const searchWords = /search|query|filter|\bfind\b|\bgo to\b|\bjump to\b/i;
-      const isSearchField = el => el.tagName === 'INPUT'
+      // A query typed into a search, filter, or SPA combobox (e.g. react-select)
+      // is not unsaved work. Single-page apps keep it in the box indefinitely
+      // (a Gmail search, a YouTube query, GitHub's "Go to file", react-select
+      // dropdowns), which would otherwise keep the whole tab awake for days.
+      const searchWords = /search|query|filter|\bfind\b|\bgo to\b|\bjump to\b|react-select/i;
+      const isSearchField = el => (el.tagName === 'INPUT'
         && (el.type === 'search' || el.getAttribute('role') === 'searchbox'
+          || el.getAttribute('role') === 'combobox'
+          || el.hasAttribute('aria-autocomplete')
           || !!el.closest('[role="search"], search')
           || el.name === 'q' || el.id === 'q'
           || [el.name, el.id, el.getAttribute('aria-label'), el.getAttribute('placeholder')]
-               .some(value => !!value && searchWords.test(value)));
+               .some(value => !!value && searchWords.test(value))))
+        || (el.tagName === 'INPUT' && ['checkbox', 'radio'].includes(el.type)
+          && !!el.closest('[role="toolbar"], [role="search"], nav, header'));
       const hasContent = el => !!(el.textContent.trim() || el.querySelector('img, video, audio, object, embed, canvas, svg, input[type="file"]'));
       function initialState(el, beforeEdit = false) {
         // An input-only rich-editor event has an unknown original state.

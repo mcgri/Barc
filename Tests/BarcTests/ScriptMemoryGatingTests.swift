@@ -11,7 +11,7 @@ struct ScriptMemoryGatingTests {
 
     @Test func genericCosmeticsSettingPreservesBlockingAndExceptions() {
         let settings = settings()
-        #expect(settings.hideGenericPageElements)
+        #expect(!settings.hideGenericPageElements)
         let original = AdblockRuleConverter().convert("##.generic\nexample.com##.specific\n||ads.example^\n@@||good.example^")
         #expect(original.filteringGenericCosmetics(hide: true).rules == original.rules)
         settings.hideGenericPageElements = false

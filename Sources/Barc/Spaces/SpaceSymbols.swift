@@ -81,11 +81,40 @@ enum SpaceSymbols {
         }
         let key = String(name.dropFirst("ionicon.".count))
         if let image = cache[key] { return image }
-        guard let svg = artwork[key], let image = NSImage(data: Data(svg.utf8)) else { return nil }
+        guard let svg = artwork[key], let vector = NSImage(data: Data(svg.utf8)) else { return nil }
+        // Rasterize once to a 36x36 (@2x) template bitmap so CoreSVG's vector
+        // DOM (thousands of SVGAttribute / SVGPathCommand nodes) is freed right away.
+        let image = rasterizeTemplate(vector, pointSide: 18) ?? vector
         image.size = NSSize(width: 18, height: 18)
         image.isTemplate = true
         cache[key] = image
         return image
+    }
+
+    @MainActor private static func rasterizeTemplate(_ source: NSImage, pointSide: CGFloat) -> NSImage? {
+        let pixels = Int(pointSide * 2)
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: pixels,
+            pixelsHigh: pixels,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = NSSize(width: pointSide, height: pointSide)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        source.draw(in: NSRect(x: 0, y: 0, width: pointSide, height: pointSide),
+                    from: .zero, operation: .copy, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+        let bitmap = NSImage(size: NSSize(width: pointSide, height: pointSide))
+        bitmap.addRepresentation(rep)
+        bitmap.isTemplate = true
+        return bitmap
     }
 
     // Pinned source revision: d1e2c48641fd5f4910ee42a144dc1c84b1a9a4ee

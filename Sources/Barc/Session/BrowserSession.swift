@@ -3873,6 +3873,7 @@ final class BrowserSession {
             tab.exitPictureInPicture()
         }
         tab.unload()
+        tab.clearStoredInteractionState()
         TabSnapshotStore.shared.removeSnapshot(for: tab.id)
         tab.delegate = nil
         tabSubscriptions[tab.id] = nil

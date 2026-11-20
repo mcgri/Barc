@@ -119,11 +119,47 @@ final class ContentBlocker {
     }
 
     /// Loads, fetching and compiling whatever is active and not yet ready.
+    /// When custom-compiled WebKit's Rust NetworkProcess adblocker is active,
+    /// built-in network filter lists are handled once in NetworkProcess with
+    /// 0 bytes mapped per WebContent process, and stale on-disk DFAs are pruned.
     func start() {
-        for list in activeLists { ensureCompiled(list) }
-        compileCustomLists()
+        if RustCoreBridge.isNetworkProcessAdblockActive {
+            // Keep filter list text files fresh on disk for NetworkProcess's
+            // adblock-rust engine, without compiling 63 MB of WebKit DFAs.
+            Task { [weak self] in
+                guard let self else { return }
+                for list in self.activeLists {
+                    _ = try? await self.store.text(for: list, refreshingStale: self.settings.autoUpdatesFilterLists)
+                }
+            }
+            pruneOrphanedCompiledLists(keeping: [])
+        } else {
+            for list in activeLists { ensureCompiled(list) }
+            compileCustomLists()
+            pruneOrphanedCompiledLists()
+        }
         compileUserRules()
         siteSettingsChanged()
+    }
+
+    /// Removes historical `barc.filter.*` compiled rule lists left behind across
+    /// relaunches (which otherwise grow to hundreds of megabytes on disk).
+    private func pruneOrphanedCompiledLists(keeping extra: Set<String>? = nil) {
+        ruleStore.getAvailableContentRuleListIdentifiers { [weak self] available in
+            guard let available else { return }
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                var keep = extra ?? Set(self.identifiers.values)
+                keep.formUnion(self.customIdentifiers.values)
+                if let userID = self.userRulesIdentifier { keep.insert(userID) }
+                if let siteID = self.siteRulesIdentifier { keep.insert(siteID) }
+                for id in available where id.hasPrefix("barc.filter.") || id.hasPrefix("barc.custom.") {
+                    if !keep.contains(id) {
+                        self.ruleStore.removeContentRuleList(forIdentifier: id) { _ in }
+                    }
+                }
+            }
+        }
     }
 
     /// The per-site choices changed: recompile their list and reapply.
