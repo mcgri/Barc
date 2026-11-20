@@ -49,6 +49,8 @@ enum JavaScriptMemoryTuning {
         var opts: Options = [("forceRAMSize", String(min(physicalMemory, ramSizeCap)))]
         if disableFTLJIT {
             opts.append(("useFTLJIT", "false"))
+            opts.append(("useOMGJIT", "false"))
+            opts.append(("numberOfDFGCompilerThreads", "1"))
         }
         return opts
     }

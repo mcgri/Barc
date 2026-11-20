@@ -61,6 +61,10 @@ public final class PageTranslator {
         onChange?(tabID, state)
     }
 
+    public func forget(_ tabID: UUID) {
+        states.removeValue(forKey: tabID)
+    }
+
     /// Automatically detects language of the page in `webView` for `tabID`.
     @discardableResult
     public func detectLanguage(in webView: WKWebView, for tabID: UUID) async -> String? {
@@ -81,20 +85,19 @@ public final class PageTranslator {
 
         var detectedCode: String?
 
-        // 1. NaturalLanguage detection on real page text
-        if !payload.sampleText.isEmpty {
+        // 1. Prefer declared <html lang> first to avoid loading CoreNLP
+        // language models into the UI process on the >90% of sites that declare it.
+        let declared = payload.declaredLang.components(separatedBy: "-").first?.lowercased() ?? ""
+        if !declared.isEmpty && declared != "und" {
+            detectedCode = declared
+        }
+
+        // 2. Fall back to NaturalLanguage detection only when <html lang> is absent.
+        if detectedCode == nil, !payload.sampleText.isEmpty {
             let recognizer = NLLanguageRecognizer()
             recognizer.processString(payload.sampleText)
             if let dominant = recognizer.dominantLanguage?.rawValue {
                 detectedCode = dominant
-            }
-        }
-
-        // 2. Fall back to declared html lang if recognizer was uncertain
-        if detectedCode == nil || detectedCode == "und" {
-            let declared = payload.declaredLang.components(separatedBy: "-").first?.lowercased() ?? ""
-            if !declared.isEmpty {
-                detectedCode = declared
             }
         }
 

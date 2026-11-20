@@ -30,7 +30,7 @@ final class TabSnapshotStore {
     /// Most recently used last.
     private var order: [UUID] = []
 
-    init(capacity: Int = 30, byteLimit: Int = 24 * 1024 * 1024) {
+    init(capacity: Int = 10, byteLimit: Int = 6 * 1024 * 1024) {
         self.capacity = max(0, capacity)
         self.byteLimit = max(0, byteLimit)
     }

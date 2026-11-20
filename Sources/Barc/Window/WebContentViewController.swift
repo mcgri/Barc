@@ -237,11 +237,17 @@ final class WebContentViewController: NSViewController {
                         }
                         self.showActiveTab()
                         if !tab.isLoading, let webView = tab.currentWebView {
-                            Task { [weak self] in
-                                await PageTranslator.shared.detectLanguage(in: webView, for: tab.id)
-                                self?.updateTopBar()
+                            let url = webView.url ?? tab.displayURL
+                            if self.lastLanguageCheckedURL[tab.id] != url {
+                                self.lastLanguageCheckedURL[tab.id] = url
+                                Task { [weak self] in
+                                    await PageTranslator.shared.detectLanguage(in: webView, for: tab.id)
+                                    self?.updateTopBar()
+                                }
                             }
-                            self.scheduleThumbnail(for: tab)
+                            if !Settings.shared.minimalRAMMode {
+                                self.scheduleThumbnail(for: tab)
+                            }
                         }
                     }
                 case .bookmarks:
@@ -330,8 +336,11 @@ final class WebContentViewController: NSViewController {
         }
         tab.markActive()
         if tab.showsStartPage { refreshStartPage(for: tab) }
+        // Avoid spawning a live WKWebView + WebKit XPC process tree behind the
+        // opaque native StartPageView until the user actually navigates.
+        let activeWebView = (tab.showsStartPage && tab.currentWebView == nil) ? nil : tab.webView()
         container.show(
-            tab.webView(),
+            activeWebView,
             document: tab.contentOverlay,
             failure: tab.failure,
             url: tab.displayURL,
@@ -392,6 +401,7 @@ final class WebContentViewController: NSViewController {
     // MARK: - Thumbnails
 
     private var thumbnailTask: Task<Void, Never>?
+    private var lastLanguageCheckedURL: [Tab.ID: URL] = [:]
 
     /// One thumbnail a little after a page settles, not one per load event:
     /// a page that fires a dozen state changes while it loads gets one

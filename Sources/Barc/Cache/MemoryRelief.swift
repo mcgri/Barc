@@ -43,6 +43,9 @@ public final class MemoryRelief {
     /// Runs at most once every three minutes, away from UI work.
     public func requestRelief() {
         guard schedule.accept(at: ProcessInfo.processInfo.systemUptime) else { return }
+        if Settings.shared.minimalRAMMode {
+            TabSnapshotStore.shared.clear()
+        }
         DispatchQueue.global(qos: .utility).async {
             malloc_zone_pressure_relief(nil, 0)
         }

@@ -31,7 +31,7 @@ struct JavaScriptMemoryTuningTests {
         #expect(JavaScriptMemoryTuning.options(physicalMemory: 2 * gb, disableFTLJIT: false).map(\.value) == ["\(2 * gb)"])
         #expect(JavaScriptMemoryTuning.options(physicalMemory: 1 * gb, disableFTLJIT: false).map(\.value) == ["\(1 * gb)"])
         #expect(JavaScriptMemoryTuning.options(disableFTLJIT: false).map(\.key) == ["forceRAMSize"])
-        #expect(JavaScriptMemoryTuning.options(disableFTLJIT: true).map(\.key) == ["forceRAMSize", "useFTLJIT"])
+        #expect(JavaScriptMemoryTuning.options(disableFTLJIT: true).map(\.key) == ["forceRAMSize", "useFTLJIT", "useOMGJIT", "numberOfDFGCompilerThreads"])
     }
 
     @Test("Tuned configurations share a single unwarmed process pool")

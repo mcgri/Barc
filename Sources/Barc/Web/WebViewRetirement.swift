@@ -84,6 +84,7 @@ final class WebViewRetirement {
         if let emptyState { return emptyState }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
+        JavaScriptMemoryTuning.apply(to: configuration)
         let blank = WKWebView(frame: .zero, configuration: configuration)
         blank.load(URLRequest(url: URL(string: "data:text/html,%3C!doctype%20html%3E%3Ctitle%3E%3C/title%3E")!))
         defer { blank.stopLoading() }

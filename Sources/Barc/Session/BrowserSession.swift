@@ -2950,16 +2950,19 @@ final class BrowserSession {
         scheduleSave()
     }
 
-    /// Releases the web views of tabs that are not on screen. The tabs stay in
-    /// the sidebar and come back exactly where they were when next shown.
-    func suspend(_ tabs: [Tab]) {
-        let protected = visibleTabIDs
+    /// Releases the web views of tabs that are not on screen (or visible tabs
+    /// when `allowVisible` is set for background-unfocused active-tab sleep).
+    /// The tabs stay in the sidebar and come back where they were when next shown.
+    @discardableResult
+    func suspend(_ tabs: [Tab], allowVisible: Bool = false) -> Int {
+        let protected = allowVisible ? Set<Tab.ID>() : visibleTabIDs
         var suspended = 0
         for tab in tabs where !protected.contains(tab.id) {
             tab.unload()
             suspended += 1
         }
         Metrics.log("suspend asked=\(tabs.count) suspended=\(suspended) stillLoaded=\(allTabs.count { $0.isLoaded })")
+        return suspended
     }
 
     // MARK: - History
@@ -3374,7 +3377,24 @@ final class BrowserSession {
     func saveNow() {
         saveTask?.cancel()
         saveTask = nil
-        try? sessionStore.save(snapshot())
+        let snap = snapshot()
+        try? sessionStore.save(snap)
+        // Reclaim orphaned out-of-line `.barcstate` files no longer referenced
+        // by any live tab, favorite, archived tab, or undo-close entry.
+        var keep = Set<String>()
+        for space in snap.spaces {
+            for tab in space.tabs { if let k = tab.interactionStateKey { keep.insert(k) } }
+            for archived in space.archivedTabs ?? [] {
+                for t in archived.tabs { if let k = t.interactionStateKey { keep.insert(k) } }
+            }
+        }
+        for profile in snap.profiles ?? [] {
+            for tab in profile.favoriteTabs ?? [] { if let k = tab.interactionStateKey { keep.insert(k) } }
+        }
+        for closed in closedTabs {
+            if let k = closed.snapshot.interactionStateKey { keep.insert(k) }
+        }
+        InteractionStateStore.shared.prune(keeping: keep)
     }
 
     /// Import completion includes the final profile preferences. Propagate a
@@ -3873,8 +3893,14 @@ final class BrowserSession {
             tab.exitPictureInPicture()
         }
         tab.unload()
-        tab.clearStoredInteractionState()
+        // Only delete the out-of-line state file immediately for private tabs;
+        // ordinary closed/archived tabs may be restored via Cmd+Shift+T or Archive
+        // and unreferenced files are reclaimed by `InteractionStateStore.prune`.
+        if tab.isPrivate {
+            tab.clearStoredInteractionState()
+        }
         TabSnapshotStore.shared.removeSnapshot(for: tab.id)
+        PageTranslator.shared.forget(tab.id)
         tab.delegate = nil
         tabSubscriptions[tab.id] = nil
         TabNameStore.shared.forget(tab.id)

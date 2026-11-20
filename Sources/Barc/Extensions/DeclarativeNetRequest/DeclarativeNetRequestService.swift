@@ -34,6 +34,8 @@ final class DeclarativeNetRequestService {
         var navigationOnly: [DeclarativeNetRequestCompiler.Unsupported] = []
         /// Rules that were not valid DNR at all.
         var rejected: [DNRRule.Rejection] = []
+        /// Cached subset of rules that act at navigation time, avoiding per-navigation disk JSON reads.
+        var navigationRules: [DNRRule] = []
         var translated = 0
     }
 
@@ -200,6 +202,7 @@ final class DeclarativeNetRequestService {
         entry.rejected = read.rejected
         entry.unsupported = compilation.unsupported
         entry.navigationOnly = compilation.navigationOnly
+        entry.navigationRules = read.rules.filter(Self.actsAtNavigationTime)
         entry.translated = compilation.translated
 
         let previous = entry.identifier
@@ -487,8 +490,8 @@ extension DeclarativeNetRequestService {
         let applicable = entries
             .filter { id, _ in isEnabledInSpace?(id, identity) ?? true }
             .sorted { $0.key.uuidString < $1.key.uuidString }
-        for (id, _) in applicable {
-            let rules = allRules(for: id).rules.filter(Self.actsAtNavigationTime)
+        for (id, entry) in applicable {
+            let rules = entry.navigationRules
             guard !rules.isEmpty else { continue }
             let decision = DeclarativeNetRequestNavigation.decide(
                 request: request,
@@ -530,6 +533,6 @@ extension DeclarativeNetRequestService {
     /// Whether any loaded extension has a rule that needs deciding at
     /// navigation time. Checked first so an ordinary page load costs nothing.
     var hasNavigationRules: Bool {
-        entries.keys.contains { !allRules(for: $0).rules.filter(Self.actsAtNavigationTime).isEmpty }
+        entries.values.contains { !$0.navigationRules.isEmpty }
     }
 }

@@ -22,9 +22,11 @@ public final class BrowserLockManager: NSObject {
 
     /// Initializes activity tracking, sleep hooks, and launch lock.
     public func start() {
-        setupEventMonitors()
         setupSleepObservers()
-        startIdleTimer()
+        if settings.browserLockEnabled {
+            setupEventMonitors()
+            startIdleTimer()
+        }
 
         if settings.browserLockEnabled && settings.browserLockOnLaunch {
             // Lock immediately on launch

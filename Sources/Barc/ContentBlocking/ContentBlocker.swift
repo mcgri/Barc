@@ -129,7 +129,7 @@ final class ContentBlocker {
             Task { [weak self] in
                 guard let self else { return }
                 for list in self.activeLists {
-                    _ = try? await self.store.text(for: list, refreshingStale: self.settings.autoUpdatesFilterLists)
+                    await self.store.refreshIfStale(list, refreshingStale: self.settings.autoUpdatesFilterLists)
                 }
             }
             pruneOrphanedCompiledLists(keeping: [])

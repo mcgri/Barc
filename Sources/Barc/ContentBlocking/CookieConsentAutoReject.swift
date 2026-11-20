@@ -271,13 +271,25 @@ final class CookieConsentAutoReject: NSObject, WKScriptMessageHandler {
 
       if (findAndClickReject()) return;
 
+      var debounceTimer = null;
       var observer = new MutationObserver(function () {
-        if (findAndClickReject()) {
-          observer.disconnect();
-        }
+        if (debounceTimer) return;
+        debounceTimer = setTimeout(function () {
+          debounceTimer = null;
+          if (findAndClickReject()) {
+            observer.disconnect();
+          }
+        }, 250);
       });
       observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
-      setTimeout(function () { observer.disconnect(); }, 6000);
+      window.addEventListener('pagehide', function () {
+        if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+        observer.disconnect();
+      }, { once: true });
+      setTimeout(function () {
+        if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = null; }
+        observer.disconnect();
+      }, 6000);
     })();
     """#
 }

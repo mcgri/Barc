@@ -68,6 +68,8 @@ final class SQLiteDatabase {
         // WAL keeps reads from blocking the write that records a page visit.
         try execute("PRAGMA journal_mode = WAL;")
         try execute("PRAGMA synchronous = NORMAL;")
+        try execute("PRAGMA cache_size = -512;")
+        try execute("PRAGMA mmap_size = 0;")
     }
 
     /// Opens a database file for reading only, never writing to it: another

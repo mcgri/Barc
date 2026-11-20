@@ -73,7 +73,7 @@ final class WebContainerView: NSView {
         swapWebView(webView)
         swapDocument(document)
 
-        emptyState.isHidden = webView != nil
+        emptyState.isHidden = webView != nil || document != nil
 
         if let failure {
             errorPage.configure(with: failure, url: url)
@@ -119,8 +119,14 @@ final class WebContainerView: NSView {
 
     /// Fades a view in rather than snapping it, which is the whole of the
     /// animation budget here: anything longer gets in the way of switching tabs.
+    /// Skipped when Reduce Animations is on to avoid offscreen group-opacity
+    /// compositing passes over full-window WebViews.
     private func reveal(_ view: NSView) {
         view.isHidden = false
+        guard !Style.Motion.isReduced else {
+            view.layer?.opacity = 1
+            return
+        }
         view.wantsLayer = true
         view.layer?.opacity = 0
         NSAnimationContext.runAnimationGroup { context in

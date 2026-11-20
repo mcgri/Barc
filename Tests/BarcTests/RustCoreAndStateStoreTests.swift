@@ -37,4 +37,21 @@ struct RustCoreAndStateStoreTests {
         #expect(store.store(huge, forKey: "huge-tab") == nil)
         #expect(store.load(forKey: "huge-tab") == nil)
     }
+
+    @Test("BrowserSession.suspend honours allowVisible for background active-tab sleep")
+    @MainActor
+    func suspendAllowVisible() {
+        let session = BrowserSession(database: nil, sessionStore: SessionStore(fileURL: FileManager.default.temporaryDirectory.appending(path: "barc-suspend-\(UUID()).json")))
+        let tab = session.newTab(url: URL(string: "https://example.com")!)
+        _ = tab.webView()
+        #expect(tab.isLoaded)
+
+        // Default suspend protects the visible tab.
+        #expect(session.suspend([tab]) == 0)
+        #expect(tab.isLoaded)
+
+        // Background active-tab sleep explicitly allows unloading the visible tab.
+        #expect(session.suspend([tab], allowVisible: true) == 1)
+        #expect(!tab.isLoaded)
+    }
 }

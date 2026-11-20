@@ -53,7 +53,6 @@ final class ContextMenuManager: NSObject {
             } catch (e) {}
           }
 
-          document.addEventListener('selectionchange', notifySelection, { capture: true, passive: true });
           document.addEventListener('contextmenu', notifySelection, { capture: true, passive: true });
         })();
         """

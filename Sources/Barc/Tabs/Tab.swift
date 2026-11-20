@@ -584,6 +584,7 @@ final class Tab: Identifiable {
     /// Key for an out-of-line LZ4-compressed `interactionState` stored on disk
     /// by `InteractionStateStore` so sleeping tabs hold 0 bytes in Swift RAM.
     private var savedInteractionStateKey: String?
+    private var lastInteractionStateCapture: TimeInterval = 0
     /// The web view is replaying `savedInteractionState`. That load is not a
     /// visit: the user went there before, and it was written then. Cleared
     /// by the first commit, which hands over to `suppressesNextVisit`.
@@ -824,7 +825,10 @@ final class Tab: Identifiable {
         var inlineState: Data? = nil
         var stateKey: String? = nil
         if document == nil {
-            if let liveData = loadedWebView?.interactionState as? Data {
+            let now = ProcessInfo.processInfo.systemUptime
+            let shouldCaptureLive = loadedWebView != nil && (savedInteractionStateKey == nil || now - lastInteractionStateCapture >= 30)
+            if shouldCaptureLive, let liveData = loadedWebView?.interactionState as? Data {
+                lastInteractionStateCapture = now
                 let key = savedInteractionStateKey ?? id.uuidString
                 if let stored = InteractionStateStore.shared.store(liveData, forKey: key) {
                     savedInteractionStateKey = stored

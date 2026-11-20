@@ -41,6 +41,17 @@ actor FilterListStore {
         return Cached(text: String(decoding: data, as: UTF8.self), fetched: modified)
     }
 
+    /// Checks file existence and modification timestamp without reading the
+    /// filter text into memory, downloading only when missing or stale.
+    func refreshIfStale(_ list: FilterList, refreshingStale: Bool = true) async {
+        let url = file(for: list)
+        if let modified = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
+            let isStale = Date().timeIntervalSince(modified) > Self.refreshInterval
+            if !isStale || !refreshingStale { return }
+        }
+        _ = try? await download(list)
+    }
+
     /// The list's text: the copy on disk while it is fresh, a new download
     /// when it is stale or missing, and the stale copy again if the download
     /// fails. Nil only when there has never been a copy and the download

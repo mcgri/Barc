@@ -88,7 +88,7 @@ final class ContentContainerView: NSView {
     /// colouring somebody else's document.
     /// See `SidebarViewController.setOpaque`.
     func setOpaque(_ opaque: Bool) {
-        underlay.blendingMode = opaque ? .withinWindow : .behindWindow
+        underlay.blendingMode = (opaque || Settings.shared.minimalRAMMode) ? .withinWindow : .behindWindow
     }
 
     var spaceWash: NSColor? {
@@ -129,7 +129,10 @@ final class ContentContainerView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
 
         underlay.material = .sidebar
-        underlay.blendingMode = .behindWindow
+        // Over 97% of `underlay` is covered by the opaque web card; using
+        // `.withinWindow` in minimal-RAM mode avoids allocating full-window
+        // Metal backdrop-blur surfaces (~100 MB startup peak).
+        underlay.blendingMode = Settings.shared.minimalRAMMode ? .withinWindow : .behindWindow
         // Otherwise the strip beside the card stays saturated while the sidebar
         // it is meant to be part of greys out with the rest of the window.
         underlay.state = .followsWindowActiveState

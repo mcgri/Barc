@@ -234,9 +234,10 @@ final class TabSuspender {
             for member in members {
                 if let view = member.currentWebView { member.retainHibernationViewport(PageHibernationGuard.shared.capturedViewport(of:view)) }
             }
-            session.suspend(members)
+            let allowVisible = maySleepActiveTabInBackground(now: uptime())
+            let unloaded = session.suspend(members, allowVisible: allowVisible)
             for member in members { refusals[member.id] = nil }
-            lastSweepUnloadedCount += members.count
+            lastSweepUnloadedCount += unloaded
             await Task.yield()
         }
         if !Task.isCancelled, let delay = settings.profileHibernationDelay {

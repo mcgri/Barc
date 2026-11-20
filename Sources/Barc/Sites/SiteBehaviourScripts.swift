@@ -1032,6 +1032,9 @@ enum SiteBehaviourScripts {
           }
         });
       }
+      window.addEventListener('pagehide', function () {
+        observer.disconnect();
+      }, { once: true });
     })();
     """
 }

@@ -117,16 +117,16 @@ final class SyncCoordinator: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Periodic background pull (every 3 minutes)
+        // Periodic background pull (every 3 minutes) only when sync is enabled
         pollTimer?.invalidate()
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 180, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, self.settings.syncEnabled else { return }
-                try? await self.syncNow()
-            }
-        }
-
+        pollTimer = nil
         if settings.syncEnabled {
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 180, repeats: true) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.settings.syncEnabled else { return }
+                    try? await self.syncNow()
+                }
+            }
             Task { [weak self] in
                 try? await self?.syncNow()
             }
