@@ -52,7 +52,7 @@ struct SidebarSwipeWidthTests {
             view.subviews.filter { "\(type(of: $0))".contains("SpaceStill") }
                 + view.subviews.flatMap { stills(in: $0) }
         }
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if Style.Motion.isReduced {
             #expect(stills(in: sidebar.view).isEmpty, "reduced motion slides nothing")
         } else {
             #expect(!stills(in: sidebar.view).isEmpty, "the swipe should have made a still")

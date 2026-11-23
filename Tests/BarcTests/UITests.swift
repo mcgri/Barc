@@ -912,7 +912,8 @@ struct ContentContainerTests {
         let container = ContentContainerView()
         let material = container.subviews.compactMap { $0 as? NSVisualEffectView }.first
         #expect(material?.material == .sidebar)
-        #expect(material?.blendingMode == .behindWindow)
+        let expectedBlending: NSVisualEffectView.BlendingMode = Settings.shared.minimalRAMMode ? .withinWindow : .behindWindow
+        #expect(material?.blendingMode == expectedBlending)
 
         let card = container.subviews.first { $0.layer?.cornerRadius ?? 0 > 0 }
         #expect(card?.layer?.cornerCurve == .continuous)

@@ -179,6 +179,7 @@ final class WebEnvironment {
         if !settings.minimalRAMMode || settings.showDevelopMenu {
             configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         }
+        Self.disableUnstableWebKitFeatures(in: configuration.preferences)
         JavaScriptMemoryTuning.apply(to: configuration)
 
         PageHibernationGuard.shared.attach(configuration.userContentController)
@@ -211,8 +212,9 @@ final class WebEnvironment {
         // The space's default fonts.
         WebFontStyling.install(fonts(for: identity), in: configuration.userContentController)
 
-        // Extensions' content scripts reach every page made here.
-        if #available(macOS 15.4, *) {
+        // Extensions' content scripts reach every page made here. Skip touching
+        // WebKit's extension controller when no extensions are installed.
+        if #available(macOS 15.4, *), !ExtensionManager.shared.records.isEmpty {
             configuration.webExtensionController = ExtensionManager.shared.controller
             if ExtensionManager.isLogging {
                 NSLog("barc.extension: configuration made with controller, %d contexts loaded",
@@ -236,6 +238,7 @@ final class WebEnvironment {
             configuration.applicationNameForUserAgent = BrowserUserAgent.applicationName
         }
         PageHibernationGuard.shared.attach(configuration.userContentController)
+        Self.disableUnstableWebKitFeatures(in: configuration.preferences)
         JavaScriptMemoryTuning.apply(to: configuration)
         let webView = GlanceWebView(frame: frame, configuration: configuration)
         views.setObject(IdentityBox(identity(for: configuration.websiteDataStore), purpose: purpose), forKey:webView)
@@ -245,5 +248,40 @@ final class WebEnvironment {
             webView.isInspectable = !Settings.shared.minimalRAMMode || Settings.shared.showDevelopMenu
         }
         return webView
+    }
+
+    /// Cached `_WKFeature` instances to disable for stability on custom WebKit
+    /// builds (e.g., `GridFormattingContextIntegrationEnabled` hits a destructor
+    /// `EXC_BREAKPOINT` in `LayoutIntegration::GridLayout::~GridLayout()` on
+    /// dynamic CSS Grid SPAs like ChatGPT; disabling it falls back cleanly to
+    /// WebKit's mature `RenderGrid` implementation).
+    private static let unstableFeatureKeys: Set<String> = [
+        "GridFormattingContextIntegrationEnabled"
+    ]
+    private static let unstableFeatures: [AnyObject] = {
+        let featuresSel = Selector(("_features"))
+        let cls: AnyObject = WKPreferences.self
+        guard cls.responds(to: featuresSel),
+              let raw = cls.perform(featuresSel)?.takeUnretainedValue() as? [AnyObject] else {
+            return []
+        }
+        return raw.filter { feature in
+            guard let key = (feature as? NSObject)?.value(forKey: "key") as? String else { return false }
+            return unstableFeatureKeys.contains(key)
+        }
+    }()
+
+    static func disableUnstableWebKitFeatures(in preferences: WKPreferences) {
+        let setEnabledSel = Selector(("_setEnabled:forFeature:"))
+        guard !unstableFeatures.isEmpty,
+              preferences.responds(to: setEnabledSel),
+              let imp = class_getMethodImplementation(type(of: preferences), setEnabledSel) else {
+            return
+        }
+        typealias SetFeatureFn = @convention(c) (AnyObject, Selector, ObjCBool, AnyObject) -> Void
+        let fn = unsafeBitCast(imp, to: SetFeatureFn.self)
+        for feature in unstableFeatures {
+            fn(preferences, setEnabledSel, ObjCBool(false), feature)
+        }
     }
 }

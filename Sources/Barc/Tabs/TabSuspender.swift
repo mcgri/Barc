@@ -233,12 +233,18 @@ final class TabSuspender {
                   }) else { continue }
             for member in members {
                 if let view = member.currentWebView { member.retainHibernationViewport(PageHibernationGuard.shared.capturedViewport(of:view)) }
+                await member.captureRehydrationState(force: true)
             }
             let allowVisible = maySleepActiveTabInBackground(now: uptime())
             let unloaded = session.suspend(members, allowVisible: allowVisible)
             for member in members { refusals[member.id] = nil }
             lastSweepUnloadedCount += unloaded
             await Task.yield()
+        }
+        // Periodically checkpoint active visible tab state to disk (~45 s cadence)
+        // so even an unexpected WebContent crash or OS OOM kill rehydrates cleanly.
+        if !Task.isCancelled, let active = session.activeTab, active.isLoaded {
+            await active.captureRehydrationState(force: false)
         }
         if !Task.isCancelled, let delay = settings.profileHibernationDelay {
             await WebPanelViewController.hibernateHiddenPanels(after: delay)

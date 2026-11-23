@@ -123,6 +123,7 @@ final class ContentBlocker {
     /// built-in network filter lists are handled once in NetworkProcess with
     /// 0 bytes mapped per WebContent process, and stale on-disk DFAs are pruned.
     func start() {
+        syncRustAdblockControlFiles()
         if RustCoreBridge.isNetworkProcessAdblockActive {
             // Keep filter list text files fresh on disk for NetworkProcess's
             // adblock-rust engine, without compiling 63 MB of WebKit DFAs.
@@ -140,6 +141,23 @@ final class ContentBlocker {
         }
         compileUserRules()
         siteSettingsChanged()
+    }
+
+    /// Writes `exempt-hosts.txt` (per-site Shield allowlist) and `active-lists.txt`
+    /// into `filter-lists/` so custom WebKit's Rust `NetworkProcess` adblocker
+    /// honours per-site Shield toggles and enabled filter list settings.
+    private func syncRustAdblockControlFiles() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let dir = AppPaths.supportDirectory.appending(path: "filter-lists", directoryHint: .isDirectory)
+        let exemptHosts = SiteSettings.shared.contentBlockerExemptHosts()
+        let activeFiles = activeLists.map { "\($0.id).txt" }
+        DispatchQueue.global(qos: .utility).async {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let exemptText = exemptHosts.joined(separator: "\n") + (exemptHosts.isEmpty ? "" : "\n")
+            try? Data(exemptText.utf8).write(to: dir.appending(path: "exempt-hosts.txt"), options: .atomic)
+            let activeText = activeFiles.joined(separator: "\n") + (activeFiles.isEmpty ? "" : "\n")
+            try? Data(activeText.utf8).write(to: dir.appending(path: "active-lists.txt"), options: .atomic)
+        }
     }
 
     /// Removes historical `barc.filter.*` compiled rule lists left behind across
@@ -164,6 +182,7 @@ final class ContentBlocker {
 
     /// The per-site choices changed: recompile their list and reapply.
     func siteSettingsChanged() {
+        syncRustAdblockControlFiles()
         let rules = SiteSettings.shared.siteRules()
         guard !rules.isEmpty, let data = try? JSONSerialization.data(withJSONObject: rules) else {
             siteRules = nil
@@ -197,8 +216,11 @@ final class ContentBlocker {
 
     /// The preferences changed: bring the set of applied lists in line.
     func preferencesChanged() {
-        for list in activeLists { ensureCompiled(list) }
-        compileCustomLists()
+        syncRustAdblockControlFiles()
+        if !RustCoreBridge.isNetworkProcessAdblockActive {
+            for list in activeLists { ensureCompiled(list) }
+            compileCustomLists()
+        }
         compileUserRules()
         applyToAll()
         notifyChange()

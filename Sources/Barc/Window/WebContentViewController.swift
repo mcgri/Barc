@@ -337,8 +337,8 @@ final class WebContentViewController: NSViewController {
         tab.markActive()
         if tab.showsStartPage { refreshStartPage(for: tab) }
         // Avoid spawning a live WKWebView + WebKit XPC process tree behind the
-        // opaque native StartPageView until the user actually navigates.
-        let activeWebView = (tab.showsStartPage && tab.currentWebView == nil) ? nil : tab.webView()
+        // opaque native StartPageView until the user navigates or wakes a suspended tab.
+        let activeWebView = (tab.showsStartPage && tab.currentWebView == nil && !tab.isSuspended) ? nil : tab.webView()
         container.show(
             activeWebView,
             document: tab.contentOverlay,

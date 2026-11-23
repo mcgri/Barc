@@ -11,6 +11,12 @@ struct NavigationFailure: Equatable {
     let message: String
     let isRetryable: Bool
 
+    init(title: String, message: String, isRetryable: Bool = true) {
+        self.title = title
+        self.message = message
+        self.isRetryable = isRetryable
+    }
+
     /// Errors that are not failures at all.
     ///
     /// `NSURLErrorCancelled` fires whenever a load is superseded, which happens

@@ -574,11 +574,102 @@ final class Tab: Identifiable {
         WebFontStyling.apply(fonts, to: loadedWebView)
     }
     private var savedHibernationViewport: PageViewport?
+    /// Transient rehydration snapshot loaded from disk only while waking a tab
+    /// or recovering from a killed WebContent process; cleared on `didFinish`.
+    private var pendingRehydrationSnapshot: TabRehydrationSnapshot?
+    private var lastRehydrationCapture: TimeInterval = 0
+    /// Timestamps of recent `WebContent` process terminations for crash-loop protection.
+    private var recentTerminationTimes: [TimeInterval] = []
+
     func retainHibernationViewport(_ viewport: PageViewport?) { savedHibernationViewport = viewport }
+
+    /// Captures live `sessionStorage`, nested scrolls, and non-sensitive form
+    /// drafts and offloads them LZ4-compressed to disk (`TabStates/<id>.pagestate`).
+    func captureRehydrationState(force: Bool = true) async {
+        guard !isPrivate, document == nil, !showsStartPage, let webView = loadedWebView, !isLoading else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if !force && now - lastRehydrationCapture < 45 { return }
+        lastRehydrationCapture = now
+        if let snapshot = await TabRehydrationStore.capture(from: webView) {
+            TabRehydrationStore.shared.store(snapshot, forKey: id.uuidString)
+        }
+    }
+
+    private func armRehydration(in webView: WKWebView) {
+        guard !isPrivate, document == nil, !showsStartPage else { return }
+        guard let snapshot = TabRehydrationStore.shared.load(forKey: id.uuidString) else { return }
+        pendingRehydrationSnapshot = snapshot
+        if let script = TabRehydrationStore.documentStartScript(for: snapshot) {
+            let controller = webView.configuration.userContentController
+            let others = controller.userScripts.filter { !$0.source.hasPrefix(TabRehydrationStore.scriptPrefix) }
+            controller.removeAllUserScripts()
+            controller.addUserScript(script)
+            for existing in others { controller.addUserScript(existing) }
+        }
+    }
+
+    private func clearRehydrationScript(in webView: WKWebView) {
+        let controller = webView.configuration.userContentController
+        guard controller.userScripts.contains(where: { $0.source.hasPrefix(TabRehydrationStore.scriptPrefix) }) else { return }
+        let others = controller.userScripts.filter { !$0.source.hasPrefix(TabRehydrationStore.scriptPrefix) }
+        controller.removeAllUserScripts()
+        for existing in others { controller.addUserScript(existing) }
+    }
+
     fileprivate func restoreHibernationViewport(in view: WKWebView) {
+        if let snapshot = pendingRehydrationSnapshot {
+            pendingRehydrationSnapshot = nil
+            clearRehydrationScript(in: view)
+            TabRehydrationStore.restoreDOMState(snapshot, in: view)
+            // Consume and clean up disk `.pagestate` once rehydrated so awake
+            // tabs do not leave stale state snapshots on disk.
+            TabRehydrationStore.shared.remove(forKey: id.uuidString)
+            savedHibernationViewport = nil
+            return
+        }
         guard let viewport = savedHibernationViewport else { return }
         savedHibernationViewport = nil
         viewport.restore(in: view)
+    }
+
+    /// Called when macOS/WebKit unexpectedly terminates this tab's `WebContent`
+    /// process: re-arms disk rehydration and recovers cleanly, with a crash-loop
+    /// breaker (max 2 automatic recoveries per 30 s) so a crashing page never
+    /// traps the user in an infinite reload loop.
+    fileprivate func contentProcessDidTerminate(in webView: WKWebView) {
+        guard loadedWebView === webView else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        recentTerminationTimes = recentTerminationTimes.filter { now - $0 < 30 }
+        recentTerminationTimes.append(now)
+
+        if recentTerminationTimes.count > 2 {
+            // Break the crash loop: show a retryable error page instead of reloading forever.
+            pendingRehydrationSnapshot = nil
+            clearRehydrationScript(in: webView)
+            failure = NavigationFailure(
+                title: "This page crashed repeatedly",
+                message: "Barc stopped automatically reloading to prevent a reload loop. Click Try Again to reload.",
+                isRetryable: true
+            )
+            isLoading = false
+            estimatedProgress = 0
+            didChange.send()
+            return
+        }
+
+        if recentTerminationTimes.count == 1 {
+            armRehydration(in: webView)
+            if let state = restoreInteractionState() {
+                isRestoringDocument = true
+                webView.interactionState = state
+                return
+            }
+        } else {
+            // Second crash in 30 s: reload cleanly without replaying potentially bad state.
+            pendingRehydrationSnapshot = nil
+            clearRehydrationScript(in: webView)
+        }
+        webView.reload()
     }
     private var savedInteractionState: Any?
     /// Key for an out-of-line LZ4-compressed `interactionState` stored on disk
@@ -897,11 +988,14 @@ final class Tab: Identifiable {
             // The start page is drawn over the web view; WebKit gets a blank
             // document so there is a page to navigate away from.
             webView.load(URLRequest(url: URL(string: "about:blank")!))
-        } else if let state = restoreInteractionState() {
-            isRestoringDocument = true
-            webView.interactionState = state
         } else {
-            webView.load(URLRequest(url: url))
+            armRehydration(in: webView)
+            if let state = restoreInteractionState() {
+                isRestoringDocument = true
+                webView.interactionState = state
+            } else {
+                webView.load(URLRequest(url: url))
+            }
         }
         return webView
     }
@@ -917,13 +1011,15 @@ final class Tab: Identifiable {
         return nil
     }
 
-    /// Removes any out-of-line compressed state file owned by this tab.
+    /// Removes any out-of-line compressed state files owned by this tab.
     func clearStoredInteractionState() {
         savedInteractionState = nil
+        pendingRehydrationSnapshot = nil
         if let key = savedInteractionStateKey {
             savedInteractionStateKey = nil
             InteractionStateStore.shared.remove(forKey: key)
         }
+        TabRehydrationStore.shared.remove(forKey: id.uuidString)
     }
 
     /// Releases the web view and the WebKit content process backing it, keeping
@@ -932,14 +1028,18 @@ final class Tab: Identifiable {
         guard let webView = loadedWebView else { return }
         failure = nil
         if let rawData = webView.interactionState as? Data {
-            let key = savedInteractionStateKey ?? id.uuidString
-            if let storedKey = InteractionStateStore.shared.store(rawData, forKey: key) {
-                savedInteractionStateKey = storedKey
-                savedInteractionState = nil
-            } else if rawData.count <= InteractionStateStore.maxUncompressedBytes {
-                savedInteractionState = rawData
+            if isPrivate {
+                savedInteractionState = rawData.count <= InteractionStateStore.maxUncompressedBytes ? rawData : nil
             } else {
-                savedInteractionState = nil
+                let key = savedInteractionStateKey ?? id.uuidString
+                if let storedKey = InteractionStateStore.shared.store(rawData, forKey: key) {
+                    savedInteractionStateKey = storedKey
+                    savedInteractionState = nil
+                } else if rawData.count <= InteractionStateStore.maxUncompressedBytes {
+                    savedInteractionState = rawData
+                } else {
+                    savedInteractionState = nil
+                }
             }
         } else {
             savedInteractionState = webView.interactionState
@@ -1063,11 +1163,14 @@ final class Tab: Identifiable {
         pendingUserURL = url
         failedURL = nil
         savedHibernationViewport = nil
+        pendingRehydrationSnapshot = nil
         // A load the user asked for is a visit even while a restore is still
         // in flight.
         isRestoringDocument = false
         suppressesNextVisit = false
         if let loadedWebView {
+            clearRehydrationScript(in: loadedWebView)
+            TabRehydrationStore.shared.remove(forKey: id.uuidString)
             loadedWebView.load(URLRequest(url: url))
         } else {
             // Not shown yet: drop any stale restore state so the new URL wins.
@@ -1372,6 +1475,11 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
     @MainActor
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         tab?.navigationFailed(error)
+    }
+
+    @MainActor
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        tab?.contentProcessDidTerminate(in: webView)
     }
 
     private static func isSplitLinkChord(_ flags: NSEvent.ModifierFlags) -> Bool {

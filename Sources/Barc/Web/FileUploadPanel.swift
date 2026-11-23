@@ -23,9 +23,20 @@ enum FileUploadPanel {
                                     fileExtensions: strings(parameters, "_acceptedFileExtensions")) {
             panel.allowedContentTypes = types
         }
-        if let chooser = testChooser { completion(chooser(panel)); return }
+        if let chooser = testChooser {
+            let urls = chooser(panel)
+            if let urls, !urls.isEmpty {
+                PageHibernationGuard.shared.markImportedFile(in: webView)
+            }
+            completion(urls)
+            return
+        }
         let finish: (NSApplication.ModalResponse) -> Void = { response in
-            completion(response == .OK ? panel.urls : nil)
+            let urls = response == .OK ? panel.urls : nil
+            if let urls, !urls.isEmpty {
+                PageHibernationGuard.shared.markImportedFile(in: webView)
+            }
+            completion(urls)
         }
         if let window = webView.window { panel.beginSheetModal(for: window, completionHandler: finish) }
         else { panel.begin(completionHandler: finish) }

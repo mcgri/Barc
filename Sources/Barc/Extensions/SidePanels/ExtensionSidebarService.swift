@@ -28,6 +28,9 @@ final class ExtensionSidebarService {
     var presents: ((UUID) -> Presentation?)?
     /// The window's docked panel, and the switch that shows or hides it.
     weak var panel: ExtensionPanelViewController?
+    /// Lazily constructs and docks the extension panel on first open so zero
+    /// hidden panel views/constraints exist on launch.
+    var ensurePanel: (() -> ExtensionPanelViewController?)?
     var setsPanelVisible: ((Bool) -> Void)?
     /// Told whenever the open panel changes, so buttons and menus can follow.
     var onChange: (() -> Void)?
@@ -59,7 +62,7 @@ final class ExtensionSidebarService {
 
     func open(_ id: UUID, tabID: Int? = nil) {
         guard let path = broker.panelPath(for: id), let presentation = presents?(id) else { return }
-        guard let panel else { return }
+        guard let panel = self.panel ?? ensurePanel?() else { return }
         panel.handles = { [weak self] id, method, arguments in
             self?.broker.perform(method, arguments: arguments, for: id) ?? .failure("Barc is not ready.")
         }

@@ -7,10 +7,10 @@ import Foundation
 final class InteractionStateStore: @unchecked Sendable {
     static let shared = InteractionStateStore()
 
-    /// Blobs larger than this (e.g. multi-megabyte SPA `history.state` dumps)
-    /// are dropped instead of written; the tab restores cleanly from URL +
-    /// `hibernationViewport` scroll position.
-    static let maxUncompressedBytes = 256 * 1024
+    /// Blobs up to 8 MB uncompressed compress via Rust LZ4 to ~50-400 KB on disk
+    /// while holding 0 bytes in Swift RAM, preventing silent state loss on heavy
+    /// SPA tabs (ClickUp, Gmail, GitHub, Linear) with deep back-forward history.
+    static let maxUncompressedBytes = 8 * 1024 * 1024
 
     private let directory: URL?
     private let queue = DispatchQueue(label: "barc.interaction-state", qos: .utility)

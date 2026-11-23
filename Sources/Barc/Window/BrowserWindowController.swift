@@ -460,47 +460,28 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
         let contentItem = NSSplitViewItem(viewController: content)
         contentItem.minimumThickness = BarcSplitViewController.pageMinimumThickness
 
-        let extensionPanelItem: NSSplitViewItem?
+        // Side panels (`ExtensionPanelViewController` and `WebPanelViewController`)
+        // are inserted lazily on first open so launch skips hidden subviews and
+        // AutoLayout constraints when collapsed.
         if #available(macOS 15.4, *) {
-            let controller = ExtensionPanelViewController()
-            let item = NSSplitViewItem(viewController: controller)
-            item.minimumThickness = WebPanelStore.minWidth
-            item.maximumThickness = WebPanelStore.maxWidth
-            item.preferredThicknessFraction = 0.25
-            item.canCollapse = true
-            item.holdingPriority = .defaultLow
-            item.isCollapsed = true
-            extensionPanelSplitItem = item
-            extensionPanelController = controller
-            extensionPanelItem = item
-            ExtensionSidebarService.shared.panel = controller
+            ExtensionSidebarService.shared.ensurePanel = { [weak self] in
+                self?.ensureExtensionPanel()
+            }
             ExtensionSidebarService.shared.setsPanelVisible = { [weak self] visible in
                 self?.setExtensionPanelOpen(visible, animated: true)
             }
-        } else {
-            extensionPanelItem = nil
         }
-
-        let webPanelItem = NSSplitViewItem(viewController: webPanel)
-        webPanelItem.minimumThickness = WebPanelStore.minWidth
-        webPanelItem.maximumThickness = WebPanelStore.maxWidth
-        webPanelItem.preferredThicknessFraction = 0.25
-        webPanelItem.canCollapse = true
-        webPanelItem.holdingPriority = .defaultLow
-        webPanelItem.isCollapsed = !WebPanelStore.shared.isOpen
-        self.webPanelSplitItem = webPanelItem
 
         let isTrailing = Settings.shared.sidebarPosition == .trailing
         if isTrailing {
-            if let extensionPanelItem { splitViewController.addSplitViewItem(extensionPanelItem) }
-            splitViewController.addSplitViewItem(webPanelItem)
             splitViewController.addSplitViewItem(contentItem)
             splitViewController.addSplitViewItem(sidebarItem)
         } else {
             splitViewController.addSplitViewItem(sidebarItem)
             splitViewController.addSplitViewItem(contentItem)
-            splitViewController.addSplitViewItem(webPanelItem)
-            if let extensionPanelItem { splitViewController.addSplitViewItem(extensionPanelItem) }
+        }
+        if WebPanelStore.shared.isOpen {
+            _ = ensureWebPanelSplitItem(collapsed: false)
         }
         splitViewController.splitView.autosaveName = "BarcSidebar"
 
@@ -2788,12 +2769,61 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
 
     // MARK: - Web Panels & Floating Windows (F-36)
 
+    private func ensureWebPanelSplitItem(collapsed: Bool = true) -> NSSplitViewItem {
+        if let existing = webPanelSplitItem ?? splitViewController.splitViewItem(for: webPanel) {
+            return existing
+        }
+        let item = NSSplitViewItem(viewController: webPanel)
+        item.minimumThickness = WebPanelStore.minWidth
+        item.maximumThickness = WebPanelStore.maxWidth
+        item.preferredThicknessFraction = 0.25
+        item.canCollapse = true
+        item.holdingPriority = .defaultLow
+        item.isCollapsed = collapsed
+        webPanelSplitItem = item
+        let isTrailing = Settings.shared.sidebarPosition == .trailing
+        if isTrailing {
+            splitViewController.insertSplitViewItem(item, at: 0)
+        } else {
+            splitViewController.addSplitViewItem(item)
+        }
+        return item
+    }
+
+    @available(macOS 15.4, *)
+    private func ensureExtensionPanel() -> ExtensionPanelViewController {
+        if let existing = extensionPanel { return existing }
+        let controller = ExtensionPanelViewController()
+        controller.spaceWash = content.spaceWash
+        controller.spaceGradient = content.spaceGradient
+        let item = NSSplitViewItem(viewController: controller)
+        item.minimumThickness = WebPanelStore.minWidth
+        item.maximumThickness = WebPanelStore.maxWidth
+        item.preferredThicknessFraction = 0.25
+        item.canCollapse = true
+        item.holdingPriority = .defaultLow
+        item.isCollapsed = true
+        extensionPanelSplitItem = item
+        extensionPanelController = controller
+        ExtensionSidebarService.shared.panel = controller
+        let isTrailing = Settings.shared.sidebarPosition == .trailing
+        if isTrailing {
+            splitViewController.insertSplitViewItem(item, at: 0)
+        } else {
+            splitViewController.addSplitViewItem(item)
+        }
+        return controller
+    }
+
     func setWebPanelOpen(_ open: Bool, animated: Bool = true) {
         WebPanelStore.shared.isOpen = open
         if open, #available(macOS 15.4, *), ExtensionSidebarService.shared.openExtensionID != nil {
             ExtensionSidebarService.shared.close()
         }
-        guard let item = webPanelSplitItem ?? splitViewController.splitViewItem(for: webPanel) else { return }
+        if !open && webPanelSplitItem == nil && splitViewController.splitViewItem(for: webPanel) == nil {
+            return
+        }
+        let item = ensureWebPanelSplitItem(collapsed: true)
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.2
@@ -2807,6 +2837,9 @@ final class BrowserWindowController: NSWindowController, NSMenuItemValidation {
     /// Shows or hides the extension side panel. Opening it puts the web panel
     /// away, because both live in the same strip beside the page.
     func setExtensionPanelOpen(_ open: Bool, animated: Bool = true) {
+        if open, #available(macOS 15.4, *) {
+            _ = ensureExtensionPanel()
+        }
         guard let item = extensionPanelSplitItem else { return }
         if open, WebPanelStore.shared.isOpen {
             setWebPanelOpen(false, animated: animated)

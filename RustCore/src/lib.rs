@@ -1,13 +1,88 @@
 use adblock::lists::{FilterSet, ParseOptions, RuleTypes};
 use adblock::request::Request;
 use adblock::Engine;
+use std::collections::HashSet;
 use std::ffi::CStr;
 use std::fs;
 use std::io::Write;
 use std::os::raw::c_char;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant, SystemTime};
+
+struct ExemptHostCache {
+    path: PathBuf,
+    last_checked: Instant,
+    last_mtime: Option<SystemTime>,
+    hosts: HashSet<String>,
+}
+
+impl ExemptHostCache {
+    fn new(path: PathBuf) -> Self {
+        let mut cache = Self {
+            path,
+            last_checked: Instant::now() - Duration::from_secs(10),
+            last_mtime: None,
+            hosts: HashSet::new(),
+        };
+        cache.refresh_if_needed();
+        cache
+    }
+
+    fn refresh_if_needed(&mut self) {
+        if self.last_checked.elapsed() < Duration::from_secs(1) {
+            return;
+        }
+        self.last_checked = Instant::now();
+        let mtime = fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+        if mtime == self.last_mtime {
+            return;
+        }
+        self.last_mtime = mtime;
+        self.hosts.clear();
+        if let Ok(text) = fs::read_to_string(&self.path) {
+            for line in text.lines() {
+                let host = line.trim().to_ascii_lowercase();
+                if !host.is_empty() {
+                    self.hosts.insert(host);
+                }
+            }
+        }
+    }
+
+    fn is_exempt(&mut self, source_url: &str) -> bool {
+        self.refresh_if_needed();
+        if self.hosts.is_empty() {
+            return false;
+        }
+        let Some(host) = extract_host(source_url) else {
+            return false;
+        };
+        let mut candidate = host.as_str();
+        loop {
+            if self.hosts.contains(candidate) {
+                return true;
+            }
+            match candidate.find('.') {
+                Some(idx) => candidate = &candidate[idx + 1..],
+                None => return false,
+            }
+        }
+    }
+}
+
+fn extract_host(url: &str) -> Option<String> {
+    let rest = url.split_once("://").map(|(_, r)| r)?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host_port = authority.rsplit('@').next()?;
+    let host = host_port.split(':').next()?;
+    if host.is_empty() {
+        return None;
+    }
+    Some(host.to_ascii_lowercase())
+}
 
 /// Opaque thread-safe handle exposed over the C ABI to custom WebKit's
 /// NetworkProcess and Barc. Uses Brave's FlatBuffers-backed `adblock-rust`
@@ -18,6 +93,7 @@ pub struct BarcAdblockEngine {
     engine: Engine,
     rule_count: u64,
     blocked_count: AtomicU64,
+    exempt_cache: Option<Mutex<ExemptHostCache>>,
 }
 
 fn parse_options(load_cosmetics: bool) -> ParseOptions {
@@ -62,16 +138,40 @@ fn compute_dir_fingerprint(paths: &[std::path::PathBuf], load_cosmetics: bool) -
 }
 
 fn load_dir_rules(dir: &Path, load_cosmetics: bool) -> Option<BarcAdblockEngine> {
+    let active_manifest = fs::read_to_string(dir.join("active-lists.txt"))
+        .ok()
+        .map(|text| {
+            text.lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect::<HashSet<String>>()
+        });
     let entries = fs::read_dir(dir).ok()?;
     let mut paths: Vec<_> = entries
         .filter_map(|e| e.ok().map(|entry| entry.path()))
-        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("txt"))
+        .filter(|p| {
+            if p.extension().and_then(|s| s.to_str()) != Some("txt") {
+                return false;
+            }
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else {
+                return false;
+            };
+            if name == "exempt-hosts.txt" || name == "active-lists.txt" {
+                return false;
+            }
+            if let Some(ref allowed) = active_manifest {
+                allowed.contains(name)
+            } else {
+                true
+            }
+        })
         .collect();
     paths.sort();
     if paths.is_empty() {
         return None;
     }
 
+    let exempt_cache = Some(Mutex::new(ExemptHostCache::new(dir.join("exempt-hosts.txt"))));
     let fp = compute_dir_fingerprint(&paths, load_cosmetics);
     let cache_path = dir.join(format!("barc-adblock-v1-{:016x}.dat", fp));
 
@@ -84,6 +184,7 @@ fn load_dir_rules(dir: &Path, load_cosmetics: bool) -> Option<BarcAdblockEngine>
                 engine,
                 rule_count: 0,
                 blocked_count: AtomicU64::new(0),
+                exempt_cache,
             });
         }
     }
@@ -126,6 +227,7 @@ fn load_dir_rules(dir: &Path, load_cosmetics: bool) -> Option<BarcAdblockEngine>
         engine,
         rule_count,
         blocked_count: AtomicU64::new(0),
+        exempt_cache,
     })
 }
 
@@ -171,6 +273,7 @@ pub extern "C" fn barc_adblock_new_from_rules(
         engine,
         rule_count,
         blocked_count: AtomicU64::new(0),
+        exempt_cache: None,
     }))
 }
 
@@ -190,10 +293,18 @@ pub extern "C" fn barc_adblock_should_block(
     let source_str = cstr_to_str(source_url).unwrap_or("");
     let type_str = cstr_to_str(request_type).unwrap_or("other");
 
+    let handle = unsafe { &*engine };
+    if let Some(ref cache) = handle.exempt_cache {
+        if let Ok(mut guard) = cache.lock() {
+            if guard.is_exempt(source_str) {
+                return false;
+            }
+        }
+    }
+
     let Ok(req) = Request::new(url_str, source_str, type_str, "GET") else {
         return false;
     };
-    let handle = unsafe { &*engine };
     let result = handle.engine.check_network_request(&req);
     if result.should_block() {
         handle.blocked_count.fetch_add(1, Ordering::Relaxed);

@@ -461,6 +461,13 @@ final class SiteSettings {
         PDFViewing.Handling(rawValue: resolve(.pdfDocuments, for: url)) ?? .viewer
     }
     func blocksContent(for url: URL?) -> Bool { resolve(.contentBlockers, for: url) == "on" }
+
+    /// Hosts where the user switched Content Blockers off (Shield button),
+    /// synced to `filter-lists/exempt-hosts.txt` for Rust `NetworkProcess` adblocking.
+    func contentBlockerExemptHosts() -> [String] {
+        guard let configured = state.sites[.contentBlockers] else { return [] }
+        return configured.filter { $0.value == "off" }.map(\.key).sorted()
+    }
     func allowsJavaScript(for url: URL?) -> Bool { resolve(.javaScript, for: url) == "on" }
     func prefersMobile(for url: URL?) -> Bool { resolve(.compatibilityMode, for: url) == "mobile" }
     func allowsSuspension(for url: URL?) -> Bool { resolve(.tabSuspension, for: url) != "never" }

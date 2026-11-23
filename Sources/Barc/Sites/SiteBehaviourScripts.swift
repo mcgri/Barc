@@ -717,6 +717,14 @@ enum SiteBehaviourScripts {
         }
       }
 
+      function scanAddedNode(node) {
+        if (!node || node.nodeType !== 1) { return; }
+        if (node.tagName === "VIDEO") { enhanceVideoElement(node); return; }
+        if (node.firstElementChild && node.getElementsByTagName) {
+          var videos = node.getElementsByTagName("video");
+          for (var i = 0; i < videos.length; i++) { enhanceVideoElement(videos[i]); }
+        }
+      }
       function onVideoEvent(event) {
         var el = event && event.target;
         if (el && el.tagName === "VIDEO") { enhanceVideoElement(el); }
@@ -726,6 +734,13 @@ enum SiteBehaviourScripts {
         for (var i = 0; i < existing.length; i++) { enhanceVideoElement(existing[i]); }
         document.addEventListener("loadedmetadata", onVideoEvent, true);
         document.addEventListener("play", onVideoEvent, true);
+        var observer = new MutationObserver(function (records) {
+          for (var i = 0; i < records.length; i++) {
+            var added = records[i].addedNodes;
+            for (var j = 0; j < added.length; j++) { scanAddedNode(added[j]); }
+          }
+        });
+        observer.observe(document.documentElement, { childList: true, subtree: true });
         // Only YouTube needs periodic overlay cleanup, and only while visible.
         var cleanupTimer = null;
         function updateCleanup() {
@@ -738,6 +753,7 @@ enum SiteBehaviourScripts {
         document.addEventListener("visibilitychange", updateCleanup);
         updateCleanup();
         window.addEventListener("pagehide", function () {
+          observer.disconnect();
           document.removeEventListener("loadedmetadata", onVideoEvent, true);
           document.removeEventListener("play", onVideoEvent, true);
           if (cleanupTimer !== null) { clearInterval(cleanupTimer); }

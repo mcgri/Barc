@@ -1771,8 +1771,22 @@ final class BrowserSession {
         }
 
         init(stored: SessionSnapshot.Archived, spaceID: Space.ID) {
-            self.init(snapshot: stored.tab, spaceID: spaceID, archivedAt: stored.archivedAt,
-                      additionalSnapshots: stored.additionalTabs ?? [], split: stored.split)
+            let recordID = UUID()
+            let offload: (SessionSnapshot.Tab, Int) -> SessionSnapshot.Tab = { tab, index in
+                var copy = tab
+                if copy.interactionStateKey == nil, let inline = copy.interactionState {
+                    let key = "arch-\(recordID.uuidString)-\(index)"
+                    if let storedKey = InteractionStateStore.shared.store(inline, forKey: key) {
+                        copy.interactionStateKey = storedKey
+                        copy.interactionState = nil
+                    }
+                }
+                return copy
+            }
+            let primary = offload(stored.tab, 0)
+            let extras = (stored.additionalTabs ?? []).enumerated().map { offload($0.element, $0.offset + 1) }
+            self.init(id: recordID, snapshot: primary, spaceID: spaceID, archivedAt: stored.archivedAt,
+                      additionalSnapshots: extras, split: stored.split)
         }
 
         var snapshots: [SessionSnapshot.Tab] { [snapshot] + additionalSnapshots }
@@ -3395,6 +3409,9 @@ final class BrowserSession {
             if let k = closed.snapshot.interactionStateKey { keep.insert(k) }
         }
         InteractionStateStore.shared.prune(keeping: keep)
+        var keepPageKeys = Set(allTabs.map { $0.id.uuidString })
+        keepPageKeys.formUnion(keep)
+        TabRehydrationStore.shared.prune(keeping: keepPageKeys)
     }
 
     /// Import completion includes the final profile preferences. Propagate a

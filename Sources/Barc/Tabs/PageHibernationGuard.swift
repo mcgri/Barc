@@ -24,6 +24,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         var viewport: PageViewport?
         var realtimeFrames: Set<String> = []
         var busyWorkFrames: Set<String> = []
+        /// Document URL where the user picked a local file via `NSOpenPanel`;
+        /// protects in-memory editor imports (e.g. JSON uploaded to Flow/Figma)
+        /// even after the page clears or unmounts `<input type="file">`.
+        var importedFileURL: URL?
         var protection = "Waiting for page safety check"
         /// Which field or request the refusal is about, for the measurement log.
         var protectionDetail = ""
@@ -114,6 +118,17 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
                                 world: name == "barcDraftGuard" ? .defaultClient : .page)
     }
 
+    func markImportedFile(in view: WKWebView) {
+        let page: Page
+        if let existing = pages.object(forKey: view) { page = existing }
+        else { page = Page(); pages.setObject(page, forKey: view) }
+        page.importedFileURL = view.url
+        page.activityRevision += 1
+        page.approvedRevision = nil
+        page.protection = "Imported local file in page"
+        page.protectionDetail = view.url?.host() ?? ""
+    }
+
     func hasRealtimeActivity(in view:WKWebView) -> Bool {
         guard let page = pages.object(forKey:view) else { return false }
         return page.overflow || !page.realtimeFrames.isEmpty
@@ -143,6 +158,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
     /// Call immediately before retiring the group, without another suspension.
     func hasCurrentApproval(for view: WKWebView) -> Bool {
         guard let page = pages.object(forKey: view), let approved = page.approvedRevision else { return false }
+        if let importedURL = page.importedFileURL, importedURL == view.url { return false }
         return approved == page.activityRevision && page.busyWorkFrames.isEmpty && !page.overflow
             && Self.nativeActivityAllowsSleep(view)
     }
@@ -158,6 +174,15 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
         page.protectionDetail = ""
+        if let importedURL = page.importedFileURL {
+            if importedURL == view.url {
+                page.protection = "Imported local file in page"
+                page.protectionDetail = importedURL.lastPathComponent
+                return false
+            }
+            // User navigated away to a different document; clear the old latch.
+            page.importedFileURL = nil
+        }
         guard Self.nativeActivityAllowsSleep(view) else { page.protection = Self.nativeActivityExplanation(view); return false }
         guard !page.overflow else { page.protection = "Too many frames to check"; return false }
         page.viewport = nil
@@ -412,6 +437,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       const token = globalThis.crypto && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()) + Date.now();
       const edited = new Set(), defaults = new WeakMap();
       let unknownEdit = false;
+      let importedFile = false;
+      let importedReason = '';
       const report = event => bridge.postMessage({token, event});
       // Read the real target inside open shadow roots: at the document a
       // component's own text field is retargeted to its host element, which
@@ -427,8 +454,17 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       // is not unsaved work. Single-page apps keep it in the box indefinitely
       // (a Gmail search, a YouTube query, GitHub's "Go to file", react-select
       // dropdowns), which would otherwise keep the whole tab awake for days.
+      // Internal captcha token textareas and hidden framework state inputs
+      // (e.g. reCAPTCHA, Turnstile, Gmail's hidden `hist_state`) are written
+      // by scripts, never by the user, and must not block hibernation forever.
+      const internalFieldNames = /^(g-recaptcha-response|h-captcha-response|cf-turnstile-response|hist_state)$/i;
+      const isInternalField = el => {
+        const name = el.getAttribute('name') || '';
+        const id = el.id || '';
+        return internalFieldNames.test(name) || internalFieldNames.test(id);
+      };
       const searchWords = /search|query|filter|\bfind\b|\bgo to\b|\bjump to\b|react-select/i;
-      const isSearchField = el => (el.tagName === 'INPUT'
+      const isSearchField = el => isInternalField(el) || (el.tagName === 'INPUT'
         && (el.type === 'search' || el.getAttribute('role') === 'searchbox'
           || el.getAttribute('role') === 'combobox'
           || el.hasAttribute('aria-autocomplete')
@@ -458,6 +494,14 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       }
       function markEdited(event) {
         const editor = editorFor(event);
+        if (editor && editor.tagName === 'INPUT' && editor.type === 'file' && editor.files && editor.files.length) {
+          // Web editors (Google Flow, Figma, JSON tools) often read a chosen
+          // file into JS memory and immediately clear or unmount `<input type="file">`.
+          importedFile = true;
+          importedReason = 'imported file';
+          report('change');
+          return;
+        }
         // Application-level custom events are not evidence of text entry.
         // Native editing in an unrecognised control must still fail closed.
         if (!editor && !event.isTrusted) return;
@@ -503,6 +547,29 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       document.addEventListener('beforeinput', event => { rememberBeforeEdit(event); markEdited(event); }, true);
       document.addEventListener('input', markEdited, true);
       document.addEventListener('change', markEdited, true);
+      document.addEventListener('drop', event => {
+        const dt = event.dataTransfer;
+        if (dt && ((dt.files && dt.files.length > 0) || (dt.items && Array.from(dt.items).some(i => i.kind === 'file')))) {
+          importedFile = true;
+          importedReason = 'dropped file';
+          report('change');
+        }
+      }, true);
+      document.addEventListener('paste', event => {
+        const editor = editorFor(event);
+        if (editor && isSearchField(editor)) return;
+        const dt = event.clipboardData;
+        if (dt && dt.files && dt.files.length > 0) {
+          importedFile = true;
+          importedReason = 'pasted file';
+          report('change');
+        } else if (!editor && dt && dt.getData && dt.getData('text/plain').trim().length > 0) {
+          // Pasting JSON/text into a custom canvas or web editor without a native input.
+          importedFile = true;
+          importedReason = 'pasted content';
+          report('change');
+        }
+      }, true);
       function hasDraft(el) {
         const initial = defaults.has(el) ? defaults.get(el) : initialState(el);
         if (rich(el)) {
@@ -541,6 +608,7 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       };
       function isSafe() {
         detail = '';
+        if (importedFile) { detail = importedReason || 'imported file'; return false; }
         if (unknownEdit) { detail = 'edit in a control Barc could not identify'; return false; }
         if (document.designMode === 'on') { detail = 'design mode'; return false; }
         if (!listenersRun && unobservedDraft()) { detail = 'field in a document without scripts'; return false; }
@@ -725,7 +793,9 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         };
         XMLHttpRequest.prototype.send = function(body) {
           const method = methods.get(this);
-          if (body == null && ['GET','HEAD'].includes(method)) return send.apply(this, arguments);
+          // Treat empty-string GET/HEAD XHRs (e.g. Gmail's long-poll push channel
+          // calling `xhr.send("")`) the same as `xhr.send(null)` rather than as uploads.
+          if ((body == null || bodySize(body) === 0) && ['GET','HEAD'].includes(method)) return send.apply(this, arguments);
           const request = this;
           begin(request, body, target(method || 'POST', addresses.get(request)));
           request.addEventListener('loadend', () => end(request), {once:true});
