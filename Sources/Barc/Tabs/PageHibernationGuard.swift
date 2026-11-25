@@ -24,10 +24,12 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         var viewport: PageViewport?
         var realtimeFrames: Set<String> = []
         var busyWorkFrames: Set<String> = []
-        /// Document URL where the user picked a local file via `NSOpenPanel`;
-        /// protects in-memory editor imports (e.g. JSON uploaded to Flow/Figma)
-        /// even after the page clears or unmounts `<input type="file">`.
-        var importedFileURL: URL?
+        /// Host + main-frame document token where the user picked a local file
+        /// via `NSOpenPanel`; survives SPA `history.pushState`/`replaceState`
+        /// URL changes and cleared/unmounted `<input type="file">` elements,
+        /// clearing only on a real new document load or cross-host navigation.
+        var importedFileHost: String?
+        var importedMainToken: String?
         var protection = "Waiting for page safety check"
         /// Which field or request the refusal is about, for the measurement log.
         var protectionDetail = ""
@@ -82,6 +84,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
             page.realtimeFrames = page.realtimeFrames.filter { !$0.hasPrefix(name) }
             page.busyWorkFrames = page.busyWorkFrames.filter { !$0.hasPrefix(name) }
             page.overflow = false
+            if name == "barcDraftGuard" {
+                page.importedFileHost = nil
+                page.importedMainToken = nil
+            }
         } else if event == "register", let frame = Self.frameID(message.frameInfo) {
             // A child frame has a new document. Its old document says "gone"
             // on pagehide, but that message can be lost (a process swap, a
@@ -122,7 +128,8 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         let page: Page
         if let existing = pages.object(forKey: view) { page = existing }
         else { page = Page(); pages.setObject(page, forKey: view) }
-        page.importedFileURL = view.url
+        page.importedFileHost = view.url?.host()?.lowercased() ?? ""
+        page.importedMainToken = page.mainTokens["barcDraftGuard"]
         page.activityRevision += 1
         page.approvedRevision = nil
         page.protection = "Imported local file in page"
@@ -156,9 +163,20 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
 
     /// An earlier member of a split can change while another is inspected.
     /// Call immediately before retiring the group, without another suspension.
+    private static func hasActiveImportedFile(_ page: Page, in view: WKWebView) -> Bool {
+        guard let importedHost = page.importedFileHost else { return false }
+        let currentHost = view.url?.host()?.lowercased() ?? ""
+        let sameHost = importedHost.isEmpty || currentHost == importedHost
+        let sameDoc = page.importedMainToken == nil || page.mainTokens["barcDraftGuard"] == page.importedMainToken
+        if sameHost && sameDoc { return true }
+        page.importedFileHost = nil
+        page.importedMainToken = nil
+        return false
+    }
+
     func hasCurrentApproval(for view: WKWebView) -> Bool {
         guard let page = pages.object(forKey: view), let approved = page.approvedRevision else { return false }
-        if let importedURL = page.importedFileURL, importedURL == view.url { return false }
+        if Self.hasActiveImportedFile(page, in: view) { return false }
         return approved == page.activityRevision && page.busyWorkFrames.isEmpty && !page.overflow
             && Self.nativeActivityAllowsSleep(view)
     }
@@ -174,14 +192,10 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         page.approvedRevision = nil
         page.protection = "Waiting for complete frame safety check"
         page.protectionDetail = ""
-        if let importedURL = page.importedFileURL {
-            if importedURL == view.url {
-                page.protection = "Imported local file in page"
-                page.protectionDetail = importedURL.lastPathComponent
-                return false
-            }
-            // User navigated away to a different document; clear the old latch.
-            page.importedFileURL = nil
+        if Self.hasActiveImportedFile(page, in: view) {
+            page.protection = "Imported local file in page"
+            page.protectionDetail = view.url?.host() ?? ""
+            return false
         }
         guard Self.nativeActivityAllowsSleep(view) else { page.protection = Self.nativeActivityExplanation(view); return false }
         guard !page.overflow else { page.protection = "Too many frames to check"; return false }
@@ -492,6 +506,21 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         // until editing starts, then preserve that original state.
         if (editor && !edited.has(editor)) defaults.set(editor, initialState(editor, true));
       }
+      // Code editors (Monaco, CodeMirror, Ace, Google Flow) route keystrokes
+      // and pastes through a hidden proxy `<textarea>` and immediately clear
+      // `textarea.value = ""` after copying into JS memory. Detect these so
+      // clearing the proxy never fools Barc into sleeping unsaved editor state.
+      const isCodeEditorProxy = el => {
+        if (!el || el.tagName !== 'TEXTAREA') return false;
+        if (el.closest('.monaco-editor, .CodeMirror, .cm-editor, .ace_editor, [role="code"]')) return true;
+        if (el.getAttribute('aria-roledescription') === 'editor') return true;
+        try {
+          const rect = el.getBoundingClientRect();
+          const cs = getComputedStyle(el);
+          if ((rect.width <= 2 && rect.height <= 2) || cs.opacity === '0') return true;
+        } catch (e) {}
+        return false;
+      };
       function markEdited(event) {
         const editor = editorFor(event);
         if (editor && editor.tagName === 'INPUT' && editor.type === 'file' && editor.files && editor.files.length) {
@@ -506,6 +535,12 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
         // Native editing in an unrecognised control must still fail closed.
         if (!editor && !event.isTrusted) return;
         if (editor && isSearchField(editor)) return;
+        if (editor && isCodeEditorProxy(editor)) {
+          importedFile = true;
+          importedReason = 'code editor';
+          report('change');
+          return;
+        }
         // Saved read-only values can emit framework input/change events.
         // A field that already contains an edit stays protected if a save
         // temporarily locks it; becoming read-only is not proof of a save.
@@ -547,14 +582,16 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
       document.addEventListener('beforeinput', event => { rememberBeforeEdit(event); markEdited(event); }, true);
       document.addEventListener('input', markEdited, true);
       document.addEventListener('change', markEdited, true);
-      document.addEventListener('drop', event => {
+      const onDrop = event => {
         const dt = event.dataTransfer;
         if (dt && ((dt.files && dt.files.length > 0) || (dt.items && Array.from(dt.items).some(i => i.kind === 'file')))) {
           importedFile = true;
           importedReason = 'dropped file';
           report('change');
         }
-      }, true);
+      };
+      window.addEventListener('drop', onDrop, true);
+      document.addEventListener('drop', onDrop, true);
       document.addEventListener('paste', event => {
         const editor = editorFor(event);
         if (editor && isSearchField(editor)) return;
@@ -563,11 +600,18 @@ final class PageHibernationGuard: NSObject, WKScriptMessageHandler {
           importedFile = true;
           importedReason = 'pasted file';
           report('change');
-        } else if (!editor && dt && dt.getData && dt.getData('text/plain').trim().length > 0) {
-          // Pasting JSON/text into a custom canvas or web editor without a native input.
-          importedFile = true;
-          importedReason = 'pasted content';
-          report('change');
+          return;
+        }
+        const text = (dt && dt.getData) ? dt.getData('text/plain') : '';
+        if (text && text.trim().length > 0) {
+          // Protect pasted content in non-input editors, code-editor proxy
+          // textareas (Monaco/CodeMirror/Flow), or large/multi-line pastes
+          // (e.g. JSON blobs) even if the app clears the input afterwards.
+          if (!editor || isCodeEditorProxy(editor) || text.includes('\n') || text.length >= 80) {
+            importedFile = true;
+            importedReason = 'pasted content';
+            report('change');
+          }
         }
       }, true);
       function hasDraft(el) {

@@ -162,6 +162,53 @@ struct RustCoreAndStateStoreTests {
         #expect(draftVal == "unsaved note")
         #expect(secretVal == "")
     }
+
+    @Test("PageHibernationGuard protects code-editor proxy textareas and NSOpenPanel imports across SPA URL changes")
+    @MainActor
+    func protectsFlowAndCodeEditors() async throws {
+        let html = """
+        <!doctype html><html><body>
+          <div class="monaco-editor"><textarea id="proxy" style="width:1px;height:1px;opacity:0"></textarea></div>
+        </body></html>
+        """
+        let server = try LocalLoopbackServer(html: html)
+        defer { server.stop() }
+
+        let config = WKWebViewConfiguration()
+        config.websiteDataStore = .nonPersistent()
+        PageHibernationGuard.shared.attach(config.userContentController)
+        let wv = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), configuration: config)
+        wv.load(URLRequest(url: server.url))
+        try await waitUntilLoaded(wv)
+        try await Task.sleep(for: .milliseconds(150))
+
+        // Initially safe to hibernate.
+        #expect(await PageHibernationGuard.shared.permitsHibernation(of: wv) == true)
+
+        // Simulate Monaco/Flow typing into hidden proxy textarea and immediately clearing it.
+        _ = try await wv.evaluateJavaScript("""
+          const p = document.getElementById('proxy');
+          p.value = '{"hello": "world"}';
+          p.dispatchEvent(new Event('input', { bubbles: true }));
+          p.value = '';
+          true;
+        """)
+        #expect(await PageHibernationGuard.shared.permitsHibernation(of: wv) == false)
+
+        // Fresh view: test native NSOpenPanel import survives SPA history.pushState query changes.
+        let config2 = WKWebViewConfiguration()
+        config2.websiteDataStore = .nonPersistent()
+        PageHibernationGuard.shared.attach(config2.userContentController)
+        let wv2 = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), configuration: config2)
+        wv2.load(URLRequest(url: server.url))
+        try await waitUntilLoaded(wv2)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await PageHibernationGuard.shared.permitsHibernation(of: wv2) == true)
+
+        PageHibernationGuard.shared.markImportedFile(in: wv2)
+        _ = try await wv2.evaluateJavaScript("history.pushState({}, '', '?mode=EDIT&step=2'); true;")
+        #expect(await PageHibernationGuard.shared.permitsHibernation(of: wv2) == false)
+    }
 }
 
 @MainActor

@@ -12,6 +12,10 @@ protocol TabDelegate: AnyObject {
     /// from the configuration WebKit supplied.
     func tab(_ tab: Tab, requestsNewTabWith configuration: WKWebViewConfiguration) -> Tab
 
+    /// The page closed itself via `window.close()` (for example, an OAuth
+    /// callback popup finishing sign-in).
+    func tabDidRequestClose(_ tab: Tab)
+
     /// A page finished loading and should be written to history.
     func tab(_ tab: Tab, didVisit url: URL, title: String)
 
@@ -28,6 +32,7 @@ protocol TabDelegate: AnyObject {
 }
 
 extension TabDelegate {
+    func tabDidRequestClose(_ tab: Tab) {}
     func tab(_ tab: Tab, requestsOpenInSplit url: URL) {}
     func tab(_ tab: Tab, didExtractContent content: String, for url: URL, title: String) {}
 }
@@ -54,6 +59,10 @@ final class Tab: Identifiable {
     private(set) var importedSourceID: String?
     var sidebarPosition: Int?
     var restoredFavicon: PageFavicon?
+    /// The tab that opened this one via `window.open`, kept in memory so
+    /// closing a popup returns selection to its opener rather than an unrelated
+    /// neighbour at the top of Today.
+    var openerTabID: Tab.ID?
 
     /// The identity this tab's pages load under: its space's. Fixed, because
     /// WebKit binds a web view to its data store at creation and there is no
@@ -1229,6 +1238,11 @@ final class Tab: Identifiable {
         delegate?.tab(self, requestsNewTabWith: configuration)
     }
 
+    fileprivate func pageDidClose(in webView: WKWebView) {
+        guard webView === loadedWebView else { return }
+        delegate?.tabDidRequestClose(self)
+    }
+
     fileprivate func navigationStarted() {
         // A navigation that begins after the restore committed is the user's
         // own, whatever started it; only the restore itself is silent.
@@ -1405,6 +1419,13 @@ private final class TabNavigationHandler: NSObject, WKUIDelegate, WKNavigationDe
         // built from its configuration, so nothing is loaded here.
         guard let child = tab?.makeChildTab(with: configuration) else { return nil }
         return child.webView()
+    }
+
+    /// `window.close()` from a script-opened page (such as an OAuth callback
+    /// popup handing control back to its opener).
+    @MainActor
+    func webViewDidClose(_ webView: WKWebView) {
+        tab?.pageDidClose(in: webView)
     }
 
     /// `<input type="file">`, attach buttons and upload areas.

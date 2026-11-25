@@ -151,9 +151,14 @@ final class GlanceController {
         let webView = WebEnvironment.shared.makeWebView(configuration: configuration, purpose: .preview)
         // The same delegate a Little Arc window's page runs on: a glance and a
         // little window answer a download and a `window.open` the same way.
-        let coordinator = PageWebCoordinator { [weak self] configuration in
-            self?.makeChildWebView(with: configuration)
-        }
+        let coordinator = PageWebCoordinator(
+            onNewWindow: { [weak self] configuration in
+                self?.makeChildWebView(with: configuration)
+            },
+            onClose: { [weak self] in
+                self?.dismiss(.closeButton)
+            }
+        )
         webView.navigationDelegate = coordinator
         webView.uiDelegate = coordinator
         self.coordinator = coordinator

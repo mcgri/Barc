@@ -741,6 +741,7 @@ final class BrowserSession {
         let space = space(containing: parent) ?? activeSpace
         let webView = WebEnvironment.shared.makeWebView(configuration: configuration)
         let tab = Tab(adopting: webView, identity: space.identity)
+        tab.openerTabID = parent.id
         insertNewTab(tab, into: space, select: space.id == activeSpaceID)
         return tab
     }
@@ -1064,9 +1065,15 @@ final class BrowserSession {
         space.remove(tab)
 
         if wasActive {
+            // If a script-opened popup closes while active, return to its opener
+            // tab when still present in the space; otherwise pick a neighbour.
             // The hidden start-page owner is only a fallback when no real
             // pages remain, including when newer tabs were inserted above it.
-            let neighbour = space.tabs.dropFirst(index).first { !$0.isSidebarPlaceholder }
+            let opener = tab.openerTabID.flatMap { openerID in
+                space.tabs.first { $0.id == openerID && !$0.isSidebarPlaceholder }
+            }
+            let neighbour = opener
+                ?? space.tabs.dropFirst(index).first { !$0.isSidebarPlaceholder }
                 ?? space.tabs.prefix(index).last { !$0.isSidebarPlaceholder }
                 ?? space.tabs.first
             if let neighbour, neighbour.wasAutoPictureInPicture, neighbour.isInPictureInPicture {
@@ -3927,6 +3934,10 @@ final class BrowserSession {
 extension BrowserSession: TabDelegate {
     func tab(_ tab: Tab, requestsNewTabWith configuration: WKWebViewConfiguration) -> Tab {
         adoptChildTab(of: tab, configuration: configuration)
+    }
+
+    func tabDidRequestClose(_ tab: Tab) {
+        closeTab(tab)
     }
 
     func tab(_ tab: Tab, didVisit url: URL, title: String) {

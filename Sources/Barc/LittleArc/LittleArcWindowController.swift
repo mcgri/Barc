@@ -86,6 +86,9 @@ final class LittleArcWindowController: NSWindowController, NSWindowDelegate {
         pageCoordinator.onNewWindow = { [weak self] configuration in
             self?.onRequestChildTab?(configuration)
         }
+        pageCoordinator.onClose = { [weak self] in
+            self?.close()
+        }
         webView.navigationDelegate = pageCoordinator
         webView.uiDelegate = pageCoordinator
 

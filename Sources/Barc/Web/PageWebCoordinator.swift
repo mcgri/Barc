@@ -19,8 +19,15 @@ final class PageWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// popup, which is the right answer for a page the user has not kept.
     var onNewWindow: ((WKWebViewConfiguration) -> WKWebView?)?
 
-    init(onNewWindow: ((WKWebViewConfiguration) -> WKWebView?)? = nil) {
+    /// Asked when the page calls `window.close()`.
+    var onClose: (() -> Void)?
+
+    init(
+        onNewWindow: ((WKWebViewConfiguration) -> WKWebView?)? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
         self.onNewWindow = onNewWindow
+        self.onClose = onClose
     }
 
     @MainActor
@@ -31,6 +38,11 @@ final class PageWebCoordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         onNewWindow?(configuration)
+    }
+
+    @MainActor
+    func webViewDidClose(_ webView: WKWebView) {
+        onClose?()
     }
 
     /// `<input type="file">`, attach buttons and upload areas.
